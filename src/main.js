@@ -4267,7 +4267,9 @@ class HUDScene extends Phaser.Scene {
   const hpSrc=this.hpFrame.frame;
   const hpAspect=(hpSrc?.realWidth||351)/(hpSrc?.realHeight||119);
   const hpW=Math.round(contentW);
-  const hpH=Math.max(20,Math.round(hpW/hpAspect));
+  // Build 1.3.12: keep the approved width, but make the HP frame 18% slimmer vertically.
+  const hpHeightScale=0.82;
+  const hpH=Math.max(16,Math.round((hpW/hpAspect)*hpHeightScale));
   const hpY=topRowY;
   this.hpFrame.setPosition(Math.round(contentLeft+hpW/2),hpY).setDisplaySize(hpW,hpH);
   const hpInnerX=Math.round(contentLeft+hpW*0.115),hpInnerW=Math.round(hpW*0.77),hpInnerH=Math.max(3,Math.round(hpH*0.29));
