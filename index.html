@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<link rel="icon" href="data:," />
+<style>
+:root{--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px)}
+html,body,#game{width:100%;height:100%;margin:0;overflow:hidden;background:#0b160d}
+body{touch-action:none;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+canvas{display:block}
+#rotate-device{display:none;position:fixed;inset:0;z-index:99999;align-items:center;justify-content:center;text-align:center;padding:32px;box-sizing:border-box;background:#0b160d;color:#fff;font:600 20px/1.35 system-ui,sans-serif}
+@media (pointer:coarse) and (orientation:portrait){#rotate-device{display:flex}}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="rotate-device">Поверните устройство горизонтально</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
