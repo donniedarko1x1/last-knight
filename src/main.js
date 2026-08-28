@@ -4268,7 +4268,7 @@ class HUDScene extends Phaser.Scene {
   const hpAspect=(hpSrc?.realWidth||351)/(hpSrc?.realHeight||119);
   const hpW=Math.round(contentW);
   // Build 1.3.12: keep the approved width, but make the HP frame 18% slimmer vertically.
-  const hpHeightScale=0.82;
+  const hpHeightScale=0.68;
   const hpH=Math.max(16,Math.round((hpW/hpAspect)*hpHeightScale));
   const hpY=topRowY;
   this.hpFrame.setPosition(Math.round(contentLeft+hpW/2),hpY).setDisplaySize(hpW,hpH);
@@ -4292,7 +4292,9 @@ class HUDScene extends Phaser.Scene {
   const xpX=Math.round(contentLeft+xpW/2);
   this.xpFrame.setPosition(xpX,xpY).setDisplaySize(xpW,xpH);
   const xpInnerX=Math.round(contentLeft+xpW*0.105),xpInnerW=Math.round(xpW*0.79),xpInnerH=Math.max(2,Math.round(xpH*0.13));
-  this.xpFill.setPosition(xpInnerX,xpY).setSize(xpInnerW,xpInnerH).setDisplaySize(xpInnerW,xpInnerH);
+  // Optical centering: the visible opening of the ornate XP frame sits slightly below the sprite midpoint.
+  const xpFillY=Math.round(xpY+Math.max(1,Math.round(3*uiScale)));
+  this.xpFill.setPosition(xpInnerX,xpFillY).setSize(xpInnerW,xpInnerH).setDisplaySize(xpInnerW,xpInnerH);
 
   // One restrained dark backplate; 50% opacity and fitted tightly around HP + XP.
   const xpBottom=Math.round(xpY+xpH*0.5);
