@@ -1,0 +1,255 @@
+name: Apply Build 1.3.11
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-build-1311.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply Build 1.3.11
+        shell: bash
+        run: |
+          cat > /tmp/build.patch <<'PATCH'
+--- a/src/main.js
++++ b/src/main.js
+@@ -191,12 +191,18 @@
+ const SKILL_ICON_ASSETS={quake:'/assets/ui/newskills/skill_quake_icon.png',lift:'/assets/ui/newskills/skill_lift_icon.png',spin:'/assets/ui/newskills/skill_spin_icon.png'};
+ const SKILL_ICON_KEYS={quake:'skill_icon_quake',lift:'skill_icon_lift',spin:'skill_icon_spin'};
+ const SKILL_BUTTON_FRAME_KEY='skill_button_frame_art';
++const MANA_SLOT_ANCHORS=[
++ {x:87.63/374,y:65.06/129},
++ {x:185.70/374,y:64.93/129},
++ {x:283.75/374,y:64.89/129}
++];
++
+ const HERO_HUD_ASSETS={
+  corner_top_left:'/assets/ui/hero_hud/corner_top_left.png',corner_top_right:'/assets/ui/hero_hud/corner_top_right.png',
+  corner_bottom_left:'/assets/ui/hero_hud/corner_bottom_left.png',corner_bottom_right:'/assets/ui/hero_hud/corner_bottom_right.png',
+  edge_left:'/assets/ui/hero_hud/edge_left.png',edge_right:'/assets/ui/hero_hud/edge_right.png',edge_top:'/assets/ui/hero_hud/edge_top.png',edge_bottom:'/assets/ui/hero_hud/edge_bottom.png',
+  panel_fill_center:'/assets/ui/hero_hud/panel_fill_center.png',level_badge_large:'/assets/ui/hero_hud/level_badge_large.png',
+- hp_bar_frame:'/assets/ui/hero_hud/hp_bar_frame.png',mana_housing_3slot:'/assets/ui/hero_hud/mana_housing_3slot.png',xp_bar_frame:'/assets/ui/hero_hud/xp_bar_frame.png'
++ hp_bar_frame:'/assets/ui/hero_hud/hp_bar_frame.png',mana_housing_3slot:'/assets/ui/hero_hud/mana_housing_3slot.png',mana_bottle_blue:'/assets/ui/hero_hud/mana_bottle_blue.png',xp_bar_frame:'/assets/ui/hero_hud/xp_bar_frame.png'
+ };
+ 
+ function queueAshFieldsEnvironmentArt(scene){
+@@ -3840,13 +3846,15 @@
+   // the panel can grow horizontally without stretching the corners.
+   this.heroPanel=this.add.container(0,0).setDepth(20);
+   const addHud=(key,depth=20)=>this.add.image(0,0,`hero_hud_${key}`).setDepth(depth);
+-  this.heroPanelFill=addHud('panel_fill_center',20);
+-  this.heroFrameParts={
+-   tl:addHud('corner_top_left',24),tr:addHud('corner_top_right',24),
+-   bl:addHud('corner_bottom_left',24),br:addHud('corner_bottom_right',24),
+-   left:addHud('edge_left',23),right:addHud('edge_right',23),top:addHud('edge_top',23),bottom:addHud('edge_bottom',23)
+-  };
+-  this.levelBadge=addHud('level_badge_large',25);
++  // Hybrid HUD shell: simple vector geometry stays razor-clean at any mobile DPR.
++  // The ornate raster art is reserved for the medallion and the resource frames,
++  // where it can be scaled uniformly instead of being stretched in two axes.
++  this.heroPanelShell=this.add.graphics().setDepth(20);
++  this.heroPanelFill=null;
++  this.heroFrameParts=null;
++  // The old ornate medallion is kept loaded for compatibility but not rendered.
++  this.levelBadge=addHud('level_badge_large',25).setVisible(false);
++  this.levelBadgeSimple=this.add.graphics().setDepth(25);
+   this.levelCaption=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',color:'#ad9c78'}).setOrigin(0.5).setDepth(27);
+   this.levelText=this.add.text(0,0,'1',{fontFamily:'Georgia, serif',fontSize:'28px',fontStyle:'bold',color:'#fff0cf',stroke:'#140d08',strokeThickness:4}).setOrigin(0.5).setDepth(27);
+ 
+@@ -3856,10 +3864,12 @@
+   this.hpText=this.add.text(0,0,'100 / 100',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#fff4e8',stroke:'#24100e',strokeThickness:3}).setOrigin(0.5).setDepth(26);
+   this.hpLabel=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
+ 
+-  this.manaHousing=addHud('mana_housing_3slot',24);
++  // Clean mana slots are drawn as simple vector rings; ornate housing is hidden.
++  this.manaHousing=addHud('mana_housing_3slot',24).setVisible(false);
++  this.manaRingsSimple=this.add.graphics().setDepth(23);
+   this.manaLabel=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
+   this.manaGems=[];
+-  for(let i=0;i<3;i++) this.manaGems.push(this.add.circle(0,0,10,0x37bfff,1).setStrokeStyle(1,0xa9ecff,0.9).setDepth(22));
++  for(let i=0;i<3;i++) this.manaGems.push(this.add.image(0,0,'hero_hud_mana_bottle_blue').setDepth(25));
+ 
+   this.xpFill=this.add.rectangle(0,0,190,5,0xf0bd28,1).setOrigin(0,0.5).setDepth(21);
+   this.xpFrame=addHud('xp_bar_frame',24);
+@@ -4216,53 +4226,103 @@
+    this.drawFullscreenIcon();
+   }
+ 
+-  // Responsive art-driven hero panel.
+-  const panelW=mobile ? Phaser.Math.Clamp(w*0.34,218,292) : Math.min(430,Math.max(300,w*0.42));
+-  const panelH=mobile ? Phaser.Math.Clamp(panelW*0.315,70,92) : 136;
+-  const px=left,py=top;
+-  const badgeD=mobile ? panelH*0.94 : 118;
+-  const badgeX=px+badgeD*0.48,badgeY=py+panelH*0.50;
+-  const bodyX=px+badgeD*0.42,bodyY=py+4,bodyW=panelW-badgeD*0.36,bodyH=panelH-8;
+-  const corner=mobile?Math.max(18,panelH*0.26):34;
+-
+-  this.heroPanelFill.setPosition(bodyX+bodyW/2,bodyY+bodyH/2).setDisplaySize(bodyW,bodyH);
+-  const f=this.heroFrameParts;
+-  f.tl.setPosition(bodyX+corner/2,bodyY+corner/2).setDisplaySize(corner,corner);
+-  f.tr.setPosition(bodyX+bodyW-corner/2,bodyY+corner/2).setDisplaySize(corner,corner);
+-  f.bl.setPosition(bodyX+corner/2,bodyY+bodyH-corner/2).setDisplaySize(corner,corner);
+-  f.br.setPosition(bodyX+bodyW-corner/2,bodyY+bodyH-corner/2).setDisplaySize(corner,corner);
+-  f.top.setPosition(bodyX+bodyW/2,bodyY+corner*0.24).setDisplaySize(Math.max(8,bodyW-corner*1.45),corner*0.52);
+-  f.bottom.setPosition(bodyX+bodyW/2,bodyY+bodyH-corner*0.24).setDisplaySize(Math.max(8,bodyW-corner*1.45),corner*0.52);
+-  f.left.setPosition(bodyX+corner*0.24,bodyY+bodyH/2).setDisplaySize(corner*0.52,Math.max(8,bodyH-corner*1.45));
+-  f.right.setPosition(bodyX+bodyW-corner*0.24,bodyY+bodyH/2).setDisplaySize(corner*0.52,Math.max(8,bodyH-corner*1.45));
+-
+-  this.levelBadge.setPosition(badgeX,badgeY).setDisplaySize(badgeD,badgeD);
++  // Build 1.3.6: clean stacked hero HUD. The information hierarchy is fixed:
++  // Level + HP -> vertical gap -> XP -> vertical gap -> Mana.
++  // Only HP/XP use decorative raster frames; level/mana geometry is vector-clean.
++  const basePanelW=430,basePanelH=194;
++  const desiredW=mobile ? Phaser.Math.Clamp(w*0.34,218,292) : Math.min(430,Math.max(300,w*0.42));
++  const rawScale=desiredW/basePanelW;
++  const uiScale=Phaser.Math.Clamp(Math.round(rawScale*8)/8,mobile?0.50:0.625,1);
++  const panelW=Math.round(basePanelW*uiScale),panelH=Math.round(basePanelH*uiScale);
++  const px=Math.round(left),py=Math.round(top);
++
++  const levelD=Math.round(104*uiScale);
++  const levelR=levelD*0.5;
++  const topRowY=Math.round(py+levelR+Math.max(3,5*uiScale));
++  const badgeX=Math.round(px+levelR),badgeY=topRowY;
++  const contentLeft=Math.round(px+levelD*0.92);
++  const contentRight=Math.round(px+panelW-Math.max(8,14*uiScale));
++  const contentW=Math.max(Math.round(120*uiScale),contentRight-contentLeft);
++
++  // Compute the restrained backplate geometry first, but draw it after HP/XP
++  // are positioned so the shell height can tightly fit that compact stack.
++  this.heroPanelShell.clear();
++  const bodyX=Math.round(px+levelD*0.40),bodyY=Math.round(py+3*uiScale);
++  const bodyW=Math.round(panelW-levelD*0.36);
++  const shellRadius=Math.max(5,Math.round(8*uiScale));
++
++  // Simple level badge: same dark centre, one clean gold ring, no ornamental spikes.
++  this.levelBadgeSimple.clear();
++  this.levelBadgeSimple.fillStyle(0x171512,0.98);
++  this.levelBadgeSimple.fillCircle(badgeX,badgeY,levelR-2);
++  this.levelBadgeSimple.lineStyle(Math.max(2,Math.round(4*uiScale)),0xd39a35,1);
++  this.levelBadgeSimple.strokeCircle(badgeX,badgeY,levelR-2);
++  this.levelBadgeSimple.lineStyle(Math.max(1,Math.round(1*uiScale)),0xffd47a,0.62);
++  this.levelBadgeSimple.strokeCircle(badgeX,badgeY,Math.max(4,levelR-Math.max(5,Math.round(7*uiScale))));
++  this.levelBadge.setVisible(false);
+   this.levelCaption.setVisible(false);
+-  this.levelText.setPosition(badgeX,badgeY).setFontSize(mobile?Math.round(panelH*0.25):32);
++  this.levelText.setPosition(badgeX,badgeY).setFontSize(Math.max(15,Math.round(31*uiScale)));
+ 
+-  const contentLeft=px+badgeD*0.91;
+-  const contentRight=px+panelW-(mobile?13:18);
+-  const contentW=Math.max(120,contentRight-contentLeft);
+-  const hpOuterW=contentW,hpOuterH=mobile?panelH*0.34:48;
+-  const hpY=py+(mobile?panelH*0.25:34);
+-  this.hpFrame.setPosition(contentLeft+hpOuterW/2,hpY).setDisplaySize(hpOuterW,hpOuterH);
+-  const hpInnerX=contentLeft+hpOuterW*0.115,hpInnerW=hpOuterW*0.77,hpInnerH=hpOuterH*0.29;
++  // HP stays the primary visual element on the top row.
++  const hpSrc=this.hpFrame.frame;
++  const hpAspect=(hpSrc?.realWidth||351)/(hpSrc?.realHeight||119);
++  const hpW=Math.round(contentW);
++  const hpH=Math.max(20,Math.round(hpW/hpAspect));
++  const hpY=topRowY;
++  this.hpFrame.setPosition(Math.round(contentLeft+hpW/2),hpY).setDisplaySize(hpW,hpH);
++  const hpInnerX=Math.round(contentLeft+hpW*0.115),hpInnerW=Math.round(hpW*0.77),hpInnerH=Math.max(3,Math.round(hpH*0.29));
+   this.hpFill.setPosition(hpInnerX,hpY).setSize(hpInnerW,hpInnerH).setDisplaySize(hpInnerW,hpInnerH);
+-  this.hpShine.setPosition(hpInnerX,hpY-hpInnerH*0.23).setSize(hpInnerW,Math.max(2,hpInnerH*0.22)).setDisplaySize(hpInnerW,Math.max(2,hpInnerH*0.22));
+-  this.hpText.setPosition(contentLeft+hpOuterW/2,hpY).setFontSize(mobile?Math.max(7,Math.round(panelH*0.085)):12);
++  this.hpShine.setPosition(hpInnerX,Math.round(hpY-hpInnerH*0.23)).setSize(hpInnerW,Math.max(1,Math.round(hpInnerH*0.22))).setDisplaySize(hpInnerW,Math.max(1,Math.round(hpInnerH*0.22)));
++  this.hpText.setPosition(Math.round(contentLeft+hpW/2),hpY).setFontSize(Math.max(7,Math.round(12*uiScale)));
+ 
+-  const manaW=Math.min(contentW*0.68,mobile?contentW*0.72:168),manaH=mobile?panelH*0.34:50;
+-  const manaX=contentLeft+manaW/2,manaY=py+(mobile?panelH*0.57:78);
+-  this.manaHousing.setPosition(manaX,manaY).setDisplaySize(manaW,manaH);
+-  // Three independent mana fills sit at 20/50/80% of the housing width. Smaller
+-  // circles leave visible breathing room from the decorative rings.
+-  const gemGap=manaW*0.30,gemStart=manaX-gemGap;
+-  this.manaGems.forEach((gem,i)=>gem.setPosition(gemStart+i*gemGap,manaY).setRadius(manaH*0.175).setStrokeStyle(1,0xa9ecff,0.82));
+-
+-  const xpOuterW=contentW,xpOuterH=mobile?panelH*0.23:31,xpY=py+panelH-(mobile?panelH*0.12:19);
+-  this.xpFrame.setPosition(contentLeft+xpOuterW/2,xpY).setDisplaySize(xpOuterW,xpOuterH);
+-  const xpInnerX=contentLeft+xpOuterW*0.105,xpInnerW=xpOuterW*0.79,xpInnerH=Math.max(3,xpOuterH*0.16);
++  // XP is deliberately thinner and kept close to HP with only a small gap.
++  const xpSrc=this.xpFrame.frame;
++  const xpAspect=(xpSrc?.realWidth||313)/(xpSrc?.realHeight||100);
++  const xpW=Math.round(contentW*0.95);
++  const naturalXpH=Math.round(xpW/xpAspect);
++  const xpH=Math.max(9,Math.round(naturalXpH*0.62));
++  const hpBottom=hpY+hpH*0.5;
++  const hpXpGap=Math.max(2,Math.round(3*uiScale));
++  // Visual correction: the decorative XP frame reads lower than its sprite bounds.
++  // Lift the whole XP element (frame + fill) toward HP, matching the approved mockup.
++  const xpVisualLift=Math.max(12,Math.round(20*uiScale));
++  const xpY=Math.round(hpBottom+hpXpGap+xpH*0.5-xpVisualLift);
++  const xpX=Math.round(contentLeft+xpW/2);
++  this.xpFrame.setPosition(xpX,xpY).setDisplaySize(xpW,xpH);
++  const xpInnerX=Math.round(contentLeft+xpW*0.105),xpInnerW=Math.round(xpW*0.79),xpInnerH=Math.max(2,Math.round(xpH*0.13));
+   this.xpFill.setPosition(xpInnerX,xpY).setSize(xpInnerW,xpInnerH).setDisplaySize(xpInnerW,xpInnerH);
++
++  // One restrained dark backplate; 50% opacity and fitted tightly around HP + XP.
++  const xpBottom=Math.round(xpY+xpH*0.5);
++  const shellBottomPad=Math.max(4,Math.round(7*uiScale));
++  const bodyH=Math.round((xpBottom+shellBottomPad)-bodyY);
++  this.heroPanelShell.fillStyle(0x080706,0.50);
++  this.heroPanelShell.fillRoundedRect(bodyX,bodyY,bodyW,bodyH,shellRadius);
++  this.heroPanelShell.lineStyle(Math.max(1,Math.round(1.5*uiScale)),0x8f743b,0.58);
++  this.heroPanelShell.strokeRoundedRect(bodyX,bodyY,bodyW,bodyH,shellRadius);
++
++  // Mana: three independent simple gold rings, centered beneath the backplate.
++  this.manaHousing.setVisible(false);
++  this.manaRingsSimple.clear();
++  const manaPanelGap=Math.max(6,Math.round(8*uiScale));
++  const manaR=Math.max(13,Math.round(25*uiScale));
++  const manaY=Math.round(bodyY+bodyH+manaPanelGap+manaR);
++  const ringGap=Math.max(8,Math.round(12*uiScale));
++  const clusterW=manaR*6+ringGap*2;
++  const clusterCx=Math.round(bodyX+bodyW*0.5);
++  const manaCenters=[clusterCx-(manaR*2+ringGap),clusterCx,clusterCx+(manaR*2+ringGap)];
++  manaCenters.forEach(cx=>{
++   this.manaRingsSimple.fillStyle(0x171512,0.96);
++   this.manaRingsSimple.fillCircle(cx,manaY,manaR-1);
++   this.manaRingsSimple.lineStyle(Math.max(2,Math.round(3*uiScale)),0xd39a35,1);
++   this.manaRingsSimple.strokeCircle(cx,manaY,manaR-1);
++   this.manaRingsSimple.lineStyle(1,0xffd47a,0.50);
++   this.manaRingsSimple.strokeCircle(cx,manaY,Math.max(5,manaR-Math.max(4,Math.round(5*uiScale))));
++  });
++  const bottleSize=Math.max(12,Math.round(manaR*1.05));
++  const opticalLift=Math.max(0,Math.round(manaR*0.04));
++  this.manaGems.forEach((gem,i)=>gem.setPosition(manaCenters[i],manaY-opticalLift).setDisplaySize(bottleSize,bottleSize));
++
+   this.heroHpMaxWidth=hpInnerW;
+   this.heroXpMaxWidth=xpInnerW;
+ 
+@@ -4388,7 +4448,12 @@
+   this.waveSub.setText(m.getWorldProgressName ? m.getWorldProgressName() : 'ASH FIELDS');
+ 
+   const mana=Phaser.Math.Clamp(m.mana??0,0,m.maxMana??3);
+-  this.manaGems.forEach((gem,i)=>gem.setFillStyle(i<mana?0x4b9bd7:0x20262a,i<mana?1:0.45));
++  this.manaGems.forEach((gem,i)=>{
++   const active=i<mana;
++   gem.setAlpha(active?1:0.22);
++   if(active) gem.clearTint();
++   else gem.setTint(0x4a5560);
++  });
+   const canCast=mana>0 && !m.gameOver;
+   this.skills.forEach(skill=>{
+    skill.back.setAlpha(canCast?1:0.62);
+PATCH
+          git apply --check /tmp/build.patch
+          git apply /tmp/build.patch
+          mkdir -p public/assets/ui/hero_hud
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACRUlEQVR4nO2av05CMRTGP42GhBBZlL8JQZ1JHBwZ3Bh0MXFCBwdXH8An8AFcHdXJxAUGNwdGBxJmhJBcEXXBEBMnHKSkXhG5t6ftRc4vISkX2nPO1/a0tAAMwzAMM7PMmTK0t7nc91rn+v5Vu3/zug0A/oJXqeeFBd0GZA7y2Ym/e1FpavNDxsgICDIsgG0HbMMC2HbANlMjQCyR0rIkatlo6HIWAJ6fHkl9JhdAZ/AyVEKQCSAH3mg63dVsOgoArZZTU207k0nn3O0CNCJMTQ4QNJpOl7K9qROAGhZAR6PhEA5V2wgtoiVe8nM5B1BAkgTlBNhpO7uiHE+mb/y012k7Zfez9w/kRZkyESr/HHZnf/mzRtPphkOoiPfxZHpb1Z5oV4gQS6T6KiIoqTcqeNfwP3LXkXvyN2TRxtWjGAm+c8C4nh/wI3hgdHB+ke363YAFchVw9/a4UaO6LzB6JOaFSaYKBTpHwPmoh6YCmxTSEZC7QxTAt6WvXsBwSVu/BckqAAC1LZBsibVPAcqgdWA1B6zlsO+n3kMNl1Q+BHIVMIlRAeoFlOWcEASMCSAHHiQRZn4KkCfBt1JvZO+ulICXs8hX+bgHAOVqCcWNk8gVtQ9eMLoKDAIPFDM/BVgA2w7YxroA1dNe0aZ96wLYhgWw7YBtZl6AQByJeU2ESzuRYVn1osT3CJCPoYUTVKc0fyHsWD0WdxulvrLy64dXpjYHUAlOfjdoGtW7QZIRQP2/HZN2yaaAaRFsic4wDMMwDMP8Fz4BDUy1GQ+32B0AAAAASUVORK5CYII=' | base64 -d > public/assets/ui/hero_hud/mana_bottle_blue.png
+          test "$(git hash-object src/main.js)" = "85c2f2c600ef5cb7140eda3d234ead04b7d9c8f7"
+          test "$(git hash-object public/assets/ui/hero_hud/mana_bottle_blue.png)" = "c0203a8930cfa8239df34c8fb08532ec55abf237"
+          node --check src/main.js
+          git config user.name "Last Knight Build Bot"
+          git config user.email "actions@github.com"
+          git add src/main.js public/assets/ui/hero_hud/mana_bottle_blue.png
+          git commit -m "Build 1.3.11 - Mana Bottles Visible"
+          git push origin HEAD:main
