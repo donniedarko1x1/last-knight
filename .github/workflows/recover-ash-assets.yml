@@ -1,0 +1,61 @@
+name: Recover Ash Fields assets
+
+on:
+  push:
+    branches: [asset-upload-staging]
+    paths:
+      - '.asset-recovery/READY'
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download and verify Ash Fields props
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://last-knight.donniedarko-1x1.workers.dev/assets/environment/ash_fields/props_minimal'
+          DEST='public/assets/environment/ash_fields/props_minimal'
+          mkdir -p "$DEST"
+          cat > /tmp/assets.txt <<'EOF'
+          ash_prop_burnt_grass_01.png d5fffee40e494b4922e0c40cc04a6858e19b1d23
+          ash_prop_burnt_grass_02.png 53d421dcaced5a1b11ab92b9bee9b9fd161c0f21
+          ash_prop_burnt_grass_03.png d370721fc7e17b11275e60067e61734d1602ae70
+          ash_prop_burnt_grass_04.png b69df1723686866ece40e453e91eef13d880c36a
+          ash_prop_burnt_grass_05.png 7ef008e954c43d6f6796a8d8d41afd31ac92c3a0
+          ash_prop_burnt_grass_06.png 4ee0fe87f6db1e33b8c2a974a464892576963851
+          ash_prop_burnt_grass_07.png 16ead33310c581bdea96ba43b97ea5361e61d3dc
+          ash_prop_burnt_tree_01.png 17e73c632ff8db9c4277834a7c54ec5a229d466a
+          ash_prop_burnt_tree_02.png 80b2c19d41151880c19dfec49f8f1f8d31d547fe
+          ash_prop_burnt_tree_03.png 7a0486239ebbbf17f626d420a50a35dfd97ac1fb
+          ash_prop_burnt_tree_04.png e925e8b8aadeab578d01f5f1f7b17e6cb8907b36
+          ash_prop_rock_01.png ed9cadaf865872c78d8a2ccb20f3b1d1e6a2188a
+          ash_prop_rock_02.png 27b38bd71d3ccfac79904aaed82fa92b3d0a6afa
+          ash_prop_rock_03.png 1fb3259e804de8cbdf36ace308728926572acb6f
+          ash_prop_rock_04.png c2bb7d5663a8e0e8556873f10a3c29038834c68f
+          EOF
+          while read -r file expected; do
+            echo "Recovering $file"
+            curl --fail --location --retry 2 --silent --show-error "$BASE/$file" -o "$DEST/$file"
+            actual="$(git hash-object "$DEST/$file")"
+            test "$actual" = "$expected" || { echo "SHA mismatch for $file: $actual != $expected"; exit 1; }
+          done < /tmp/assets.txt
+
+      - name: Commit recovered originals to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .asset-recovery
+          rm -f .github/workflows/recover-ash-assets.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Restore approved Ash Fields prop assets'
+          git push origin HEAD:main --force
