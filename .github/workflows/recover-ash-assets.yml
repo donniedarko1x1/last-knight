@@ -17,13 +17,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Download and verify Ash Fields props
+      - name: Diagnose Cloudflare copies
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           BASE='https://last-knight.donniedarko-1x1.workers.dev/assets/environment/ash_fields/props_minimal'
-          DEST='public/assets/environment/ash_fields/props_minimal'
-          mkdir -p "$DEST"
+          mkdir -p /tmp/ashcheck
           cat > /tmp/assets.txt <<'EOF'
           ash_prop_burnt_grass_01.png d5fffee40e494b4922e0c40cc04a6858e19b1d23
           ash_prop_burnt_grass_02.png 53d421dcaced5a1b11ab92b9bee9b9fd161c0f21
@@ -42,20 +41,15 @@ jobs:
           ash_prop_rock_04.png c2bb7d5663a8e0e8556873f10a3c29038834c68f
           EOF
           while read -r file expected; do
-            echo "Recovering $file"
-            curl --fail --location --retry 2 --silent --show-error "$BASE/$file" -o "$DEST/$file"
-            actual="$(git hash-object "$DEST/$file")"
-            test "$actual" = "$expected" || { echo "SHA mismatch for $file: $actual != $expected"; exit 1; }
+            out="/tmp/ashcheck/$file"
+            if curl --fail --location --silent --show-error "$BASE/$file" -o "$out"; then
+              actual="$(git hash-object "$out")"
+              if [ "$actual" = "$expected" ]; then
+                echo "MATCH $file $actual"
+              else
+                echo "MISMATCH $file actual=$actual expected=$expected"
+              fi
+            else
+              echo "MISSING $file expected=$expected"
+            fi
           done < /tmp/assets.txt
-
-      - name: Commit recovered originals to main
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf .asset-recovery
-          rm -f .github/workflows/recover-ash-assets.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'Restore approved Ash Fields prop assets'
-          git push origin HEAD:main --force
