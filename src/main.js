@@ -1524,7 +1524,6 @@ const LOADING_ART_KEY='lastknight_loading_art';
 const LOADING_SCREEN_STATUS='Loading Ash Fields...';
 const SKILL_ICON_ASSETS={quake:'/assets/ui/newskills/skill_quake_icon.png',lift:'/assets/ui/newskills/skill_lift_icon.png',spin:'/assets/ui/newskills/skill_spin_icon.png'};
 const SKILL_ICON_KEYS={quake:'skill_icon_quake',lift:'skill_icon_lift',spin:'skill_icon_spin'};
-const SKILL_BUTTON_FRAME_KEY='skill_button_frame_art';
 const HERO_HUD_ASSETS={
  hp_bar_frame:'/assets/ui/hero_hud/hp_bar_frame.png',
  mana_bottle_blue:'/assets/ui/hero_hud/mana_bottle_blue.png',
@@ -1545,7 +1544,6 @@ function queueAshFieldsEnvironmentArt(scene){
 
 function queueSkillIconArt(scene){
  for(const [kind,path] of Object.entries(SKILL_ICON_ASSETS)) scene.load.image(SKILL_ICON_KEYS[kind],path);
- scene.load.image(SKILL_BUTTON_FRAME_KEY,'/assets/ui/newskills/skill_button_frame.png');
  for(const [key,path] of Object.entries(HERO_HUD_ASSETS)) scene.load.image(`hero_hud_${key}`,path);
 }
 
@@ -1629,24 +1627,18 @@ function queueMainGameAssets(scene){
  for(const dir of dirs){
   for(let i=0;i<4;i++){
    const frame=String(i).padStart(2,'0');
-   scene.load.image(`player_${dir}_idle_${frame}`,`/assets/redraw/player/${dir}_idle_${frame}.png`);
    scene.load.image(`skeleton_${dir}_idle_${frame}`,`/assets/redraw/skeleton/${dir}_idle_${frame}.png`);
    if(i<3) scene.load.image(`mage_${dir}_idle_${frame}`,`/assets/redraw/mage/${dir}_idle_${frame}.png`);
    scene.load.image(`shield_${dir}_idle_${frame}`,`/assets/redraw/shield/${dir}_idle_${dir==='right' && i<2 ? String(i+2).padStart(2,'0') : frame}.png`);
-   scene.load.image(`champion_${dir}_idle_${frame}`,`/assets/redraw/champion/${dir}_idle_${frame}.png`);
   }
   for(let i=0;i<6;i++){
    const frame=String(i).padStart(2,'0');
-   scene.load.image(`player_${dir}_walk_${frame}`,`/assets/redraw/player/${dir}_walk_${frame}.png`);
-   scene.load.image(`player_${dir}_attack_${frame}`,`/assets/redraw/player/${dir}_attack_${frame}.png`);
    scene.load.image(`skeleton_${dir}_walk_${frame}`,`/assets/redraw/skeleton/${dir}_walk_${frame}.png`);
    scene.load.image(`skeleton_${dir}_attack_${frame}`,`/assets/redraw/skeleton/${dir}_attack_${frame}.png`);
    scene.load.image(`mage_${dir}_walk_${frame}`,`/assets/redraw/mage/${dir}_walk_${dir==='down' && i===4 ? '05' : dir==='down' && i===5 ? '06' : frame}.png`);
    scene.load.image(`mage_${dir}_cast_${frame}`,`/assets/redraw/mage/${dir}_cast_${frame}.png`);
    scene.load.image(`shield_${dir}_walk_${frame}`,`/assets/redraw/shield/${dir}_walk_${frame}.png`);
    scene.load.image(`shield_${dir}_attack_${frame}`,`/assets/redraw/shield/${dir}_attack_${dir==='left' && i===1 ? '06' : frame}.png`);
-   scene.load.image(`champion_${dir}_walk_${frame}`,`/assets/redraw/champion/${dir}_walk_${frame}.png`);
-   scene.load.image(`champion_${dir}_attack_${frame}`,`/assets/redraw/champion/${dir}_attack_${frame}.png`);
   }
  }
  const brokenSaintSourceDirs={down:'down',down_left:'down_right',left:'right',up_left:'up_right',up:'up',up_right:'up_left',right:'left',down_right:'down_left'};
