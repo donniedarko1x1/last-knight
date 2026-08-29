@@ -82,6 +82,10 @@ function lkApplyRenderScale(game,value,{remember=true}={}){
    scene.cameras?.main?.setOrigin?.(0,0);
    scene.cameras?.main?.setZoom?.(target);
    scene.layoutLoadingScreen?.();
+  }else if(key==='CinematicScene'){
+   scene.cameras?.main?.setOrigin?.(0,0);
+   scene.cameras?.main?.setZoom?.(target);
+   scene.layout?.();
   }
  }
  lkApplyTextResolution(game);
@@ -1509,12 +1513,15 @@ const ASH_READABILITY={
  PLAYER_AURA_HEIGHT:200,
  PLAYER_SHADOW_WIDTH:48,
  PLAYER_SHADOW_HEIGHT:22,
+ PLAYER_SHADOW_Y_OFFSET:12,
+ PLAYER_DEATH_SHADOW_Y_OFFSET:2,
  PLAYER_ROUTE_LIGHT_ALPHA:0.045,
  ENEMY_SHADOW_ALPHA:0.26,
  MAGE_SHADOW_ALPHA:0.38,
  MAGE_SHADOW_WIDTH:34,
  MAGE_SHADOW_HEIGHT:10,
- MAGE_SHADOW_Y_OFFSET:5,
+ MAGE_SHADOW_Y_OFFSET:2,
+ SHIELD_SHADOW_Y_OFFSET:6,
  CHAMPION_SHADOW_ALPHA:0.34
 };
 
@@ -1551,12 +1558,19 @@ function queueGameplayArt(scene){
  scene.load.image('xp_crystal','/assets/gameplay/pickups/xp_crystal.png');
  scene.load.image('health_heart','/assets/gameplay/pickups/health_heart.png');
  scene.load.audio('critical_heartbeat','/assets/audio/critical_heartbeat.wav');
+ scene.load.audio('bgm_veil_of_the_past','/assets/audio/bgm_veil_of_the_past.ogg');
  scene.load.audio('sfx_hero_sword_attack','/assets/audio/hero_sword_attack.ogg');
  scene.load.audio('sfx_hero_sword_impact','/assets/audio/hero_sword_impact.ogg');
  scene.load.audio('sfx_skeleton_sword_attack','/assets/audio/skeleton_sword_attack.ogg');
+ scene.load.audio('sfx_mage_cast','/assets/audio/mage_cast.ogg');
+ scene.load.audio('sfx_hero_death','/assets/audio/hero_death.ogg');
+ scene.load.audio('sfx_hero_hit','/assets/audio/hero_hit.ogg');
  scene.load.audio('sfx_skill_quake','/assets/audio/skill_quake.ogg');
  scene.load.audio('sfx_skill_lift','/assets/audio/skill_lift.ogg');
  scene.load.audio('sfx_skill_spin','/assets/audio/skill_spin.ogg');
+ scene.load.audio('sfx_broken_saint_holy_warning','/assets/audio/broken_saint_holy_warning.ogg');
+ scene.load.audio('sfx_broken_saint_holy_beam','/assets/audio/broken_saint_holy_beam.ogg');
+ scene.load.audio('sfx_broken_saint_spawn','/assets/audio/broken_saint_spawn.ogg');
  for(let i=0;i<2;i++){
   const frame=String(i).padStart(2,'0');
   scene.load.image(`mage_projectile_${frame}`,`/assets/gameplay/projectiles/mage_projectile_${frame}.png`);
@@ -1589,6 +1603,12 @@ const HERO_SOCKET_SPIN_FRAME_COUNT=15;
 const HERO_SOCKET_VISUAL_SCALE=0.28;
 const HERO_SOCKET_SPIN_FRAME_RATE=20;
 const HERO_SOCKET_SPIN_DURATION_MS=Math.ceil(HERO_SOCKET_SPIN_FRAME_COUNT/HERO_SOCKET_SPIN_FRAME_RATE*1000);
+const HERO_DEATH_FRAME_COUNT=6;
+const HERO_DEATH_ANIMATION_MS=3000;
+const HERO_DEATH_HOLD_MS=1000;
+// Death frames share a 526x490 transparent canvas. Matching 490 px to the
+// live hero's ~224 px source height keeps the on-screen character size stable.
+const HERO_DEATH_VISUAL_SCALE=HERO_SOCKET_VISUAL_SCALE*(224/490);
 
 function queueHeroSocketAssets(scene){
  for(const dir of HERO_SOCKET_DIRS){
@@ -1607,6 +1627,13 @@ function queueHeroSocketAssets(scene){
    `/assets/redraw/player_socket/hero_spin_${frame}.png`
   );
  }
+ for(let i=1;i<=HERO_DEATH_FRAME_COUNT;i++){
+  const frame=String(i).padStart(2,'0');
+  scene.load.image(
+   `hero_death_${frame}`,
+   `/assets/redraw/player_socket/death/hero_death_${frame}.png`
+  );
+ }
  for(const dir of ['n','ne','e','se','s','sw','w','nw']){
   scene.load.image(
    `weapon_socket_sword_${dir}`,
@@ -1619,7 +1646,20 @@ function queueHeroSocketAssets(scene){
  );
 }
 
+function queueCinematicFrameAssets(scene){
+ const frameBase='/assets/ui/cinematic_frame';
+ scene.load.image('cinematic_stone_bar',`${frameBase}/cinematic_stone_bar.png`);
+ scene.load.image('cinematic_stone_joint',`${frameBase}/cinematic_stone_joint.png`);
+
+ const cinematicBase='/assets/ui/cinematic';
+ for(let i=1;i<=3;i++){
+  const frame=String(i).padStart(2,'0');
+  scene.load.image(`prologue_scene_${frame}`,`${cinematicBase}/prologue_scene_${frame}.png`);
+ }
+}
+
 function queueMainGameAssets(scene){
+ queueCinematicFrameAssets(scene);
  queueHeroSocketAssets(scene);
  queueAttackRingArt(scene);
  queueHitBurstArt(scene);
@@ -2684,11 +2724,11 @@ class PreloadScene extends Phaser.Scene {
     return;
    }
    this.setProgress(1);
-   this.loadingStatus.setText('Entering Ash Fields...');
+   this.loadingStatus.setText('Opening prologue...');
    this.time.delayedCall(220,()=>{
     this.cameras.main.fadeOut(220,0,0,0);
     this.time.delayedCall(230,()=>{
-     if(!this.loadingFailed) this.scene.start('main');
+     if(!this.loadingFailed) this.scene.start('CinematicScene');
     });
    });
   });
@@ -2700,6 +2740,339 @@ class PreloadScene extends Phaser.Scene {
   this.progressFill.displayWidth=Math.max(0,maxW*progress);
   this.progressGlow.displayWidth=Math.max(0,maxW*progress);
   this.progressPct.setText(`${Math.round(progress*100)}%`);
+ }
+}
+
+class CinematicScene extends Phaser.Scene {
+ constructor(){
+  super('CinematicScene');
+  this.transitioning=false;
+  this.stoneFramePieces=[];
+  this.pageIndex=0;
+  this.prologueMusic=null;
+  this.musicHandedOff=false;
+  this.prologuePages=[
+   {
+    image:'prologue_scene_01',
+    text:'Его нашли за северной стеной.\nБез имени. Без памяти. Едва живого.'
+   },
+   {
+    image:'prologue_scene_02',
+    text:'Ему дали меч.\nИ причину им воспользоваться.'
+   },
+   {
+    image:'prologue_scene_03',
+    text:'Королевство умирало.\nОн верил, что его долг — спасти его.'
+   }
+  ];
+ }
+
+ create(){
+  this.cameras.main.setBackgroundColor('#050505');
+  this.cameras.main.setOrigin(0,0).setZoom(LK_RENDER_SCALE);
+
+  this.buildCinematicUi();
+  this.setProloguePage(0);
+  this.layout();
+  this.startPrologueMusic();
+
+  this._cinematicResizeHandler=()=>this.layout();
+  this.scale.on('resize',this._cinematicResizeHandler);
+
+  this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
+   if(this._cinematicResizeHandler){
+    this.scale.off('resize',this._cinematicResizeHandler);
+   }
+   if(!this.musicHandedOff) this.stopPrologueMusic();
+  });
+
+  this.input.keyboard?.on('keydown-RIGHT',()=>this.advancePrologue());
+  this.input.keyboard?.on('keydown-ENTER',()=>this.advancePrologue());
+  this.input.keyboard?.on('keydown-SPACE',()=>this.advancePrologue());
+ }
+
+ buildCinematicUi(){
+  // Both areas use the same neutral background, so the lower text box does not
+  // look like a differently-colored panel.
+  this.upperPanel=this.add.rectangle(0,0,100,100,0x050505,1)
+   .setOrigin(0)
+   .setDepth(0);
+  this.lowerPanel=this.add.rectangle(0,0,100,100,0x050505,1)
+   .setOrigin(0)
+   .setDepth(0);
+
+  this.cinematicImage=this.add.image(0,0,'prologue_scene_01')
+   .setOrigin(0)
+   .setDepth(2);
+
+  this.dialogueText=lkAddText(this,0,0,'',{
+   fontFamily:'Georgia, serif',
+   fontSize:'28px',
+   color:'#ece2d1',
+   align:'center',
+   wordWrap:{width:760,useAdvancedWrap:true},
+   lineSpacing:10
+  }).setOrigin(0.5).setDepth(5);
+
+  // Larger visible arrow + a larger invisible hit target for mobile.
+  this.nextArrowHit=this.add.rectangle(0,0,84,72,0xffffff,0.001)
+   .setDepth(20)
+   .setInteractive({useHandCursor:true});
+
+  this.nextArrowText=lkAddText(this,0,0,'→',{
+   fontFamily:'Georgia, serif',
+   fontSize:'44px',
+   color:'#dcc59d',
+   stroke:'#080706',
+   strokeThickness:2
+  }).setOrigin(0.5).setDepth(21);
+
+  this.nextArrowHit.on('pointerover',()=>{
+   if(!this.transitioning) this.nextArrowText.setColor('#fff0cc');
+  });
+  this.nextArrowHit.on('pointerout',()=>{
+   this.nextArrowText.setColor('#dcc59d');
+  });
+  this.nextArrowHit.on('pointerup',()=>this.advancePrologue());
+ }
+
+ startPrologueMusic(){
+  if(!this.sound || !this.cache.audio.exists('bgm_veil_of_the_past')) return;
+
+  this.prologueMusic=this.sound.add(
+   'bgm_veil_of_the_past',
+   {loop:true,volume:0.50}
+  );
+
+  const startMusic=()=>{
+   if(!this.prologueMusic || this.prologueMusic.isPlaying) return;
+   this.prologueMusic.play();
+  };
+
+  if(this.sound.locked) this.sound.once('unlocked',startMusic);
+  else startMusic();
+ }
+
+ stopPrologueMusic(){
+  if(!this.prologueMusic)return;
+  try{this.prologueMusic.stop();}catch{}
+  try{this.prologueMusic.destroy();}catch{}
+  this.prologueMusic=null;
+ }
+
+ setProloguePage(index){
+  const page=this.prologuePages[index];
+  if(!page)return;
+
+  this.pageIndex=index;
+  this.cinematicImage.setTexture(page.image);
+  this.dialogueText.setText(page.text);
+
+  // Same arrow on all three pages. On the last one it enters the game.
+  this.nextArrowText.setText('→');
+
+  if(this._lastImageBounds){
+   this.fitCinematicImage(...this._lastImageBounds);
+  }
+ }
+
+ advancePrologue(){
+  if(this.transitioning)return;
+
+  if(this.pageIndex<this.prologuePages.length-1){
+   this.setProloguePage(this.pageIndex+1);
+   return;
+  }
+
+  this.continueToGame();
+ }
+
+ clearStoneFrame(){
+  for(const piece of this.stoneFramePieces){
+   if(piece?.active) piece.destroy();
+  }
+  this.stoneFramePieces.length=0;
+ }
+
+ addStoneBar(x1,y1,x2,y2,thickness,depth=10){
+  const dx=x2-x1;
+  const dy=y2-y1;
+  const length=Math.hypot(dx,dy);
+  if(length<=0)return;
+
+  const source=this.textures.get('cinematic_stone_bar').getSourceImage();
+  const aspect=(source?.width&&source?.height)
+   ? source.width/source.height
+   : 3.2;
+
+  const segmentLength=thickness*aspect;
+  const count=Math.max(1,Math.ceil(length/segmentLength));
+  const angle=Math.atan2(dy,dx);
+  const ux=dx/length;
+  const uy=dy/length;
+
+  for(let i=0;i<count;i++){
+   const along=Math.min(
+    length-segmentLength/2,
+    segmentLength*(i+0.5)
+   );
+   const safeAlong=Math.max(segmentLength/2,along);
+   const x=x1+ux*safeAlong;
+   const y=y1+uy*safeAlong;
+
+   const piece=this.add.image(x,y,'cinematic_stone_bar')
+    .setOrigin(0.5)
+    .setDepth(depth)
+    .setDisplaySize(segmentLength+1,thickness)
+    .setRotation(angle)
+    .setFlipX(i%2===1);
+
+   this.stoneFramePieces.push(piece);
+  }
+ }
+
+ addStoneJoint(x,y,size,depth=12){
+  const joint=this.add.image(x,y,'cinematic_stone_joint')
+   .setOrigin(0.5)
+   .setDepth(depth)
+   .setDisplaySize(size,size);
+
+  this.stoneFramePieces.push(joint);
+  return joint;
+ }
+
+ fitCinematicImage(x,y,w,h){
+  if(!this.cinematicImage?.texture)return;
+
+  const source=this.cinematicImage.texture.getSourceImage();
+  const sw=source?.width||1536;
+  const sh=source?.height||864;
+  const scale=Math.min(w/sw,h/sh);
+  const displayW=sw*scale;
+  const displayH=sh*scale;
+  const drawX=x+(w-displayW)*0.5;
+  const drawY=y+(h-displayH)*0.5;
+
+  this.cinematicImage
+   .setCrop()
+   .setPosition(drawX,drawY)
+   .setDisplaySize(displayW,displayH);
+
+  this._lastImageBounds=[x,y,w,h];
+ }
+
+ layout(){
+  if(!this.upperPanel)return;
+  this.clearStoneFrame();
+
+  const {width:w,height:h}=lkLogicalSceneSize(this);
+
+  const borderThickness=Phaser.Math.Clamp(h*0.052,22,32);
+  const jointSize=borderThickness*1.90;
+  const marginX=Phaser.Math.Clamp(w*0.035,18,40);
+  const marginY=Phaser.Math.Clamp(h*0.035,16,32);
+
+  const availableW=Math.max(280,w-marginX*2);
+  const availableH=Math.max(220,h-marginY*2);
+
+  // Choose total frame size so that the UPPER 65% cinematic area is exactly 16:9.
+  const cinematicAspect=16/9;
+  const totalFrameAspect=cinematicAspect*0.65;
+
+  let frameW=Math.min(availableW,availableH*totalFrameAspect);
+  let frameH=frameW/totalFrameAspect;
+
+  if(frameH>availableH){
+   frameH=availableH;
+   frameW=frameH*totalFrameAspect;
+  }
+
+  const left=(w-frameW)*0.5;
+  const top=(h-frameH)*0.5;
+  const right=left+frameW;
+  const bottom=top+frameH;
+  const dividerY=top+frameH*0.65;
+
+  // Backgrounds extend to the frame centerlines.
+  this.upperPanel
+   .setPosition(left,top)
+   .setSize(frameW,dividerY-top)
+   .setDisplaySize(frameW,dividerY-top);
+
+  this.lowerPanel
+   .setPosition(left,dividerY)
+   .setSize(frameW,bottom-dividerY)
+   .setDisplaySize(frameW,bottom-dividerY);
+
+  // Show the whole image without cropping or stretching.
+  this.fitCinematicImage(left,top,frameW,dividerY-top);
+
+  // Reusable stone strip builds all five straight edges.
+  this.addStoneBar(left,top,right,top,borderThickness);
+  this.addStoneBar(left,bottom,right,bottom,borderThickness);
+  this.addStoneBar(left,dividerY,right,dividerY,borderThickness);
+  this.addStoneBar(left,top,left,bottom,borderThickness);
+  this.addStoneBar(right,top,right,bottom,borderThickness);
+
+  // Square joints cover all structural connections.
+  this.addStoneJoint(left,top,jointSize);
+  this.addStoneJoint(right,top,jointSize);
+  this.addStoneJoint(left,bottom,jointSize);
+  this.addStoneJoint(right,bottom,jointSize);
+  this.addStoneJoint(left,dividerY,jointSize);
+  this.addStoneJoint(right,dividerY,jointSize);
+
+  const halfBorder=borderThickness*0.58;
+  const innerLeft=left+halfBorder;
+  const innerRight=right-halfBorder;
+  const lowerTop=dividerY+halfBorder;
+  const innerBottom=bottom-halfBorder;
+  const innerWidth=Math.max(120,innerRight-innerLeft);
+  const lowerHeight=Math.max(90,innerBottom-lowerTop);
+
+  const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,28);
+  const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.22,12,24);
+  const arrowHitW=Phaser.Math.Clamp(frameW*0.090,58,84);
+  const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.32,44,70);
+  const arrowX=innerRight-arrowPadX-arrowHitW*0.5;
+  const arrowY=innerBottom-arrowPadY-arrowHitH*0.5;
+
+  this.nextArrowHit
+   .setPosition(arrowX,arrowY)
+   .setSize(arrowHitW,arrowHitH)
+   .setDisplaySize(arrowHitW,arrowHitH);
+
+  this.nextArrowText
+   .setPosition(arrowX,arrowY)
+   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.30,30,52));
+
+  const textBlockWidth=Math.max(180,innerWidth-Phaser.Math.Clamp(frameW*0.12,48,120));
+  const textCenterX=(innerLeft+innerRight)*0.5;
+  const textCenterY=lowerTop+lowerHeight*0.46;
+
+  this.dialogueText
+   .setPosition(textCenterX,textCenterY)
+   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.20,22,34))
+   .setWordWrapWidth(textBlockWidth)
+   .setAlign('center')
+   .setOrigin(0.5);
+ }
+
+ continueToGame(){
+  if(this.transitioning)return;
+  this.transitioning=true;
+  this.nextArrowHit.disableInteractive();
+
+  // Hand the exact same playing sound object to MainScene so the background
+  // track continues without restarting between prologue and gameplay.
+  if(this.prologueMusic){
+   this.registry.set('lastKnightBgmHandoff',this.prologueMusic);
+   this.musicHandedOff=true;
+   this.prologueMusic=null;
+  }
+
+  this.cameras.main.fadeOut(180,0,0,0);
+  this.time.delayedCall(190,()=>this.scene.start('main'));
  }
 }
 
@@ -2815,6 +3188,17 @@ class MainScene extends Phaser.Scene {
      (_,i)=>({key:`hero_socket_spin_${String(i+1).padStart(2,'0')}`})
     ),
     frameRate:HERO_SOCKET_SPIN_FRAME_RATE,
+    repeat:0
+   });
+  }
+  if(!this.anims.exists('hero_death')){
+   this.anims.create({
+    key:'hero_death',
+    frames:Array.from(
+     {length:HERO_DEATH_FRAME_COUNT},
+     (_,i)=>({key:`hero_death_${String(i+1).padStart(2,'0')}`})
+    ),
+    duration:HERO_DEATH_ANIMATION_MS,
     repeat:0
    });
   }
@@ -2965,6 +3349,10 @@ class MainScene extends Phaser.Scene {
   this.projectiles=[];
   this.hearts=[];
   this.gameOver=false;
+  this.gameOverUiReady=false;
+  this.deathSequenceActive=false;
+  this.deathSword=null;
+  this.deathFlipX=false;
   this.gameplayPauseReasons=new Set();
   this.gameplayPaused=false;
   this.levelChoiceOpen=false;
@@ -2983,7 +3371,11 @@ class MainScene extends Phaser.Scene {
   this.lowHealthRatio=1;
   this.heartbeatTimer=null;
   this.heartbeatSound=null;
+  this.backgroundMusic=null;
+  this.brokenSaintMusic=null;
+  this.brokenSaintHolyWarningSound=null;
   this.lastSkeletonAttackSfxAt=-9999;
+  this.lastMageCastSfxAt=-9999;
   this.heartbeatState=null;
 
   this.activeChampion=null;
@@ -3075,6 +3467,10 @@ class MainScene extends Phaser.Scene {
   this.shieldSpawned=0;
   this.championSpawned=0;
   this.gameOver=false;
+  this.gameOverUiReady=false;
+  this.deathSequenceActive=false;
+  this.deathSword=null;
+  this.deathFlipX=false;
   this.gameplayPauseReasons=new Set();
   this.gameplayPaused=false;
   this.levelChoiceOpen=false;
@@ -3313,12 +3709,66 @@ class MainScene extends Phaser.Scene {
    this.events.off('mobile-skill',this.handleSkillInput,this);
    this.gameplayPauseReasons?.clear();
    this.stopCriticalHeartbeat(true);
+   try{this.physics.world.resume();}catch{}
+   this.stopBrokenSaintMusic();
+   this.stopBackgroundMusic();
    this.devTools?.destroy();
    this.devTools=null;
   });
 
+  this.setupBackgroundMusic();
   this.startWave(1,true);
   this.syncOrientationPause();
+ }
+
+ setupBackgroundMusic(){
+  if(!this.sound || !this.cache.audio.exists('bgm_veil_of_the_past')) return;
+
+  const handedOff=this.registry.get('lastKnightBgmHandoff');
+  if(handedOff){
+   this.registry.remove('lastKnightBgmHandoff');
+   this.backgroundMusic=handedOff;
+   if(!this.backgroundMusic.isPlaying && !this.sound.locked){
+    this.backgroundMusic.play();
+   }
+   return;
+  }
+
+  this.backgroundMusic=this.sound.add('bgm_veil_of_the_past',{loop:true,volume:0.50});
+  const startMusic=()=>{
+   if(!this.backgroundMusic || this.backgroundMusic.isPlaying) return;
+   this.backgroundMusic.play();
+  };
+  if(this.sound.locked) this.sound.once('unlocked',startMusic);
+  else startMusic();
+ }
+
+ stopBackgroundMusic(){
+  if(!this.backgroundMusic) return;
+  try{this.backgroundMusic.stop();}catch{}
+  try{this.backgroundMusic.destroy();}catch{}
+  this.backgroundMusic=null;
+ }
+
+ startBrokenSaintMusic(){
+  this.stopBrokenSaintMusic();
+  this.stopBackgroundMusic();
+  if(!this.sound || !this.cache.audio.exists('sfx_broken_saint_spawn')) return;
+  const startMusic=()=>{
+   if(this.brokenSaintMusic || !this.activeChampion || !this.activeChampion.active || this.activeChampion.championKind!=='brokenSaint') return;
+   const music=this.sound.add('sfx_broken_saint_spawn',{loop:true,volume:0.50});
+   this.brokenSaintMusic=music;
+   music.play();
+  };
+  if(this.sound.locked) this.sound.once('unlocked',startMusic);
+  else startMusic();
+ }
+
+ stopBrokenSaintMusic(){
+  if(!this.brokenSaintMusic) return;
+  try{this.brokenSaintMusic.stop();}catch{}
+  try{this.brokenSaintMusic.destroy();}catch{}
+  this.brokenSaintMusic=null;
  }
 
  isPortraitInputBlocked(){
@@ -3612,7 +4062,7 @@ class MainScene extends Phaser.Scene {
    : (isMage ? ASH_READABILITY.MAGE_SHADOW_ALPHA : ASH_READABILITY.ENEMY_SHADOW_ALPHA);
   const yOffset=isMage
    ? ASH_READABILITY.MAGE_SHADOW_Y_OFFSET
-   : r*0.82;
+   : (enemy.type==='shield' ? ASH_READABILITY.SHIELD_SHADOW_Y_OFFSET : r*0.82);
 
   enemy.shadowVisual=this.add.ellipse(
    enemy.x,
@@ -3640,7 +4090,10 @@ class MainScene extends Phaser.Scene {
   }
 
   if(this.playerShadow && this.playerShadow.active){
-   this.playerShadow.setPosition(this.player.x,this.player.y+12);
+   const playerShadowYOffset=this.playerVisualState==='hero_death'
+    ? ASH_READABILITY.PLAYER_DEATH_SHADOW_Y_OFFSET
+    : ASH_READABILITY.PLAYER_SHADOW_Y_OFFSET;
+   this.playerShadow.setPosition(this.player.x,this.player.y+playerShadowYOffset);
   }
  }
 
@@ -4703,6 +5156,8 @@ createAshFieldsEnvironment(objects,zone){
   this.championEventActive=true;
   this.championSpawned++;
 
+  if(isBrokenSaint) this.startBrokenSaintMusic();
+
   this.championNameText.setText(def.name).setVisible(true);
   this.championHpBack.setVisible(true);
   this.championHpFill.setVisible(true);
@@ -4890,6 +5345,7 @@ createAshFieldsEnvironment(objects,zone){
      34
     );
 
+    this.startBrokenSaintHolyWarningSfx();
     const holyMarkPoints=[[predictX,predictY]];
 
     this.spawnChampionHazard(
@@ -4932,6 +5388,11 @@ createAshFieldsEnvironment(objects,zone){
       x,y,30,950+Phaser.Math.Between(0,250),300,12,0xffdc72,'holyMark'
      );
     }
+
+    this.time.delayedCall(850,()=>{
+     this.stopBrokenSaintHolyWarningSfx();
+     if(e.active && e.hp>0) this.playBrokenSaintHolyBeamSfx();
+    });
    }
 
    if(!devNoChampionSkills && time>=e.nextSecondaryAt){
@@ -5243,7 +5704,7 @@ createAshFieldsEnvironment(objects,zone){
   }
   if(!this.spendMana()) return;
   if(index===1){
-   this.playSkillSfx('sfx_skill_quake');
+   this.playSkillSfx('sfx_skill_quake',0.294);
    this.castGroundTremor();
   } else if(index===2){
    this.playSkillSfx('sfx_skill_lift');
@@ -5725,6 +6186,7 @@ createAshFieldsEnvironment(objects,zone){
    this.player.hp=30;
    this.updateLowHealthState();
    this.applyPlayerHitFeedback(finalDamage);
+   this.playHeroHitSfx();
    this.cameras.main.flash(320,255,230,160,false);
    this.showWaveBanner('FALLEN BLESSING','Death refused — 30 HP restored','#fff0b0');
    return false;
@@ -5734,6 +6196,7 @@ createAshFieldsEnvironment(objects,zone){
   this.player.hp=Math.max(0,this.player.hp-finalDamage);
   this.updateLowHealthState();
   this.applyPlayerHitFeedback(finalDamage);
+  this.playHeroHitSfx();
 
   if(this.player.hp<=0){
    this.endRun();
@@ -5796,9 +6259,44 @@ createAshFieldsEnvironment(objects,zone){
   this.sound.play('sfx_hero_sword_attack',{volume:0.42});
  }
 
- playSkillSfx(key){
+ playHeroDeathSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_death')) return;
+  this.sound.play('sfx_hero_death',{volume:0.78});
+ }
+
+ playHeroHitSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_hit')) return;
+  this.sound.play('sfx_hero_hit',{volume:0.72});
+ }
+
+ playSkillSfx(key,volume=0.42){
   if(!this.sound || this.sound.locked || !this.cache.audio.exists(key)) return;
-  this.sound.play(key,{volume:0.42});
+  this.sound.play(key,{volume});
+ }
+
+ startBrokenSaintHolyWarningSfx(){
+  this.stopBrokenSaintHolyWarningSfx();
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_holy_warning')) return;
+  const sound=this.sound.add('sfx_broken_saint_holy_warning',{volume:1.00});
+  this.brokenSaintHolyWarningSound=sound;
+  sound.once('complete',()=>{
+   if(this.brokenSaintHolyWarningSound===sound) this.brokenSaintHolyWarningSound=null;
+   sound.destroy();
+  });
+  sound.play();
+ }
+
+ stopBrokenSaintHolyWarningSfx(){
+  const sound=this.brokenSaintHolyWarningSound;
+  if(!sound) return;
+  this.brokenSaintHolyWarningSound=null;
+  if(sound.isPlaying) sound.stop();
+  sound.destroy();
+ }
+
+ playBrokenSaintHolyBeamSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_holy_beam')) return;
+  this.sound.play('sfx_broken_saint_holy_beam',{volume:0.55});
  }
 
  playHeroSwordImpactSfx(){
@@ -5813,6 +6311,14 @@ createAshFieldsEnvironment(objects,zone){
   if(time-(this.lastSkeletonAttackSfxAt||-9999)<110) return;
   this.lastSkeletonAttackSfxAt=time;
   this.sound.play('sfx_skeleton_sword_attack',{volume:0.24});
+ }
+
+ playMageCastSfx(time=this.time.now){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_mage_cast')) return;
+  // Keep multiple mages readable without stacking the same transient at full volume.
+  if(time-(this.lastMageCastSfxAt||-9999)<90) return;
+  this.lastMageCastSfxAt=time;
+  this.sound.play('sfx_mage_cast',{volume:0.65});
  }
 
  onSwordAttack(attackCounter){
@@ -5982,7 +6488,12 @@ createAshFieldsEnvironment(objects,zone){
 
  onChampionDefeated(enemy){
   const kind=enemy.championKind;
+  if(kind==='brokenSaint'){
+   this.stopBrokenSaintHolyWarningSfx();
+   this.stopBrokenSaintMusic();
+  }
   this.activeChampion=null;
+  if(kind==='brokenSaint') this.setupBackgroundMusic();
   this.championEventActive=false;
   this.championNameText.setVisible(false);
   this.championHpBack.setVisible(false);
@@ -6414,37 +6925,153 @@ createAshFieldsEnvironment(objects,zone){
   });
  }
 
- endRun(){
-  if(this.gameOver) return;
-
-  this.gameOver=true;
-  this.stopCriticalHeartbeat(false);
-  this.player.body.setVelocity(0,0);
-  this.playerVisualState=`hero_socket_idle_${this.playerVisualDir8||'s'}`;
-  this.playerVisual.play(this.playerVisualState,true);
-  this.updateHeroWeaponAttachment();
+ freezeCombatForDeath(){
+  try{this.physics.world.pause();}catch{}
+  if(this.player?.body) this.player.body.setVelocity(0,0);
 
   for(const enemy of this.enemies){
-   if(enemy.active && enemy.body){
-    enemy.body.setVelocity(0,0);
-   }
+   if(!enemy?.active) continue;
+   if(enemy.body) enemy.body.setVelocity(0,0);
+   enemy.pendingMeleeHitAt=0;
+   enemy.pendingMeleeDamage=0;
+   enemy.pendingMeleeRange=0;
+   if(enemy.visual?.anims?.isPlaying) enemy.visual.anims.pause();
+   if(enemy.auraVisual?.anims?.isPlaying) enemy.auraVisual.anims.pause();
+   if(enemy.reflectVisual?.anims?.isPlaying) enemy.reflectVisual.anims.pause();
   }
 
   for(const projectile of this.projectiles){
-   if(projectile.active && projectile.body){
-    projectile.body.setVelocity(0,0);
-   }
+   if(!projectile?.active) continue;
+   if(projectile.body) projectile.body.setVelocity(0,0);
+   if(projectile.anims?.isPlaying) projectile.anims.pause();
   }
 
-  if(this.activeAttackFx && this.activeAttackFx.active){
+  for(const hazard of this.championHazards){
+   if(hazard?.visual?.anims?.isPlaying) hazard.visual.anims.pause();
+   if(hazard?.beamVisual?.anims?.isPlaying) hazard.beamVisual.anims.pause();
+  }
+
+  if(this.activeAttackFx?.active){
    this.activeAttackFx.destroy();
    this.activeAttackFx=null;
   }
+ }
 
+ launchDeathSword(){
+  const front=this.playerWeaponFront;
+  const back=this.playerWeaponBack;
+  const source=front?.visible ? front : (back?.visible ? back : (front||back));
+  if(!source?.texture?.key) return;
+
+  const sword=this.add.sprite(source.x,source.y,source.texture.key)
+   .setOrigin(source.originX,source.originY)
+   .setScale(source.scaleX,source.scaleY)
+   .setRotation(source.rotation)
+   .setFlipX(source.flipX)
+   .setFlipY(source.flipY)
+   .setDepth((this.playerVisual?.depth||20)+0.4);
+  sword.clearMask();
+  this.deathSword=sword;
+
+  if(back) back.setVisible(false).clearMask();
+  if(front) front.setVisible(false).clearMask();
+
+  // Default death art ends with the head to screen-right. Mirror flips that side,
+  // so throw the sword in the opposite direction for a clearer silhouette.
+  const dir=this.deathFlipX ? 1 : -1;
+  const startX=sword.x;
+  const startY=sword.y;
+  const groundY=this.player.y+10;
+  const spin=dir*Phaser.Math.DegToRad(520);
+
+  this.tweens.add({
+   targets:sword,
+   x:startX+dir*62,
+   y:startY-58,
+   rotation:sword.rotation+spin*0.42,
+   duration:330,
+   ease:'Quad.easeOut',
+   onComplete:()=>{
+    if(!sword.active) return;
+    this.tweens.add({
+     targets:sword,
+     x:startX+dir*128,
+     y:groundY,
+     rotation:sword.rotation+spin*0.58,
+     duration:570,
+     ease:'Quad.easeIn',
+     onComplete:()=>{
+      if(!sword.active) return;
+      this.tweens.add({
+       targets:sword,
+       y:groundY-2,
+       duration:70,
+       yoyo:true,
+       ease:'Sine.easeOut'
+      });
+     }
+    });
+   }
+  });
+ }
+
+ finishDeathSequence(){
+  if(!this.gameOver || this.gameOverUiReady) return;
+  this.deathSequenceActive=false;
+  this.gameOverUiReady=true;
   this.gameOverPanel.setVisible(true);
   this.gameOverText.setText(
    `GAME OVER\nWave ${this.wave}  •  Kills ${this.kills}\nPress R to restart`
   ).setVisible(true);
+ }
+
+ endRun(){
+  if(this.gameOver) return;
+
+  // Set gameOver immediately: every existing attack/cast callback that checks it
+  // is silenced now. The visible death UI is deliberately delayed below.
+  this.gameOver=true;
+  this.gameOverUiReady=false;
+  this.deathSequenceActive=true;
+  this.stopCriticalHeartbeat(false);
+  this.playHeroDeathSfx();
+  this.freezeCombatForDeath();
+
+  // One random orientation for the complete six-frame sequence.
+  this.deathFlipX=Math.random()<0.5;
+  this.launchDeathSword();
+
+  if(this.playerVisual?.active){
+   this.playerVisual.clearTint();
+   this.playerVisual.stop();
+   this.playerVisual
+    .setPosition(this.player.x,this.player.y)
+    .setOrigin(0.5,0.78)
+    .setScale(HERO_DEATH_VISUAL_SCALE)
+    .setFlipX(this.deathFlipX)
+    .setFlipY(false)
+    .setTexture('hero_death_01')
+    .play('hero_death',true);
+   this.playerVisualState='hero_death';
+  }
+
+  if(this.playerShadow?.active){
+   this.playerShadow.setVisible(true);
+   const hideShadowAt=HERO_DEATH_ANIMATION_MS*(2/HERO_DEATH_FRAME_COUNT);
+   this.time.delayedCall(hideShadowAt,()=>{
+    if(this.gameOver && this.playerShadow?.active) this.playerShadow.setVisible(false);
+   });
+  }
+
+  // 3 seconds falling, then 1 second motionless on the final frame.
+  this.time.delayedCall(HERO_DEATH_ANIMATION_MS,()=>{
+   if(!this.gameOver || !this.playerVisual?.active) return;
+   this.playerVisual.stop();
+   this.playerVisual.setTexture('hero_death_06');
+  });
+  this.time.delayedCall(HERO_DEATH_ANIMATION_MS+HERO_DEATH_HOLD_MS,()=>{
+   this.finishDeathSequence();
+  });
  }
 
  update(time){
@@ -6458,7 +7085,7 @@ createAshFieldsEnvironment(objects,zone){
   time=this.time.now;
 
   if(this.gameOver){
-   if(Phaser.Input.Keyboard.JustDown(this.restartKey)){
+   if(this.gameOverUiReady && Phaser.Input.Keyboard.JustDown(this.restartKey)){
     this.scene.restart();
    }
    return;
@@ -6656,6 +7283,7 @@ createAshFieldsEnvironment(objects,zone){
       const castWindup=320;
       e.attackAnimUntil=time+620;
       e.attackDir=e.dir;
+      this.playMageCastSfx(time);
 
       if(e.visual && e.visual.active){
        const castKey=`mage_${e.attackDir}_cast`;
@@ -6762,11 +7390,10 @@ createAshFieldsEnvironment(objects,zone){
    if(e.reflectVisual && e.reflectVisual.active){
     e.reflectVisual.setPosition(e.x,e.y-8);
    }
-
    if(e.shadowVisual && e.shadowVisual.active){
     const shadowYOffset=e.type==='mage'
      ? ASH_READABILITY.MAGE_SHADOW_Y_OFFSET
-     : (e.hitRadius||14)*0.82;
+     : (e.type==='shield' ? ASH_READABILITY.SHIELD_SHADOW_Y_OFFSET : (e.hitRadius||14)*0.82);
     e.shadowVisual.setPosition(e.x,e.y+shadowYOffset);
    }
 
@@ -7962,7 +8589,7 @@ class HUDScene extends Phaser.Scene {
    this.bossHpText.setText(`${Math.ceil(Math.max(0,champ.hp))} / ${champ.maxHp}`);
   }
 
-  const over=Boolean(m.gameOver);
+  const over=Boolean(m.gameOver && m.gameOverUiReady);
   [this.gameOverShade,this.gameOverFrame,this.gameOverTitle,this.gameOverHint,this.restartButton,this.restartLabel].forEach(o=>o.setVisible(over));
   if(over && m.isTouchDevice) this.gameOverHint.setText('Tap restart to continue');
   else this.gameOverHint.setText('Press R or click restart');
@@ -7989,7 +8616,7 @@ const game=new Phaser.Game({
   height:Math.max(1,Math.round(LK_INITIAL_CSS.height*LK_RENDER_SCALE))
  },
  physics:{default:'arcade',arcade:{debug:false}},
- scene:[BootScene,PreloadScene,MainScene,HUDScene]
+ scene:[BootScene,PreloadScene,CinematicScene,MainScene,HUDScene]
 });
 
 let lkResizeRaf=0;
