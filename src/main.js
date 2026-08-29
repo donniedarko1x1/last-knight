@@ -2753,6 +2753,7 @@ class CinematicScene extends Phaser.Scene {
   this.musicHandedOff=false;
   this.fullscreenButton=null;
   this.fullscreenIcon=null;
+  this.isCompactMobile=false;
   this.prologuePages=[
    {
     image:'prologue_scene_01',
@@ -2797,14 +2798,14 @@ class CinematicScene extends Phaser.Scene {
  }
 
  buildCinematicUi(){
-  // Both areas use the same neutral background, so the lower text box does not
-  // look like a differently-colored panel.
   this.upperPanel=this.add.rectangle(0,0,100,100,0x050505,1)
    .setOrigin(0)
    .setDepth(0);
   this.lowerPanel=this.add.rectangle(0,0,100,100,0x050505,1)
    .setOrigin(0)
-   .setDepth(0);
+   .setDepth(0)
+   .setInteractive({useHandCursor:true});
+  this.lowerPanel.on('pointerup',()=>this.advancePrologue());
 
   this.cinematicImage=this.add.image(0,0,'prologue_scene_01')
    .setOrigin(0)
@@ -2812,21 +2813,20 @@ class CinematicScene extends Phaser.Scene {
 
   this.dialogueText=lkAddText(this,0,0,'',{
    fontFamily:'Georgia, serif',
-   fontSize:'28px',
+   fontSize:'24px',
    color:'#ece2d1',
    align:'center',
    wordWrap:{width:760,useAdvancedWrap:true},
-   lineSpacing:10
+   lineSpacing:8
   }).setOrigin(0.5).setDepth(5);
 
-  // Larger visible arrow + a larger invisible hit target for mobile.
   this.nextArrowHit=this.add.rectangle(0,0,96,84,0xffffff,0.001)
    .setDepth(20)
    .setInteractive({useHandCursor:true});
 
   this.nextArrowText=lkAddText(this,0,0,'→',{
    fontFamily:'Georgia, serif',
-   fontSize:'52px',
+   fontSize:'48px',
    color:'#dcc59d',
    stroke:'#080706',
    strokeThickness:2
@@ -2844,48 +2844,35 @@ class CinematicScene extends Phaser.Scene {
  }
 
  buildFullscreenButton(){
-  this.fullscreenButton=this.add.circle(0,0,24,0x11100e,0.88)
-   .setStrokeStyle(2,0xc4a662,0.82)
-   .setDepth(24)
+  this.fullscreenButton=this.add.circle(0,0,24,0x11100e,0.92)
+   .setStrokeStyle(2,0xc4a662,0.92)
+   .setDepth(40)
+   .setScrollFactor(0)
    .setInteractive({useHandCursor:true});
-  this.fullscreenIcon=this.add.graphics().setDepth(25);
+  this.fullscreenIconLabel=lkAddText(this,0,0,'⛶',{
+   fontFamily:'Arial, sans-serif',
+   fontSize:'24px',
+   color:'#f1dfaa'
+  }).setOrigin(0.5).setDepth(41).setScrollFactor(0);
+
   this.fullscreenButton.on('pointerdown',()=>this.toggleFullscreen());
-  this.fullscreenIcon.setInteractive(new Phaser.Geom.Rectangle(-28,-28,56,56),Phaser.Geom.Rectangle.Contains);
-  this.fullscreenIcon.on('pointerdown',()=>this.toggleFullscreen());
+  this.fullscreenIconLabel.setInteractive({useHandCursor:true});
+  this.fullscreenIconLabel.on('pointerdown',()=>this.toggleFullscreen());
 
   if(typeof document!=='undefined'){
    this._fullscreenChangeHandler=()=>{
-    this.drawFullscreenIcon();
+    this.updateFullscreenLabel();
     this.time.delayedCall(80,()=>this.layout());
    };
    document.addEventListener('fullscreenchange',this._fullscreenChangeHandler);
   }
-  this.drawFullscreenIcon();
+  this.updateFullscreenLabel();
  }
 
- drawFullscreenIcon(){
-  if(!this.fullscreenIcon || !this.fullscreenButton) return;
-  const x=this.fullscreenButton.x,y=this.fullscreenButton.y;
+ updateFullscreenLabel(){
+  if(!this.fullscreenIconLabel)return;
   const active=typeof document!=='undefined' && Boolean(document.fullscreenElement);
-  const g=this.fullscreenIcon;
-  g.clear();
-  g.lineStyle(2.2,0xf1dfaa,0.95);
-  const r=active?8:10, arm=active?7:6;
-  if(!active){
-   g.beginPath();
-   g.moveTo(x-r,y-r+arm); g.lineTo(x-r,y-r); g.lineTo(x-r+arm,y-r);
-   g.moveTo(x+r-arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r+arm);
-   g.moveTo(x-r,y+r-arm); g.lineTo(x-r,y+r); g.lineTo(x-r+arm,y+r);
-   g.moveTo(x+r-arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r-arm);
-   g.strokePath();
-  } else {
-   g.beginPath();
-   g.moveTo(x-r-arm,y-r); g.lineTo(x-r,y-r); g.lineTo(x-r,y-r-arm);
-   g.moveTo(x+r+arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r-arm);
-   g.moveTo(x-r-arm,y+r); g.lineTo(x-r,y+r); g.lineTo(x-r,y+r+arm);
-   g.moveTo(x+r+arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r+arm);
-   g.strokePath();
-  }
+  this.fullscreenIconLabel.setText(active?'🗗':'⛶');
  }
 
  async toggleFullscreen(){
@@ -2938,8 +2925,6 @@ class CinematicScene extends Phaser.Scene {
   this.pageIndex=index;
   this.dialogueText.setText(page.text);
   this.cinematicImage.setTexture(page.image);
-
-  // Same arrow on all three pages. On the last one it enters the game.
   this.nextArrowText.setText('→');
 
   if(this._lastImageBounds){
@@ -2986,10 +2971,7 @@ class CinematicScene extends Phaser.Scene {
   const uy=dy/length;
 
   for(let i=0;i<count;i++){
-   const along=Math.min(
-    length-segmentLength/2,
-    segmentLength*(i+0.5)
-   );
+   const along=Math.min(length-segmentLength/2, segmentLength*(i+0.5));
    const safeAlong=Math.max(segmentLength/2,along);
    const x=x1+ux*safeAlong;
    const y=y1+uy*safeAlong;
@@ -3043,8 +3025,8 @@ class CinematicScene extends Phaser.Scene {
   const centerX=textX+textW*0.5;
   const centerY=textY+textH*0.5;
   const targetLines=this.dialogueText.text.split('\n').length;
-  let fontSize=Math.round(Phaser.Math.Clamp(Math.min(textH/(targetLines+0.25), textW/15), 16, 34));
-  const minFontSize=12;
+  let fontSize=Math.round(Phaser.Math.Clamp(Math.min(textH/(targetLines+0.65), textW/18), 12, 28));
+  const minFontSize=10;
 
   this.dialogueText
    .setAlign('center')
@@ -3054,7 +3036,7 @@ class CinematicScene extends Phaser.Scene {
   while(fontSize>=minFontSize){
    this.dialogueText
     .setFontSize(fontSize)
-    .setLineSpacing(Math.round(fontSize*0.22))
+    .setLineSpacing(Math.round(fontSize*0.18))
     .setWordWrapWidth(textW,true)
     .setPosition(centerX,centerY);
 
@@ -3071,22 +3053,20 @@ class CinematicScene extends Phaser.Scene {
   this.clearStoneFrame();
 
   const {width:w,height:h}=lkLogicalSceneSize(this);
+  this.isCompactMobile=(w<=760 || h<=460);
 
-  const borderThickness=Phaser.Math.Clamp(h*0.052,22,32);
+  const borderThickness=Phaser.Math.Clamp(h*0.052,20,32);
   const jointSize=borderThickness*1.90;
-  const marginX=Phaser.Math.Clamp(w*0.035,18,40);
-  const marginY=Phaser.Math.Clamp(h*0.035,16,32);
+  const marginX=Phaser.Math.Clamp(w*0.035,14,40);
+  const marginY=Phaser.Math.Clamp(h*0.030,12,28);
 
-  const availableW=Math.max(280,w-marginX*2);
+  const availableW=Math.max(260,w-marginX*2);
   const availableH=Math.max(220,h-marginY*2);
-
-  // Choose total frame size so that the UPPER 65% cinematic area is exactly 16:9.
   const cinematicAspect=16/9;
   const totalFrameAspect=cinematicAspect*0.65;
 
   let frameW=Math.min(availableW,availableH*totalFrameAspect);
   let frameH=frameW/totalFrameAspect;
-
   if(frameH>availableH){
    frameH=availableH;
    frameW=frameH*totalFrameAspect;
@@ -3098,16 +3078,8 @@ class CinematicScene extends Phaser.Scene {
   const bottom=top+frameH;
   const dividerY=top+frameH*0.65;
 
-  this.upperPanel
-   .setPosition(left,top)
-   .setSize(frameW,dividerY-top)
-   .setDisplaySize(frameW,dividerY-top);
-
-  this.lowerPanel
-   .setPosition(left,dividerY)
-   .setSize(frameW,bottom-dividerY)
-   .setDisplaySize(frameW,bottom-dividerY);
-
+  this.upperPanel.setPosition(left,top).setSize(frameW,dividerY-top).setDisplaySize(frameW,dividerY-top);
+  this.lowerPanel.setPosition(left,dividerY).setSize(frameW,bottom-dividerY).setDisplaySize(frameW,bottom-dividerY);
   this.fitCinematicImage(left,top,frameW,dividerY-top);
 
   this.addStoneBar(left,top,right,top,borderThickness);
@@ -3131,37 +3103,38 @@ class CinematicScene extends Phaser.Scene {
   const innerWidth=Math.max(120,innerRight-innerLeft);
   const lowerHeight=Math.max(90,innerBottom-lowerTop);
 
-  const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,28);
-  const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.18,10,20);
-  const arrowHitW=Phaser.Math.Clamp(frameW*0.10,62,96);
-  const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.42,48,78);
-  const arrowX=innerRight-arrowPadX-arrowHitW*0.5;
-  const arrowY=innerBottom-arrowPadY-arrowHitH*0.5;
+  // Mobile: no arrow, just tap the whole lower text window.
+  const showArrow=!this.isCompactMobile;
+  this.nextArrowHit.setVisible(showArrow);
+  this.nextArrowText.setVisible(showArrow);
+  if(showArrow){
+   const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,28);
+   const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.18,10,20);
+   const arrowHitW=Phaser.Math.Clamp(frameW*0.10,62,96);
+   const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.42,48,78);
+   const arrowX=innerRight-arrowPadX-arrowHitW*0.5;
+   const arrowY=innerBottom-arrowPadY-arrowHitH*0.5;
+   this.nextArrowHit.setPosition(arrowX,arrowY).setSize(arrowHitW,arrowHitH).setDisplaySize(arrowHitW,arrowHitH);
+   this.nextArrowText.setPosition(arrowX,arrowY).setFontSize(Phaser.Math.Clamp(lowerHeight*0.32,34,54));
+  }
 
-  this.nextArrowHit
-   .setPosition(arrowX,arrowY)
-   .setSize(arrowHitW,arrowHitH)
-   .setDisplaySize(arrowHitW,arrowHitH);
-
-  this.nextArrowText
-   .setPosition(arrowX,arrowY)
-   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.34,36,58));
-
-  const textPadX=Phaser.Math.Clamp(frameW*0.055,18,40);
-  const textPadY=Phaser.Math.Clamp(lowerHeight*0.10,8,18);
-  const reservedArrowWidth=arrowHitW+arrowPadX+10;
+  // Text always occupies the visual center of the lower frame.
+  const textPadX=Phaser.Math.Clamp(frameW*0.06,18,44);
+  const textPadY=Phaser.Math.Clamp(lowerHeight*0.13,8,18);
   const textX=innerLeft+textPadX;
   const textY=lowerTop+textPadY;
-  const textW=Math.max(140,innerWidth-textPadX*2-reservedArrowWidth);
+  const textW=Math.max(140,innerWidth-textPadX*2);
   const textH=Math.max(54,lowerHeight-textPadY*2);
   this.layoutDialogueText(textX,textY,textW,textH);
 
-  if(this.fullscreenButton){
-   const fsRadius=Phaser.Math.Clamp(borderThickness*0.9,20,26);
-   const fsX=left+jointSize*0.8;
-   const fsY=bottom+jointSize*0.95;
+  if(this.fullscreenButton && this.fullscreenIconLabel){
+   const fsRadius=Phaser.Math.Clamp(borderThickness*1.0,22,28);
+   const fsMargin=Phaser.Math.Clamp(borderThickness*0.85,16,24);
+   const fsX=w-fsMargin-fsRadius;
+   const fsY=fsMargin+fsRadius;
    this.fullscreenButton.setRadius(fsRadius).setPosition(fsX,fsY);
-   this.drawFullscreenIcon();
+   this.fullscreenIconLabel.setPosition(fsX,fsY).setFontSize(Math.round(fsRadius*1.02));
+   this.updateFullscreenLabel();
   }
  }
 
@@ -3169,11 +3142,10 @@ class CinematicScene extends Phaser.Scene {
   if(this.transitioning)return;
   this.transitioning=true;
   this.nextArrowHit.disableInteractive();
+  this.lowerPanel.disableInteractive();
   this.fullscreenButton?.disableInteractive();
-  this.fullscreenIcon?.disableInteractive();
+  this.fullscreenIconLabel?.disableInteractive();
 
-  // Hand the exact same playing sound object to MainScene so the background
-  // track continues without restarting between prologue and gameplay.
   if(this.prologueMusic){
    this.registry.set('lastKnightBgmHandoff',this.prologueMusic);
    this.musicHandedOff=true;
