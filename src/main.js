@@ -2751,6 +2751,8 @@ class CinematicScene extends Phaser.Scene {
   this.pageIndex=0;
   this.prologueMusic=null;
   this.musicHandedOff=false;
+  this.fullscreenButton=null;
+  this.fullscreenIcon=null;
   this.prologuePages=[
    {
     image:'prologue_scene_01',
@@ -2782,6 +2784,9 @@ class CinematicScene extends Phaser.Scene {
   this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
    if(this._cinematicResizeHandler){
     this.scale.off('resize',this._cinematicResizeHandler);
+   }
+   if(this._fullscreenChangeHandler && typeof document!=='undefined'){
+    document.removeEventListener('fullscreenchange',this._fullscreenChangeHandler);
    }
    if(!this.musicHandedOff) this.stopPrologueMusic();
   });
@@ -2815,13 +2820,13 @@ class CinematicScene extends Phaser.Scene {
   }).setOrigin(0.5).setDepth(5);
 
   // Larger visible arrow + a larger invisible hit target for mobile.
-  this.nextArrowHit=this.add.rectangle(0,0,84,72,0xffffff,0.001)
+  this.nextArrowHit=this.add.rectangle(0,0,96,84,0xffffff,0.001)
    .setDepth(20)
    .setInteractive({useHandCursor:true});
 
   this.nextArrowText=lkAddText(this,0,0,'→',{
    fontFamily:'Georgia, serif',
-   fontSize:'44px',
+   fontSize:'52px',
    color:'#dcc59d',
    stroke:'#080706',
    strokeThickness:2
@@ -2834,6 +2839,72 @@ class CinematicScene extends Phaser.Scene {
    this.nextArrowText.setColor('#dcc59d');
   });
   this.nextArrowHit.on('pointerup',()=>this.advancePrologue());
+
+  this.buildFullscreenButton();
+ }
+
+ buildFullscreenButton(){
+  this.fullscreenButton=this.add.circle(0,0,24,0x11100e,0.88)
+   .setStrokeStyle(2,0xc4a662,0.82)
+   .setDepth(24)
+   .setInteractive({useHandCursor:true});
+  this.fullscreenIcon=this.add.graphics().setDepth(25);
+  this.fullscreenButton.on('pointerdown',()=>this.toggleFullscreen());
+  this.fullscreenIcon.setInteractive(new Phaser.Geom.Rectangle(-28,-28,56,56),Phaser.Geom.Rectangle.Contains);
+  this.fullscreenIcon.on('pointerdown',()=>this.toggleFullscreen());
+
+  if(typeof document!=='undefined'){
+   this._fullscreenChangeHandler=()=>{
+    this.drawFullscreenIcon();
+    this.time.delayedCall(80,()=>this.layout());
+   };
+   document.addEventListener('fullscreenchange',this._fullscreenChangeHandler);
+  }
+  this.drawFullscreenIcon();
+ }
+
+ drawFullscreenIcon(){
+  if(!this.fullscreenIcon || !this.fullscreenButton) return;
+  const x=this.fullscreenButton.x,y=this.fullscreenButton.y;
+  const active=typeof document!=='undefined' && Boolean(document.fullscreenElement);
+  const g=this.fullscreenIcon;
+  g.clear();
+  g.lineStyle(2.2,0xf1dfaa,0.95);
+  const r=active?8:10, arm=active?7:6;
+  if(!active){
+   g.beginPath();
+   g.moveTo(x-r,y-r+arm); g.lineTo(x-r,y-r); g.lineTo(x-r+arm,y-r);
+   g.moveTo(x+r-arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r+arm);
+   g.moveTo(x-r,y+r-arm); g.lineTo(x-r,y+r); g.lineTo(x-r+arm,y+r);
+   g.moveTo(x+r-arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r-arm);
+   g.strokePath();
+  } else {
+   g.beginPath();
+   g.moveTo(x-r-arm,y-r); g.lineTo(x-r,y-r); g.lineTo(x-r,y-r-arm);
+   g.moveTo(x+r+arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r-arm);
+   g.moveTo(x-r-arm,y+r); g.lineTo(x-r,y+r); g.lineTo(x-r,y+r+arm);
+   g.moveTo(x+r+arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r+arm);
+   g.strokePath();
+  }
+ }
+
+ async toggleFullscreen(){
+  if(typeof document==='undefined') return;
+  try{
+   if(document.fullscreenElement){
+    if(document.exitFullscreen) await document.exitFullscreen();
+   } else {
+    const target=document.documentElement;
+    const request=target.requestFullscreen || target.webkitRequestFullscreen;
+    if(request) await request.call(target);
+    if(screen.orientation?.lock){
+     try{ await screen.orientation.lock('landscape'); }catch(e){}
+    }
+   }
+  }catch(e){
+   console.warn('Fullscreen request was blocked by the browser',e);
+  }
+  this.time.delayedCall(80,()=>this.layout());
  }
 
  startPrologueMusic(){
@@ -2865,14 +2936,17 @@ class CinematicScene extends Phaser.Scene {
   if(!page)return;
 
   this.pageIndex=index;
-  this.cinematicImage.setTexture(page.image);
   this.dialogueText.setText(page.text);
+  this.cinematicImage.setTexture(page.image);
 
   // Same arrow on all three pages. On the last one it enters the game.
   this.nextArrowText.setText('→');
 
   if(this._lastImageBounds){
    this.fitCinematicImage(...this._lastImageBounds);
+  }
+  if(this._lastTextLayout){
+   this.layoutDialogueText(...this._lastTextLayout);
   }
  }
 
@@ -2961,6 +3035,37 @@ class CinematicScene extends Phaser.Scene {
   this._lastImageBounds=[x,y,w,h];
  }
 
+ layoutDialogueText(textX,textY,textW,textH){
+  if(!this.dialogueText)return;
+
+  this._lastTextLayout=[textX,textY,textW,textH];
+
+  const centerX=textX+textW*0.5;
+  const centerY=textY+textH*0.5;
+  const targetLines=this.dialogueText.text.split('\n').length;
+  let fontSize=Math.round(Phaser.Math.Clamp(Math.min(textH/(targetLines+0.25), textW/15), 16, 34));
+  const minFontSize=12;
+
+  this.dialogueText
+   .setAlign('center')
+   .setOrigin(0.5)
+   .setPosition(centerX,centerY);
+
+  while(fontSize>=minFontSize){
+   this.dialogueText
+    .setFontSize(fontSize)
+    .setLineSpacing(Math.round(fontSize*0.22))
+    .setWordWrapWidth(textW,true)
+    .setPosition(centerX,centerY);
+
+   const bounds=this.dialogueText.getBounds();
+   if(bounds.width<=textW+2 && bounds.height<=textH+2){
+    break;
+   }
+   fontSize-=1;
+  }
+ }
+
  layout(){
   if(!this.upperPanel)return;
   this.clearStoneFrame();
@@ -2993,7 +3098,6 @@ class CinematicScene extends Phaser.Scene {
   const bottom=top+frameH;
   const dividerY=top+frameH*0.65;
 
-  // Backgrounds extend to the frame centerlines.
   this.upperPanel
    .setPosition(left,top)
    .setSize(frameW,dividerY-top)
@@ -3004,17 +3108,14 @@ class CinematicScene extends Phaser.Scene {
    .setSize(frameW,bottom-dividerY)
    .setDisplaySize(frameW,bottom-dividerY);
 
-  // Show the whole image without cropping or stretching.
   this.fitCinematicImage(left,top,frameW,dividerY-top);
 
-  // Reusable stone strip builds all five straight edges.
   this.addStoneBar(left,top,right,top,borderThickness);
   this.addStoneBar(left,bottom,right,bottom,borderThickness);
   this.addStoneBar(left,dividerY,right,dividerY,borderThickness);
   this.addStoneBar(left,top,left,bottom,borderThickness);
   this.addStoneBar(right,top,right,bottom,borderThickness);
 
-  // Square joints cover all structural connections.
   this.addStoneJoint(left,top,jointSize);
   this.addStoneJoint(right,top,jointSize);
   this.addStoneJoint(left,bottom,jointSize);
@@ -3031,9 +3132,9 @@ class CinematicScene extends Phaser.Scene {
   const lowerHeight=Math.max(90,innerBottom-lowerTop);
 
   const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,28);
-  const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.22,12,24);
-  const arrowHitW=Phaser.Math.Clamp(frameW*0.090,58,84);
-  const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.32,44,70);
+  const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.18,10,20);
+  const arrowHitW=Phaser.Math.Clamp(frameW*0.10,62,96);
+  const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.42,48,78);
   const arrowX=innerRight-arrowPadX-arrowHitW*0.5;
   const arrowY=innerBottom-arrowPadY-arrowHitH*0.5;
 
@@ -3044,24 +3145,32 @@ class CinematicScene extends Phaser.Scene {
 
   this.nextArrowText
    .setPosition(arrowX,arrowY)
-   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.30,30,52));
+   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.34,36,58));
 
-  const textBlockWidth=Math.max(180,innerWidth-Phaser.Math.Clamp(frameW*0.12,48,120));
-  const textCenterX=(innerLeft+innerRight)*0.5;
-  const textCenterY=lowerTop+lowerHeight*0.46;
+  const textPadX=Phaser.Math.Clamp(frameW*0.055,18,40);
+  const textPadY=Phaser.Math.Clamp(lowerHeight*0.10,8,18);
+  const reservedArrowWidth=arrowHitW+arrowPadX+10;
+  const textX=innerLeft+textPadX;
+  const textY=lowerTop+textPadY;
+  const textW=Math.max(140,innerWidth-textPadX*2-reservedArrowWidth);
+  const textH=Math.max(54,lowerHeight-textPadY*2);
+  this.layoutDialogueText(textX,textY,textW,textH);
 
-  this.dialogueText
-   .setPosition(textCenterX,textCenterY)
-   .setFontSize(Phaser.Math.Clamp(lowerHeight*0.20,22,34))
-   .setWordWrapWidth(textBlockWidth)
-   .setAlign('center')
-   .setOrigin(0.5);
+  if(this.fullscreenButton){
+   const fsRadius=Phaser.Math.Clamp(borderThickness*0.9,20,26);
+   const fsX=left+jointSize*0.8;
+   const fsY=bottom+jointSize*0.95;
+   this.fullscreenButton.setRadius(fsRadius).setPosition(fsX,fsY);
+   this.drawFullscreenIcon();
+  }
  }
 
  continueToGame(){
   if(this.transitioning)return;
   this.transitioning=true;
   this.nextArrowHit.disableInteractive();
+  this.fullscreenButton?.disableInteractive();
+  this.fullscreenIcon?.disableInteractive();
 
   // Hand the exact same playing sound object to MainScene so the background
   // track continues without restarting between prologue and gameplay.
