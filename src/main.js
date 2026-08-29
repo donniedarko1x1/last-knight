@@ -1652,7 +1652,7 @@ function queueCinematicFrameAssets(scene){
  scene.load.image('cinematic_stone_joint',`${frameBase}/cinematic_stone_joint.png`);
 
  const cinematicBase='/assets/ui/cinematic';
- for(let i=1;i<=3;i++){
+ for(let i=1;i<=4;i++){
   const frame=String(i).padStart(2,'0');
   scene.load.image(`prologue_scene_${frame}`,`${cinematicBase}/prologue_scene_${frame}.png`);
  }
@@ -2766,6 +2766,10 @@ class CinematicScene extends Phaser.Scene {
    {
     image:'prologue_scene_03',
     text:'Королевство умирало.\nОн верил, что его долг — спасти его.'
+   },
+   {
+    image:'prologue_scene_04',
+    text:'Последний рыцарь: "Они за это ответят."'
    }
   ];
  }
@@ -6347,7 +6351,7 @@ createAshFieldsEnvironment(objects,zone){
 
  playHeroHitSfx(){
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_hit')) return;
-  this.sound.play('sfx_hero_hit',{volume:0.72});
+  this.sound.play('sfx_hero_hit',{volume:0.504});
  }
 
  playSkillSfx(key,volume=0.42){
