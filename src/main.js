@@ -2769,7 +2769,7 @@ class CinematicScene extends Phaser.Scene {
    },
    {
     image:'prologue_scene_04',
-    text:'Последний рыцарь: "Они за это ответят."'
+    text:'Последний рыцарь: "Вы за все ответите!"'
    }
   ];
  }
