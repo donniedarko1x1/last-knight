@@ -8,9 +8,17 @@ const DEV_BUILD=true;
 // option, so this build renders a larger backing canvas and lets ScaleManager FIT it
 // into the CSS viewport. World cameras naturally compensate via their height-based
 // zoom; HUD cameras explicitly zoom by the same factor to keep CSS-logical sizing.
-let LK_RENDER_SCALE = typeof window !== 'undefined' ? Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) : 1;
+const LK_DEFAULT_RENDER_SCALE = 1.75;
 const LK_RENDER_SCALE_MAX = 2;
-const LK_TEXT_DPR = typeof window !== 'undefined' ? Math.min(Math.max(window.devicePixelRatio || 1, 1), 2) : 1;
+const LK_RENDER_SCALE_STORAGE_KEY = 'lastKnight.dev.renderScale.v2';
+let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
+const LK_TEXT_RESOLUTION = 2;
+
+function lkAddText(scene,...args){
+ const text=scene.add.text(...args);
+ text?.setResolution?.(LK_TEXT_RESOLUTION);
+ return text;
+}
 
 function lkCssViewport(){
  const gameHost=typeof document!=='undefined'?document.getElementById('game'):null;
@@ -32,7 +40,7 @@ function lkUiPointer(scene,pointer){
  return {x:pointer.x/Math.max(0.01,LK_RENDER_SCALE||1),y:pointer.y/Math.max(0.01,LK_RENDER_SCALE||1)};
 }
 function lkApplyTextResolution(game){
- const res=LK_TEXT_DPR;
+ const res=LK_TEXT_RESOLUTION;
  for(const scene of game?.scene?.getScenes?.(true)||[]){
   for(const obj of scene?.children?.list||[]){
    if(obj?.type==='Text' && typeof obj.setResolution==='function'){
@@ -45,7 +53,7 @@ function lkApplyRenderScale(game,value,{remember=true}={}){
  let target=value==='dpr' ? (typeof window!=='undefined'?window.devicePixelRatio||1:1) : Number(value);
  target=Phaser.Math.Clamp(Number.isFinite(target)?target:1,1,LK_RENDER_SCALE_MAX);
  LK_RENDER_SCALE=target;
- if(remember){try{localStorage.setItem('lastKnight.dev.renderScale',String(target));}catch{}}
+ if(remember){try{localStorage.setItem(LK_RENDER_SCALE_STORAGE_KEY,String(target));}catch{}}
  const css=lkCssViewport();
  const renderW=Math.max(1,Math.round(css.width*target));
  const renderH=Math.max(1,Math.round(css.height*target));
@@ -102,6 +110,7 @@ const PURSUIT={
 const BALANCE={
  XP_BASE:100,
  XP_PER_LEVEL:15,
+ PLAYER_BASE_MAX_HP:100,
  PLAYER_SPEED:220,
  PLAYER_IFRAME_MS:250,
  MANA_REGEN_MS:18000,
@@ -277,6 +286,19 @@ const WORLD_DESIGN={
  ]
 };
 
+// Regional progression is deliberately layered on top of the existing wave balance.
+// Ash Fields is the untouched baseline. Enemy HP/speed formulas still come from the
+// current wave system; regions only change ordinary population/spawn pressure and
+// grant small permanent hero bonuses after an official biome transition.
+const REGION_BALANCE={
+ ZONES:[
+  {id:'ashFields',populationMultiplier:1.00,spawnRateMultiplier:1.00,playerMaxHpMultiplier:1.00,meleeDamageBonus:0},
+  {id:'ruinedKingdom',populationMultiplier:1.15,spawnRateMultiplier:1.05,playerMaxHpMultiplier:1.08,meleeDamageBonus:1},
+  {id:'cursedGraveyard',populationMultiplier:1.30,spawnRateMultiplier:1.10,playerMaxHpMultiplier:1.17,meleeDamageBonus:2},
+  {id:'hollowForest',populationMultiplier:1.45,spawnRateMultiplier:1.15,playerMaxHpMultiplier:1.26,meleeDamageBonus:3},
+  {id:'spiderTerritory',populationMultiplier:1.60,spawnRateMultiplier:1.20,playerMaxHpMultiplier:1.36,meleeDamageBonus:4}
+ ]
+};
 
 
 
@@ -420,6 +442,1067 @@ const ASH_FIELDS_SEGMENTS=[
 ];
 
 
+// Baked Ash Fields layout exported from the DEV environment editor on 2026-08-29.
+// This is now the clean default world composition, independent of browser localStorage.
+// Objects that were originally created in the editor are promoted to ordinary base scenery
+// so Reset Segment / Reset All returns to this approved composition instead of deleting them.
+const ASH_FIELDS_BAKED_LAYOUT={
+ "version": 2,
+ "objects": {
+  "intro:cluster0:item0": {
+   "x": 374,
+   "y": 286,
+   "scale": 0.34,
+   "rotation": -0.05,
+   "alpha": 0.46,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster0:item1": {
+   "x": 478,
+   "y": 274,
+   "scale": 0.29,
+   "rotation": 0.04,
+   "alpha": 0.42,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster0:item2": {
+   "x": 588,
+   "y": 324,
+   "scale": 0.18,
+   "rotation": 0.05,
+   "alpha": 0.92,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster1:item0": {
+   "x": 544,
+   "y": 1380,
+   "scale": 0.28,
+   "rotation": 0.03,
+   "alpha": 0.42,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster1:item1": {
+   "x": 668,
+   "y": 1398,
+   "scale": 0.21,
+   "rotation": -0.03,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster1:item2": {
+   "x": 740,
+   "y": 1382,
+   "scale": 0.22,
+   "rotation": 0.02,
+   "alpha": 0.37,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster2:item0": {
+   "x": 810,
+   "y": 352,
+   "scale": 0.34,
+   "rotation": 0.03,
+   "alpha": 0.97,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_02",
+   "kind": "tree",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster2:item1": {
+   "x": 906,
+   "y": 476,
+   "scale": 0.17,
+   "rotation": 0.05,
+   "alpha": 0.92,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "intro:cluster2:item2": {
+   "x": 718,
+   "y": 446,
+   "scale": 0.18,
+   "rotation": -0.03,
+   "alpha": 0.3,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster0:item0": {
+   "x": 974,
+   "y": 1372,
+   "scale": 0.24,
+   "rotation": -0.04,
+   "alpha": 0.94,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster0:item1": {
+   "x": 1112,
+   "y": 1362,
+   "scale": 0.26,
+   "rotation": 0.04,
+   "alpha": 0.96,
+   "flipX": true,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster0:item2": {
+   "x": 1054,
+   "y": 1344,
+   "scale": 0.22,
+   "rotation": 0.04,
+   "alpha": 0.31,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster0:item3": {
+   "x": 1166,
+   "y": 1352,
+   "scale": 0.18,
+   "rotation": -0.03,
+   "alpha": 0.28,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster1:item0": {
+   "x": 1400,
+   "y": 338,
+   "scale": 0.42,
+   "rotation": -0.02,
+   "alpha": 0.98,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster1:item1": {
+   "x": 1252,
+   "y": 450,
+   "scale": 0.23,
+   "rotation": -0.06,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster1:item2": {
+   "x": 1526,
+   "y": 458,
+   "scale": 0.18,
+   "rotation": 0.05,
+   "alpha": 0.94,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster1:item3": {
+   "x": 1296,
+   "y": 418,
+   "scale": 0.24,
+   "rotation": 0.05,
+   "alpha": 0.34,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster1:item4": {
+   "x": 1516,
+   "y": 422,
+   "scale": 0.21,
+   "rotation": -0.04,
+   "alpha": 0.33,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster2:item0": {
+   "x": 1690,
+   "y": 1382,
+   "scale": 0.39,
+   "rotation": 0.02,
+   "alpha": 0.98,
+   "flipX": true,
+   "deleted": false,
+   "key": "ash_tree_02",
+   "kind": "tree",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster2:item1": {
+   "x": 1558,
+   "y": 1494,
+   "scale": 0.22,
+   "rotation": -0.05,
+   "alpha": 0.95,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster2:item2": {
+   "x": 1834,
+   "y": 1506,
+   "scale": 0.18,
+   "rotation": 0.06,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "burntEdge:cluster2:item3": {
+   "x": 1792,
+   "y": 1466,
+   "scale": 0.22,
+   "rotation": -0.04,
+   "alpha": 0.34,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster0:item0": {
+   "x": 1954,
+   "y": 308,
+   "scale": 0.34,
+   "rotation": -0.05,
+   "alpha": 0.46,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster0:item1": {
+   "x": 2058,
+   "y": 296,
+   "scale": 0.29,
+   "rotation": 0.04,
+   "alpha": 0.42,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster0:item2": {
+   "x": 2168,
+   "y": 346,
+   "scale": 0.18,
+   "rotation": 0.05,
+   "alpha": 0.92,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster1:item0": {
+   "x": 1879.77,
+   "y": 1043.11,
+   "scale": 0.3,
+   "rotation": -0.02,
+   "alpha": 0.95,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_02",
+   "kind": "tree",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster1:item1": {
+   "x": 2066,
+   "y": 1148,
+   "scale": 0.27,
+   "rotation": -0.04,
+   "alpha": 0.95,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster1:item2": {
+   "x": 2454,
+   "y": 1140,
+   "scale": 0.22,
+   "rotation": 0.05,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster1:item3": {
+   "x": 2140,
+   "y": 1110,
+   "scale": 0.16,
+   "rotation": 0.05,
+   "alpha": 0.28,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster1:item4": {
+   "x": 2372,
+   "y": 1098,
+   "scale": 0.16,
+   "rotation": -0.04,
+   "alpha": 0.26,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster2:item0": {
+   "x": 2528,
+   "y": 350,
+   "scale": 0.28,
+   "rotation": -0.05,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster2:item1": {
+   "x": 2658,
+   "y": 356,
+   "scale": 0.23,
+   "rotation": 0.03,
+   "alpha": 0.94,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster2:item2": {
+   "x": 2772,
+   "y": 368,
+   "scale": 0.21,
+   "rotation": 0.06,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster2:item3": {
+   "x": 2612,
+   "y": 324,
+   "scale": 0.22,
+   "rotation": 0.02,
+   "alpha": 0.32,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:cluster2:item4": {
+   "x": 2732,
+   "y": 334,
+   "scale": 0.18,
+   "rotation": -0.03,
+   "alpha": 0.31,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "brokenSword:landmark0": {
+   "x": 2260,
+   "y": 1260,
+   "scale": 0.58,
+   "rotation": 0,
+   "alpha": 0.98,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_landmark_sword",
+   "kind": "landmark",
+   "segment": "brokenSword",
+   "landmark": true,
+   "created": false
+  },
+  "postLandmark:cluster0:item0": {
+   "x": 2828,
+   "y": 470,
+   "scale": 0.24,
+   "rotation": -0.04,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster0:item1": {
+   "x": 3142,
+   "y": 484,
+   "scale": 0.18,
+   "rotation": 0.05,
+   "alpha": 0.91,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster0:item2": {
+   "x": 3274,
+   "y": 376,
+   "scale": 0.28,
+   "rotation": 0.02,
+   "alpha": 0.95,
+   "flipX": true,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster0:item3": {
+   "x": 3174,
+   "y": 452,
+   "scale": 0.18,
+   "rotation": -0.02,
+   "alpha": 0.28,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster1:item0": {
+   "x": 3310,
+   "y": 1362,
+   "scale": 0.36,
+   "rotation": -0.03,
+   "alpha": 0.97,
+   "flipX": true,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster1:item1": {
+   "x": 3186,
+   "y": 1480,
+   "scale": 0.18,
+   "rotation": -0.04,
+   "alpha": 0.92,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster1:item2": {
+   "x": 3402,
+   "y": 1454,
+   "scale": 0.19,
+   "rotation": 0.03,
+   "alpha": 0.31,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster2:item0": {
+   "x": 3560,
+   "y": 348,
+   "scale": 0.42,
+   "rotation": -0.02,
+   "alpha": 0.98,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster2:item1": {
+   "x": 3412,
+   "y": 460,
+   "scale": 0.23,
+   "rotation": -0.06,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster2:item2": {
+   "x": 3686,
+   "y": 468,
+   "scale": 0.18,
+   "rotation": 0.05,
+   "alpha": 0.94,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster2:item3": {
+   "x": 3456,
+   "y": 428,
+   "scale": 0.24,
+   "rotation": 0.05,
+   "alpha": 0.34,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster2:item4": {
+   "x": 3676,
+   "y": 432,
+   "scale": 0.21,
+   "rotation": -0.04,
+   "alpha": 0.33,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster3:item0": {
+   "x": 3704,
+   "y": 1372,
+   "scale": 0.28,
+   "rotation": 0.03,
+   "alpha": 0.42,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster3:item1": {
+   "x": 3828,
+   "y": 1390,
+   "scale": 0.21,
+   "rotation": -0.03,
+   "alpha": 0.93,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:cluster3:item2": {
+   "x": 3900,
+   "y": 1374,
+   "scale": 0.22,
+   "rotation": 0.02,
+   "alpha": 0.37,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "postLandmark:landmark0": {
+   "x": 3030,
+   "y": 470,
+   "scale": 0.5,
+   "rotation": 0,
+   "alpha": 0.98,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_landmark_altar",
+   "kind": "landmark",
+   "segment": "postLandmark",
+   "landmark": true,
+   "created": false
+  },
+  "devCreated:mtdxu8k2:1": {
+   "x": 232.36,
+   "y": 1103.17,
+   "scale": 0.42,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdxyhcq:4": {
+   "x": 638.5,
+   "y": 682.62,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "intro",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdxz16u:5": {
+   "x": 1959.15,
+   "y": 74.16,
+   "scale": 0.46,
+   "rotation": 0,
+   "alpha": 0.95,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_02",
+   "kind": "tree",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdxzj99:6": {
+   "x": 1172.04,
+   "y": 1376.81,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 1,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy0bhe:7": {
+   "x": 1035.23,
+   "y": 1365.02,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.9,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_01",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy0npg:8": {
+   "x": 1355.04,
+   "y": 473.04,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 1,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy156r:9": {
+   "x": 1817.22,
+   "y": 471.28,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy18zx:10": {
+   "x": 1903.37,
+   "y": 434.71,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy1j5i:11": {
+   "x": 2081.54,
+   "y": 565.4,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy1pv3:12": {
+   "x": 1946.73,
+   "y": 494.14,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 1,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_03",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtdy1wmn:13": {
+   "x": 1973.71,
+   "y": 535.5,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 1,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_grass_02",
+   "kind": "grass",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtejr7vy:1": {
+   "x": 1825.15,
+   "y": 686.75,
+   "scale": 0.36,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "burntEdge",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek8n61:1": {
+   "x": 2376.19,
+   "y": 533.75,
+   "scale": 0.6,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "brokenSword",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9k5v:2": {
+   "x": 3495.21,
+   "y": 741.45,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9mst:3": {
+   "x": 3414.7,
+   "y": 802.13,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9nu7:4": {
+   "x": 3574.56,
+   "y": 972.49,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9p70:5": {
+   "x": 3393.7,
+   "y": 1119.51,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_02",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9spl:6": {
+   "x": 3323.68,
+   "y": 1009.83,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtek9xal:7": {
+   "x": 3456.71,
+   "y": 907.14,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_03",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mteka0jx:8": {
+   "x": 3578.06,
+   "y": 813.8,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mteka28n:9": {
+   "x": 3400.7,
+   "y": 664.44,
+   "scale": 0.24,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_rock_01",
+   "kind": "rock",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtekaal3:10": {
+   "x": 3593.23,
+   "y": 1118.34,
+   "scale": 0.36,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_02",
+   "kind": "tree",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  },
+  "devCreated:mtekat92:11": {
+   "x": 3314.05,
+   "y": 870.64,
+   "scale": 0.36,
+   "rotation": 0,
+   "alpha": 0.96,
+   "flipX": false,
+   "deleted": false,
+   "key": "ash_tree_01",
+   "kind": "tree",
+   "segment": "postLandmark",
+   "landmark": false,
+   "created": false
+  }
+ }
+};
+
+
 
 const ASH_READABILITY={
  PLAYER_AURA_WIDTH:260,
@@ -470,6 +1553,9 @@ function queueGameplayArt(scene){
  scene.load.image('xp_crystal','/assets/gameplay/pickups/xp_crystal.png');
  scene.load.image('health_heart','/assets/gameplay/pickups/health_heart.png');
  scene.load.audio('critical_heartbeat','/assets/audio/critical_heartbeat.wav');
+ scene.load.audio('sfx_hero_sword_attack','/assets/audio/hero_sword_attack.ogg');
+ scene.load.audio('sfx_hero_sword_impact','/assets/audio/hero_sword_impact.ogg');
+ scene.load.audio('sfx_skeleton_sword_attack','/assets/audio/skeleton_sword_attack.ogg');
  for(let i=0;i<2;i++){
   const frame=String(i).padStart(2,'0');
   scene.load.image(`mage_projectile_${frame}`,`/assets/gameplay/projectiles/mage_projectile_${frame}.png`);
@@ -497,7 +1583,43 @@ function queueHitBurstArt(scene){
  }
 }
 
+const HERO_SOCKET_DIRS=['n','ne','e','se','s','sw','w','nw'];
+const HERO_SOCKET_SPIN_FRAME_COUNT=15;
+const HERO_SOCKET_VISUAL_SCALE=0.28;
+const HERO_SOCKET_SPIN_FRAME_RATE=20;
+const HERO_SOCKET_SPIN_DURATION_MS=Math.ceil(HERO_SOCKET_SPIN_FRAME_COUNT/HERO_SOCKET_SPIN_FRAME_RATE*1000);
+
+function queueHeroSocketAssets(scene){
+ for(const dir of HERO_SOCKET_DIRS){
+  for(let i=1;i<=2;i++){
+   const frame=String(i).padStart(2,'0');
+   scene.load.image(
+    `hero_socket_walk_${dir}_${frame}`,
+    `/assets/redraw/player_socket/hero_walk_${dir}_${frame}.png`
+   );
+  }
+ }
+ for(let i=1;i<=HERO_SOCKET_SPIN_FRAME_COUNT;i++){
+  const frame=String(i).padStart(2,'0');
+  scene.load.image(
+   `hero_socket_spin_${frame}`,
+   `/assets/redraw/player_socket/hero_spin_${frame}.png`
+  );
+ }
+ for(const dir of ['n','ne','e','se','s','sw','w','nw']){
+  scene.load.image(
+   `weapon_socket_sword_${dir}`,
+   `/assets/weapons/sword1/sword_${dir}.png`
+  );
+ }
+ scene.load.json(
+  'last_knight_weapon_socket_project',
+  '/assets/config/last-knight-weapon-socket-project.json'
+ );
+}
+
 function queueMainGameAssets(scene){
+ queueHeroSocketAssets(scene);
  queueAttackRingArt(scene);
  queueHitBurstArt(scene);
  queueAshFieldsEnvironmentArt(scene);
@@ -933,6 +2055,8 @@ class LastKnightDevTools {
   document.addEventListener('keydown',this.keyHandler);
   for(const object of this.scene.devEnvironmentObjects||[]) this.applySavedOverrideToObject(object);
   this.restoreCreatedObjectsFromSaved();
+  // Saved environment layout must never reopen the game with an editor selection.
+  this.selected=null;
   this.applyAllEnvironmentVisibility();
   this.refreshSelectedPanel();
   this.refreshStateButtons();
@@ -996,6 +2120,8 @@ class LastKnightDevTools {
      <div class="lkdev-row"><button data-action="spawnMixed" data-value="5">+5 Mixed</button><button data-action="spawnMixed" data-value="10">+10 Mixed</button><button data-action="clearProjectiles">Clear Shots</button></div>
      <div class="lkdev-row"><button data-action="enemyFreezeAI">Freeze AI</button><button data-action="enemyFreezeMove">Freeze Move</button><button data-action="enemyAttacks">Disable Attacks</button></div>
      <div class="lkdev-row"><button data-action="killEnemies" class="danger">Kill All</button><button data-action="deleteEnemies" class="danger">Delete All</button></div>
+     <div class="lkdev-label">REGION POPULATION TEST · recalculates current wave</div>
+     <div class="lkdev-grid3"><button data-action="regionPopulation" data-value="auto">AUTO</button><button data-action="regionPopulation" data-value="1">1.00×</button><button data-action="regionPopulation" data-value="1.15">1.15×</button><button data-action="regionPopulation" data-value="1.30">1.30×</button><button data-action="regionPopulation" data-value="1.45">1.45×</button><button data-action="regionPopulation" data-value="1.60">1.60×</button></div>
     </div></details>
 
     <details class="lkdev-section"><summary>CHAMPION</summary><div class="lkdev-body">
@@ -1067,7 +2193,7 @@ class LastKnightDevTools {
 
     <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
      <div class="lkdev-label">High-DPI backing canvas. Compare 1× and 2× on the same phone.</div>
-     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1×</button><button data-action="renderScale" data-value="1.5">1.5×</button><button data-action="renderScale" data-value="2">2×</button><button data-action="renderScale" data-value="dpr" class="good">AUTO DPR</button></div>
+     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1×</button><button data-action="renderScale" data-value="1.5">1.5×</button><button data-action="renderScale" data-value="1.75">1.75×</button><button data-action="renderScale" data-value="2">2×</button></div><div style="display:grid;margin-top:6px"><button data-action="renderScale" data-value="dpr" class="good">AUTO DPR (max 2×)</button></div>
      <div id="lkdev-render-info" class="lkdev-info">Render diagnostics…</div>
     </div></details>
 
@@ -1122,6 +2248,7 @@ class LastKnightDevTools {
    case 'autoSpawns':f.autoSpawnsDisabled=!f.autoSpawnsDisabled;if(!f.autoSpawnsDisabled&&s.championEventActive&&!s.activeChampion){const k=s.getChampionForWave(s.wave);if(k)s.spawnChampion(k,true);}break;
    case 'spawn':this.spawnEnemies(value,1);break;
    case 'spawnMixed':this.spawnMixed(Number(value));break;
+   case 'regionPopulation':s.devRegionPopulationOverride=value==='auto'?null:Number(value);s.recalculateCurrentWaveRegionBalance();break;
    case 'clearProjectiles':this.clearProjectiles();break;
    case 'clearHazards':this.clearHazards();break;
    case 'enemyFreezeAI':f.enemyAiFrozen=!f.enemyAiFrozen;break;
@@ -1259,7 +2386,7 @@ class LastKnightDevTools {
  setPlayerHp(percent){const s=this.scene;s.player.hp=Math.max(1,Math.round((s.player.maxHp||100)*percent/100));s.gameOver=false;s.updateLowHealthState(true);}
  resetUpgrades(){const s=this.scene;s.meleeAttack.level=1;s.meleeAttack.damage=15;s.meleeAttack.cooldown=1000;s.meleeAttack.radius=99;s.weaponLevels={sword:1};}
  applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
- teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.updateWorldStreaming();}
+ teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.progressionBalanceZoneIndex=s.currentWorldZoneIndex;s.applyRegionalHeroBalance(s.progressionBalanceZoneIndex,false);s.recalculateCurrentWaveRegionBalance();s.updateWorldStreaming();}
 
  toggleGroundOnly(){const on=!(this.groundOnly||false);this.groundOnly=on;if(on){this.envVisibility.props=false;this.envVisibility.landmarks=false;}else{this.envVisibility.props=true;this.envVisibility.trees=true;this.envVisibility.rocks=true;this.envVisibility.grass=true;this.envVisibility.landmarks=true;}this.applyAllEnvironmentVisibility();}
  toggleCollisionTest(){this.collisionTest=!this.collisionTest;const f=this.scene.devFlags;if(this.collisionTest){this.collisionTestPrevious={godMode:f.godMode,autoSpawnsDisabled:f.autoSpawnsDisabled,propColliders:this.overlayFlags.propColliders,hitboxes:this.overlayFlags.hitboxes,safeLane:this.overlayFlags.safeLane};f.godMode=true;f.autoSpawnsDisabled=true;this.deleteOrdinaryEnemies();this.deleteChampion();this.overlayFlags.propColliders=true;this.overlayFlags.hitboxes=true;this.overlayFlags.safeLane=true;}else if(this.collisionTestPrevious){f.godMode=this.collisionTestPrevious.godMode;f.autoSpawnsDisabled=this.collisionTestPrevious.autoSpawnsDisabled;this.overlayFlags.propColliders=this.collisionTestPrevious.propColliders;this.overlayFlags.hitboxes=this.collisionTestPrevious.hitboxes;this.overlayFlags.safeLane=this.collisionTestPrevious.safeLane;this.collisionTestPrevious=null;}this.refreshStateButtons();}
@@ -1309,9 +2436,9 @@ class LastKnightDevTools {
   }
   return out;
  }
- readSavedLayout(){try{return JSON.parse(localStorage.getItem('lastKnight.dev.ashLayout.v1')||'null');}catch{return null;}}
- saveLocal(){const data=this.serializeLayout();localStorage.setItem('lastKnight.dev.ashLayout.v1',JSON.stringify(data));this.savedLayout=data;this.output(JSON.stringify(data,null,2));}
- loadLocal(){this.savedLayout=this.readSavedLayout();this.restoreCreatedObjectsFromSaved();for(const o of this.scene.devEnvironmentObjects||[])this.applySavedOverrideToObject(o);this.applyAllEnvironmentVisibility();}
+ readSavedLayout(){try{return JSON.parse(localStorage.getItem('lastKnight.dev.ashLayout.v2')||'null');}catch{return null;}}
+ saveLocal(){const data=this.serializeLayout();localStorage.setItem('lastKnight.dev.ashLayout.v2',JSON.stringify(data));this.savedLayout=data;this.output(JSON.stringify(data,null,2));}
+ loadLocal(){this.savedLayout=this.readSavedLayout();this.restoreCreatedObjectsFromSaved();for(const o of this.scene.devEnvironmentObjects||[])this.applySavedOverrideToObject(o);this.selected=null;this.envDrag=null;this.applyAllEnvironmentVisibility();this.refreshSelectedPanel();}
  applySavedOverrideToObject(object){const state=this.savedLayout?.objects?.[object?.devEnvMeta?.id];if(!state)return;object.setPosition(state.x,state.y);object.setScale(Math.max(0.05,state.scale||Math.abs(object.scaleX)));object.rotation=state.rotation??object.rotation;object.alpha=state.alpha??object.alpha;object.setFlipX(Boolean(state.flipX));object.devDeleted=Boolean(state.deleted);this.scene.updateDevEnvironmentLinks(object);this.applyObjectVisibility(object);}
  async copyLayout(){const txt=JSON.stringify(this.serializeLayout(),null,2);this.output(txt);try{await navigator.clipboard.writeText(txt);}catch{}}
  output(txt){const el=document.getElementById('lkdev-output');if(el)el.value=txt;}
@@ -1336,20 +2463,21 @@ class LastKnightDevTools {
   prop.devDeleted=Boolean(options.deleted);
   s.updateDevEnvironmentLinks(prop);this.applyObjectVisibility(prop);
   if(options.history!==false){const before=this.snapshot(prop);before.deleted=true;this.pushHistory([before]);}
-  this.selected=prop;this.refreshSelectedPanel();return prop;
+  if(options.select!==false)this.selected=prop;
+  this.refreshSelectedPanel();return prop;
  }
  restoreCreatedObjectsFromSaved(){
   const entries=Object.entries(this.savedLayout?.objects||{});
   for(const [id,state] of entries){
    if(!state?.created||this.findEnv(id))continue;
-   this.createEnvironmentPropAt(state.x,state.y,state.key,{id,kind:state.kind,segment:state.segment,scale:state.scale,alpha:state.alpha,rotation:state.rotation,flipX:state.flipX,deleted:state.deleted,history:false});
+   this.createEnvironmentPropAt(state.x,state.y,state.key,{id,kind:state.kind,segment:state.segment,scale:state.scale,alpha:state.alpha,rotation:state.rotation,flipX:state.flipX,deleted:state.deleted,history:false,select:false});
   }
  }
  togglePropPlacement(){this.placingProp=!this.placingProp;if(this.placingProp)this.setEditMode(true);this.refreshStateButtons();this.refreshSelectedPanel();}
  addSelectedPropAtViewCenter(){const c=this.scene.cameras.main;if(!this.editMode)this.setEditMode(true);this.createEnvironmentPropAt(c.worldView.centerX,c.worldView.centerY,this.selectedPropKey());}
  duplicateSelected(){if(!this.selected)return;const o=this.selected,m=o.devEnvMeta||{};this.createEnvironmentPropAt(o.x+32,o.y+24,m.key,{kind:m.kind,segment:this.segmentAtX(o.x+32),scale:Math.abs(o.scaleX),alpha:o.alpha,rotation:o.rotation,flipX:o.flipX});}
 
- setEditMode(on){this.editMode=Boolean(on);if(this.editMode){this.uiEditor?.setEditMode(false);this.overlayFlags.propColliders=true;this.scene.setGameplayPaused('devEdit',true);}else{this.scene.setGameplayPaused('devEdit',false);this.placingProp=false;this.envDrag=null;}this.refreshStateButtons();this.refreshSelectedPanel();}
+ setEditMode(on){this.editMode=Boolean(on);if(this.editMode){this.uiEditor?.setEditMode(false);this.overlayFlags.propColliders=true;this.scene.setGameplayPaused('devEdit',true);}else{this.scene.setGameplayPaused('devEdit',false);this.placingProp=false;this.envDrag=null;this.selected=null;}this.refreshStateButtons();this.refreshSelectedPanel();}
  pointerWorld(pointer){const c=this.scene.cameras.main;try{return c.getWorldPoint(pointer.x,pointer.y);}catch{return {x:pointer.worldX,y:pointer.worldY};}}
  pointerButton(pointer){return Number(pointer?.event?.button??0);}
  findEnvironmentAt(x,y){const candidates=(this.scene.devEnvironmentObjects||[]).filter(o=>o?.active&&!o.devDeleted&&o.visible!==false&&o.getBounds?.().contains(x,y));if(!candidates.length)return null;candidates.sort((a,b)=>{const aa=a.displayWidth*a.displayHeight,bb=b.displayWidth*b.displayHeight;return aa-bb;});return candidates[0];}
@@ -1409,10 +2537,20 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
  setGameUiHidden(hidden){this.hideGameUi=Boolean(hidden);const hud=this.scene.scene.get('HUDScene');if(this.scene.scene?.setVisible)this.scene.scene.setVisible(!hidden,'HUDScene');else if(hud?.sys?.setVisible)hud.sys.setVisible(!hidden);this.scene.hud?.setVisible(!hidden);this.scene.waveText?.setVisible(!hidden);this.scene.waveSubText?.setVisible(!hidden);this.scene.regionText?.setVisible(!hidden);}
  captureScreenshot(){const previous=this.hideGameUi,wasOpen=this.open,wasDevPaused=this.scene.gameplayPauseReasons?.has('devPanel'),overlayVisible=this.graphics?.visible!==false;this.scene.setGameplayPaused('devPanel',true);this.setGameUiHidden(true);if(this.graphics)this.graphics.setVisible(false);this.togglePanel(false);if(this.button)this.button.style.display='none';const restore=()=>{this.setGameUiHidden(previous);if(this.graphics)this.graphics.setVisible(overlayVisible);if(!wasDevPaused)this.scene.setGameplayPaused('devPanel',false);if(wasOpen)this.togglePanel(true);else if(this.button)this.button.style.display='';};setTimeout(()=>{try{this.scene.game.renderer.snapshot(image=>{const link=document.createElement('a');link.download=`last-knight-x${Math.round(this.scene.player.x)}-${Date.now()}.png`;link.href=image.src;link.click();restore();});}catch{restore();}},80);}
 
- refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
+ refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
 
  getCurrentSegment(){const x=this.scene.player?.x||0;return ASH_FIELDS_SEGMENTS.find(seg=>x>=seg.start&&x<seg.end)?.id||'-';}
- updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<200)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion;const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×\nPlayer ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Mana ${s.mana}/${s.maxMana}\nWave ${s.wave}   Level ${s.level}   XP ${s.xp}/${s.getXpRequiredForLevel()}\nEnemies ${e.filter(x=>x.active&&x.type!=='champion').length}   Projectiles ${s.projectiles.length}\nChampion ${champ?.active?champ.championName+' '+Math.ceil(champ.hp)+'/'+champ.maxHp:'none'}\nSegment ${this.getCurrentSegment()}   Camera zoom ${s.cameras.main.zoom.toFixed(2)}\nSword ${s.meleeAttack.damage} dmg / ${s.meleeAttack.cooldown}ms / R${s.meleeAttack.radius}\nPause ${Array.from(s.gameplayPauseReasons||[]).join(', ')||'-'}\nEDIT ${this.editMode?'ON':'off'}${this.placingProp?' / PLACE':''}   Selected ${this.selected?.devEnvMeta?.id||'-'}
+ updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<200)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
+Player ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Mana ${s.mana}/${s.maxMana}
+Wave ${s.wave}   Level ${s.level}   XP ${s.xp}/${s.getXpRequiredForLevel()}
+Enemies ${e.filter(x=>x.active&&x.type!=='champion').length}   Projectiles ${s.projectiles.length}
+Wave target ${s.spawned}/${s.waveTarget}   Population ${population.toFixed(2)}×   Spawn ${rb.spawnRateMultiplier.toFixed(2)}×
+Region balance ${WORLD_DESIGN.ZONES[s.progressionBalanceZoneIndex]?.name||'-'}   HP ×${rb.playerMaxHpMultiplier.toFixed(2)}   Melee +${rb.meleeDamageBonus}
+Champion ${champ?.active?champ.championName+' '+Math.ceil(champ.hp)+'/'+champ.maxHp:'none'}
+Segment ${this.getCurrentSegment()}   Camera zoom ${s.cameras.main.zoom.toFixed(2)}
+Sword ${s.meleeAttack.damage}+${rb.meleeDamageBonus}=${effectiveSword} dmg / ${s.meleeAttack.cooldown}ms / R${s.meleeAttack.radius}
+Pause ${Array.from(s.gameplayPauseReasons||[]).join(', ')||'-'}
+EDIT ${this.editMode?'ON':'off'}${this.placingProp?' / PLACE':''}   Selected ${this.selected?.devEnvMeta?.id||'-'}
 Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.main.worldView.centerY)}   Drag ${this.freeCamera?'ON':'off'}`;const el=document.getElementById('lkdev-info');if(el)el.textContent=txt;}
 
  drawOverlays(){if(!this.graphics)return;const g=this.graphics,s=this.scene,c=s.cameras.main;g.clear();
@@ -1424,7 +2562,7 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   if(this.overlayFlags.propColliders){for(const b of s.devEnvironmentColliders||[]){if(!b?.active||!b.body?.enable)continue;const q=s.getAshBlockerBounds(b);if(q){g.lineStyle(1,0x72ff8b,0.7);g.strokeRect(q.left,q.top,q.right-q.left,q.bottom-q.top);}}}
   if(this.overlayFlags.cameraBounds){const v=c.worldView;g.lineStyle(2,0xffffff,0.55);g.strokeRect(v.x,v.y,v.width,v.height);}
   const centerX=s.player.x,centerY=s.player.y;if(this.overlayFlags.mobileFrame){g.lineStyle(2,0x56d8ff,0.48);g.strokeRect(centerX-800,centerY-360,1600,720);}if(this.overlayFlags.desktopFrame){g.lineStyle(2,0xffcc55,0.48);g.strokeRect(centerX-640,centerY-360,1280,720);}
-  if(this.selected?.active&&!this.selected.devDeleted){const b=this.selected.getBounds();g.lineStyle(3,0xffe169,0.95);g.strokeRect(b.x,b.y,b.width,b.height);g.fillStyle(0xffe169,0.8);g.fillCircle(this.selected.x,this.selected.y,5);}
+  if(this.editMode&&this.selected?.active&&!this.selected.devDeleted){const b=this.selected.getBounds();g.lineStyle(3,0xffe169,0.95);g.strokeRect(b.x,b.y,b.width,b.height);g.fillStyle(0xffe169,0.8);g.fillCircle(this.selected.x,this.selected.y,5);}
  }
 
  update(){
@@ -1445,13 +2583,13 @@ class BootScene extends Phaser.Scene {
   this.cameras.main.setOrigin(0,0).setZoom(LK_RENDER_SCALE);
   const logical=lkLogicalSceneSize(this),w=logical.width,h=logical.height;
   const cx=w/2,cy=h/2;
-  const title=this.add.text(cx,cy-48,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f0dfaf',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5);
-  const subtitle=this.add.text(cx,cy-14,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#c8b48a',letterSpacing:1}).setOrigin(0.5);
+  const title=lkAddText(this,cx,cy-48,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f0dfaf',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5);
+  const subtitle=lkAddText(this,cx,cy-14,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#c8b48a',letterSpacing:1}).setOrigin(0.5);
   const frameW=Math.min(320,w-48),frameH=18;
   const barBg=this.add.rectangle(cx,cy+32,frameW,frameH,0x130f0d,0.96).setStrokeStyle(2,0x8c7447,0.9);
   const fill=this.add.rectangle(cx-frameW/2+4,cy+32,Math.max(1,frameW-8),frameH-8,0xc69e4f,1).setOrigin(0,0.5);
   fill.displayWidth=0;
-  const pct=this.add.text(cx,cy+66,'0%',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#f5e4b3'}).setOrigin(0.5);
+  const pct=lkAddText(this,cx,cy+66,'0%',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#f5e4b3'}).setOrigin(0.5);
   this.load.on('progress',(value)=>{
    fill.displayWidth=Math.max(2,(frameW-8)*value);
    pct.setText(`${Math.round(value*100)}%`);
@@ -1461,7 +2599,7 @@ class BootScene extends Phaser.Scene {
    pct.setText('100%');
    this.time.delayedCall(80,()=>this.scene.start('PreloadScene'));
   });
-  [title,subtitle,pct].forEach(t=>t.setResolution?.(LK_TEXT_DPR));
+  [title,subtitle,pct].forEach(t=>t.setResolution?.(LK_TEXT_RESOLUTION));
   const useMobileLoadingArt=typeof window!=='undefined' && (window.matchMedia?.('(pointer: coarse)').matches || (navigator.maxTouchPoints||0)>0);
   this.load.image(LOADING_ART_KEY,useMobileLoadingArt?'/assets/ui/loading_key_art_mobile.jpg':'/assets/ui/loading_key_art_4k.jpg');
  }
@@ -1485,15 +2623,15 @@ class PreloadScene extends Phaser.Scene {
   this.overlayShadow=this.add.rectangle(0,0,100,100,0x000000,0.22).setDepth(2);
   this.overlay=this.add.rectangle(0,0,100,100,0x080706,0.62).setStrokeStyle(2,0x8e7547,0.92).setDepth(3);
   this.overlayInner=this.add.rectangle(0,0,100,100,0x12100d,0.38).setStrokeStyle(1,0xd9c180,0.18).setDepth(4);
-  this.loadingTitle=this.add.text(0,0,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f1e0b1',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5).setDepth(5);
-  this.loadingSubtitle=this.add.text(0,0,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#ccb68a',letterSpacing:1}).setOrigin(0.5).setDepth(5);
-  this.loadingStatus=this.add.text(0,0,LOADING_SCREEN_STATUS,{fontFamily:'Arial, sans-serif',fontSize:'14px',color:'#dfd6c5'}).setOrigin(0.5).setDepth(5);
+  this.loadingTitle=lkAddText(this,0,0,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f1e0b1',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5).setDepth(5);
+  this.loadingSubtitle=lkAddText(this,0,0,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#ccb68a',letterSpacing:1}).setOrigin(0.5).setDepth(5);
+  this.loadingStatus=lkAddText(this,0,0,LOADING_SCREEN_STATUS,{fontFamily:'Arial, sans-serif',fontSize:'14px',color:'#dfd6c5'}).setOrigin(0.5).setDepth(5);
   this.progressBack=this.add.rectangle(0,0,100,18,0x100d0b,0.96).setStrokeStyle(2,0x8d7445,0.95).setDepth(5);
   this.progressFill=this.add.rectangle(0,0,100,10,0xc39a4a,1).setOrigin(0,0.5).setDepth(6);
   this.progressGlow=this.add.rectangle(0,0,100,3,0xf6d691,0.34).setOrigin(0,0.5).setDepth(6);
-  this.progressPct=this.add.text(0,0,'0%',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f7e5b5'}).setOrigin(0.5).setDepth(6);
-  this.retryHint=this.add.text(0,0,'Loading failed — tap to retry',{fontFamily:'Arial, sans-serif',fontSize:'13px',fontStyle:'bold',color:'#ffcfbf'}).setOrigin(0.5).setDepth(6).setVisible(false).setInteractive({useHandCursor:true});
-  [this.loadingTitle,this.loadingSubtitle,this.loadingStatus,this.progressPct,this.retryHint].forEach(t=>t?.setResolution?.(LK_TEXT_DPR));
+  this.progressPct=lkAddText(this,0,0,'0%',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f7e5b5'}).setOrigin(0.5).setDepth(6);
+  this.retryHint=lkAddText(this,0,0,'Loading failed — tap to retry',{fontFamily:'Arial, sans-serif',fontSize:'13px',fontStyle:'bold',color:'#ffcfbf'}).setOrigin(0.5).setDepth(6).setVisible(false).setInteractive({useHandCursor:true});
+  [this.loadingTitle,this.loadingSubtitle,this.loadingStatus,this.progressPct,this.retryHint].forEach(t=>t?.setResolution?.(LK_TEXT_RESOLUTION));
   this.retryHint.on('pointerdown',()=>{
    if(!this.loadingFailed) return;
    this.scene.restart();
@@ -1651,6 +2789,41 @@ class MainScene extends Phaser.Scene {
  }
 
  createSpriteAnimations(){
+  for(const dir of HERO_SOCKET_DIRS){
+   const walkKey=`hero_socket_walk_${dir}`;
+   const idleKey=`hero_socket_idle_${dir}`;
+   if(!this.anims.exists(walkKey)){
+    this.anims.create({
+     key:walkKey,
+     frames:[
+      {key:`hero_socket_walk_${dir}_01`},
+      {key:`hero_socket_walk_${dir}_02`}
+     ],
+     frameRate:7,
+     repeat:-1
+    });
+   }
+   if(!this.anims.exists(idleKey)){
+    this.anims.create({
+     key:idleKey,
+     frames:[{key:`hero_socket_walk_${dir}_01`}],
+     frameRate:1,
+     repeat:-1
+    });
+   }
+  }
+  if(!this.anims.exists('hero_socket_spin')){
+   this.anims.create({
+    key:'hero_socket_spin',
+    frames:Array.from(
+     {length:HERO_SOCKET_SPIN_FRAME_COUNT},
+     (_,i)=>({key:`hero_socket_spin_${String(i+1).padStart(2,'0')}`})
+    ),
+    frameRate:HERO_SOCKET_SPIN_FRAME_RATE,
+    repeat:0
+   });
+  }
+
   const dirs=['down','left','right','up'];
 
   for(const dir of dirs){
@@ -1718,7 +2891,9 @@ class MainScene extends Phaser.Scene {
      {length:8},
      (_,i)=>({key:`ring_sweep_${String(i).padStart(2,'0')}`})
     ),
-    frameRate:20,
+    // Slightly longer visual sword-ring trail: ~0.47 s instead of 0.40 s.
+    // Gameplay hit timing, damage and melee cooldown are unchanged.
+    frameRate:17,
     repeat:0
    });
   }
@@ -1813,6 +2988,7 @@ class MainScene extends Phaser.Scene {
   this.lowHealthRatio=1;
   this.heartbeatTimer=null;
   this.heartbeatSound=null;
+  this.lastSkeletonAttackSfxAt=-9999;
   this.heartbeatState=null;
 
   this.activeChampion=null;
@@ -1841,6 +3017,8 @@ class MainScene extends Phaser.Scene {
   this.isTouchDevice=false;
 
   this.currentWorldZoneIndex=0;
+  this.progressionBalanceZoneIndex=0;
+  this.devRegionPopulationOverride=null;
   this.unlockedWorldGates=new Set();
   this.worldGateObjects=new Map();
   this.pendingWorldAdvance=null;
@@ -1920,6 +3098,7 @@ class MainScene extends Phaser.Scene {
   this.lowHealthRatio=1;
   this.heartbeatTimer=null;
   this.heartbeatSound=null;
+  this.lastSkeletonAttackSfxAt=-9999;
   this.heartbeatState=null;
 
   this.activeChampion=null;
@@ -1951,6 +3130,8 @@ class MainScene extends Phaser.Scene {
   );
 
   this.currentWorldZoneIndex=0;
+  this.progressionBalanceZoneIndex=0;
+  this.devRegionPopulationOverride=null;
   this.unlockedWorldGates=new Set();
   this.worldGateObjects=new Map();
   this.pendingWorldAdvance=null;
@@ -2012,22 +3193,25 @@ class MainScene extends Phaser.Scene {
   this.physics.add.existing(this.player);
   this.player.body.setCollideWorldBounds(true);
   this.player.hitRadius=16;
-  this.player.maxHp=100;
+  this.player.maxHp=BALANCE.PLAYER_BASE_MAX_HP;
   this.player.hp=this.player.maxHp;
   this.updateLowHealthState(true);
 
   this.playerVisual=this.add.sprite(
    this.player.x,
    this.player.y,
-   'player_down_idle_00'
-  ).setOrigin(0.5,0.78).setScale(0.575).setDepth(20);
+   'hero_socket_walk_s_01'
+  ).setOrigin(0.5,0.78).setScale(HERO_SOCKET_VISUAL_SCALE).setDepth(20);
 
   this.playerDir='down';
+  this.playerVisualDir8='s';
   this.playerAttackDir='down';
-  this.playerVisualState='player_down_idle';
+  this.playerVisualState='hero_socket_idle_s';
   this.playerVisual.play(this.playerVisualState);
   this.playerAttackUntil=0;
   this.activeAttackFx=null;
+  this.createHeroWeaponAttachment();
+  this.updateHeroWeaponAttachment();
 
   this.createReadabilityLayers();
 
@@ -2045,20 +3229,20 @@ class MainScene extends Phaser.Scene {
   });
   this.events.on('mobile-skill',this.handleSkillInput,this);
 
-  this.hud=this.add.text(14,12,'',{fontSize:'18px',color:'#fff'})
+  this.hud=lkAddText(this,14,12,'',{fontSize:'18px',color:'#fff'})
    .setScrollFactor(0).setDepth(140).setAlpha(0);
 
-  this.waveText=this.add.text(0,20,'WAVE 1',{fontSize:'24px',color:'#fff'})
+  this.waveText=lkAddText(this,0,20,'WAVE 1',{fontSize:'24px',color:'#fff'})
    .setOrigin(0.5,0).setScrollFactor(0).setDepth(140).setAlpha(0);
-  this.waveSubText=this.add.text(0,50,'',{fontSize:'13px',color:'#d9e6d6'})
+  this.waveSubText=lkAddText(this,0,50,'',{fontSize:'13px',color:'#d9e6d6'})
    .setOrigin(0.5).setScrollFactor(0).setDepth(140).setAlpha(0);
 
-  this.regionText=this.add.text(
+  this.regionText=lkAddText(this,
    0,69,'ASH FIELDS',
    {fontSize:'12px',color:'#b9c2b6',stroke:'#101510',strokeThickness:2}
   ).setOrigin(0.5).setScrollFactor(0).setDepth(139).setAlpha(0);
 
-  this.championNameText=this.add.text(
+  this.championNameText=lkAddText(this,
    400,72,'',
    {fontSize:'17px',color:'#ffe8a8',stroke:'#15100a',strokeThickness:3}
   ).setOrigin(0.5).setDepth(145).setScrollFactor(0).setVisible(false).setAlpha(0);
@@ -2075,7 +3259,7 @@ class MainScene extends Phaser.Scene {
    400,300,430,170,0x000000,0.78
   ).setDepth(100).setScrollFactor(0).setVisible(false).setAlpha(0);
 
-  this.gameOverText=this.add.text(
+  this.gameOverText=lkAddText(this,
    400,300,
    '',
    {
@@ -2249,6 +3433,7 @@ class MainScene extends Phaser.Scene {
    if(destroySound){
     this.heartbeatSound.destroy();
     this.heartbeatSound=null;
+  this.lastSkeletonAttackSfxAt=-9999;
    }
   }
  }
@@ -2299,7 +3484,7 @@ class MainScene extends Phaser.Scene {
 
   if(isMage){
    e.setFillStyle(0x44ff66,0);
-   e.hp=40 + this.wave*5;
+   e.hp=30 + this.wave*5;
    e.maxHp=e.hp;
    e.speed=72 + this.wave*3.3;
    e.hitRadius=14;
@@ -2710,6 +3895,34 @@ createAshCluster(objects,anchorX,anchorY,clusterKey,segmentId='ash',instanceInde
 }
 
 
+createAshFieldsBakedLayout(objects){
+ const entries=Object.entries(ASH_FIELDS_BAKED_LAYOUT.objects||{});
+ for(const [id,state] of entries){
+  if(!state || state.deleted || !this.textures.exists(state.key)) continue;
+  const kind=state.kind || (state.key?.includes('tree_')?'tree':state.key?.includes('rock_')?'rock':state.key?.includes('landmark_')?'landmark':'grass');
+  const landmark=Boolean(state.landmark)||kind==='landmark';
+  const prop=this.add.image(state.x,state.y,state.key)
+   .setDepth(landmark?-28:(kind==='grass'?-46:-44))
+   .setScale(Math.max(0.01,Number(state.scale)||1))
+   .setAlpha(state.alpha??(kind==='grass'?0.40:0.96))
+   .setRotation(state.rotation??0);
+  if(state.flipX) prop.setFlipX(true);
+  objects.push(prop);
+  if(landmark){
+   this.createAshLandmarkShadow(objects,prop,state.key);
+   this.worldLandmarkObjects.push(prop);
+   this.addAshLandmarkCollision(objects,prop,state.key);
+  }else{
+   this.createAshPropShadow(objects,prop,kind);
+   this.addAshPropCollision(objects,prop,kind,state.key);
+  }
+  this.registerDevEnvironmentObject(prop,{
+   id,segment:state.segment||'ash',cluster:null,kind,key:state.key,landmark,created:false
+  });
+ }
+}
+
+
 createAshFieldsSegment(objects,segment){
  (segment.clusters||[]).forEach((instance,instanceIndex)=>{
   this.createAshCluster(objects,instance.x,instance.y,instance.cluster,segment.id,instanceIndex);
@@ -2854,14 +4067,10 @@ createAshFieldsEnvironment(objects,zone){
 
 
 
- // Curated Ash Fields pass v2: explicit four-segment composition.
- // 0-900    Intro Zone      -> mostly empty entry with lots of air.
- // 900-1900 Burnt Edge      -> stronger silhouettes on upper/lower edges.
- // 1900-2900 Broken Sword   -> quiet landmark event with breathing room.
- // 2900-4000 Post Landmark  -> slightly denser exit and second accent.
- for(const segment of ASH_FIELDS_SEGMENTS){
-  this.createAshFieldsSegment(objects,segment);
- }
+ // Approved editor composition: exact baked positions/scales/alpha/flip for all Ash Fields props.
+ // Segment definitions remain above for travel/editor grouping, but scenery itself comes from
+ // ASH_FIELDS_BAKED_LAYOUT so manually adjusted individual props are preserved exactly.
+ this.createAshFieldsBakedLayout(objects);
 }
 
 
@@ -2942,7 +4151,7 @@ createAshFieldsEnvironment(objects,zone){
    0.16
   ).setStrokeStyle(3,gate.color,0.62).setDepth(-19);
 
-  const label=this.add.text(
+  const label=lkAddText(this,
    gate.x-28,
    WORLD_DESIGN.ROUTE_Y-350,
    `LOCKED\n${gate.name}`,
@@ -3000,7 +4209,7 @@ createAshFieldsEnvironment(objects,zone){
    0.20
   ).setStrokeStyle(4,gate.color,0.68).setDepth(-15);
 
-  const label=this.add.text(
+  const label=lkAddText(this,
    x+38,
    WORLD_DESIGN.ROUTE_Y-350,
    `PATH SEALED\n${gate.closeName}`,
@@ -3178,19 +4387,92 @@ createAshFieldsEnvironment(objects,zone){
   const threshold=this.pendingWorldAdvance.gateX+360;
   if(this.player.x<threshold) return;
 
-  const zone=WORLD_DESIGN.ZONES[this.worldAdvanceTargetZone];
+  const arrivedZoneIndex=this.worldAdvanceTargetZone;
+  const zone=WORLD_DESIGN.ZONES[arrivedZoneIndex];
   this.awaitingWorldAdvance=false;
   this.pendingWorldAdvance=null;
   this.worldAdvanceTargetZone=null;
 
+  this.progressionBalanceZoneIndex=arrivedZoneIndex;
+  this.applyRegionalHeroBalance(arrivedZoneIndex,false);
   this.currentWorldZoneIndex=this.getWorldZoneIndexAtX(this.player.x);
   if(this.regionText) this.regionText.setText(zone.name);
 
   this.waveSubText.setText('NEW REGION');
-  this.showWaveBanner(zone.name,zone.subtitle,'#e2eadb');
+  const regionBalance=this.getRegionBalance(arrivedZoneIndex);
+  this.showWaveBanner(
+   zone.name,
+   `${zone.subtitle} · Max HP ${this.player.maxHp} · melee +${regionBalance.meleeDamageBonus}`,
+   '#e2eadb'
+  );
 
   // Small arrival beat before combat resumes.
   this.nextWaveAt=time+1250;
+ }
+
+ getRegionBalance(index=this.progressionBalanceZoneIndex){
+  const maxIndex=REGION_BALANCE.ZONES.length-1;
+  const safeIndex=Phaser.Math.Clamp(Number.isFinite(index)?index:0,0,maxIndex);
+  return REGION_BALANCE.ZONES[safeIndex] || REGION_BALANCE.ZONES[0];
+ }
+
+ getWavePopulationMultiplier(index=this.progressionBalanceZoneIndex){
+  if(Number.isFinite(this.devRegionPopulationOverride)) return this.devRegionPopulationOverride;
+  return this.getRegionBalance(index).populationMultiplier;
+ }
+
+ getEffectiveMeleeDamage(baseDamage=this.meleeAttack?.damage||15,index=this.progressionBalanceZoneIndex){
+  return Math.max(1,baseDamage+this.getRegionBalance(index).meleeDamageBonus);
+ }
+
+ getRegionalPlayerMaxHp(index=this.progressionBalanceZoneIndex){
+  const balance=this.getRegionBalance(index);
+  return Math.max(1,Math.round(BALANCE.PLAYER_BASE_MAX_HP*balance.playerMaxHpMultiplier));
+ }
+
+ applyRegionalHeroBalance(index=this.progressionBalanceZoneIndex,showFeedback=true){
+  if(!this.player) return;
+  const balance=this.getRegionBalance(index);
+  const previousMax=Math.max(1,this.player.maxHp||BALANCE.PLAYER_BASE_MAX_HP);
+  const nextMax=this.getRegionalPlayerMaxHp(index);
+  if(nextMax!==previousMax){
+   const delta=nextMax-previousMax;
+   this.player.maxHp=nextMax;
+   const currentHp=Math.max(0,Number.isFinite(this.player.hp)?this.player.hp:nextMax);
+   this.player.hp=delta>0
+    ? Math.min(nextMax,currentHp+delta)
+    : Math.min(nextMax,currentHp);
+   this.updateLowHealthState(true);
+  }
+  if(showFeedback && index>0){
+   this.showWaveBanner(
+    'REGIONAL POWER',
+    `Max HP ${nextMax} · melee +${balance.meleeDamageBonus}`,
+    '#d8e5c9'
+   );
+  }
+ }
+
+ calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave)){
+  const baseTarget=wave===1 ? 10 : 8+wave*3;
+  const targetBonus=profile?.targetBonus||0;
+  const championScale=championKind ? 0.70 : 1;
+  return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()));
+ }
+
+ calculateWaveSpawnInterval(profile=this.waveProfile){
+  const baseInterval=profile?.spawnInterval||1050;
+  const spawnRate=this.getRegionBalance().spawnRateMultiplier;
+  return Math.max(520,Math.round(baseInterval/Math.max(0.1,spawnRate)));
+ }
+
+ recalculateCurrentWaveRegionBalance(){
+  if(!this.waveProfile) return;
+  const championKind=this.getChampionForWave(this.wave);
+  this.waveTarget=Math.max(this.spawned,this.calculateWaveTarget(this.wave,this.waveProfile,championKind));
+  this.waveSpawnInterval=this.calculateWaveSpawnInterval(this.waveProfile);
+  this.devTools?.refreshStateButtons?.();
+  this.devTools?.updateInfo?.(true);
  }
 
  getWorldProgressName(){
@@ -3289,7 +4571,7 @@ createAshFieldsEnvironment(objects,zone){
   const skillButtons=[];
   for(let i=0;i<3;i++){
    const button=this.add.circle(0,0,44,0x111811,0.28).setStrokeStyle(2,0xffffff,0.24).setScrollFactor(0).setDepth(500).setInteractive({useHandCursor:true});
-   const label=this.add.text(0,0,`S${i+1}`,{fontSize:'18px',color:'#ffffff'}).setOrigin(0.5).setScrollFactor(0).setDepth(501);
+   const label=lkAddText(this,0,0,`S${i+1}`,{fontSize:'18px',color:'#ffffff'}).setOrigin(0.5).setScrollFactor(0).setDepth(501);
    button.on('pointerdown',()=>this.events.emit('mobile-skill',i+1));
    skillButtons.push({button,label});
   }
@@ -3866,9 +5148,9 @@ createAshFieldsEnvironment(objects,zone){
   const {cx,cy}=this.getUiMetrics();
   const panel=this.add.rectangle(cx,cy,650,360,0x080b08,0.94)
    .setStrokeStyle(3,0xd8b65c,0.85).setDepth(230).setScrollFactor(0);
-  const title=this.add.text(cx,cy-145,`${def.name} DEFEATED`,{fontSize:'27px',color:def.rewardColor,stroke:'#111111',strokeThickness:4})
+  const title=lkAddText(this,cx,cy-145,`${def.name} DEFEATED`,{fontSize:'27px',color:def.rewardColor,stroke:'#111111',strokeThickness:4})
    .setOrigin(0.5).setDepth(231).setScrollFactor(0);
-  const subtitle=this.add.text(cx,cy-110,'CHOOSE ONE CHAMPION RELIC',{fontSize:'15px',color:'#ffffff'})
+  const subtitle=lkAddText(this,cx,cy-110,'CHOOSE ONE CHAMPION RELIC',{fontSize:'15px',color:'#ffffff'})
    .setOrigin(0.5).setDepth(231).setScrollFactor(0);
 
   this.championRewardObjects=[panel,title,subtitle];
@@ -3878,8 +5160,8 @@ createAshFieldsEnvironment(objects,zone){
    const y=cy-55+i*82;
    const card=this.add.rectangle(cx,y,570,66,0x243323,0.96)
     .setStrokeStyle(2,0x7f9b68,0.8).setDepth(231).setScrollFactor(0).setInteractive({useHandCursor:true});
-   const nameText=this.add.text(cx-265,y-17,name,{fontSize:'18px',color:'#ffe8a8'}).setDepth(232).setScrollFactor(0);
-   const descText=this.add.text(cx-265,y+7,desc,{fontSize:'13px',color:'#dbe8d7',wordWrap:{width:500}}).setDepth(232).setScrollFactor(0);
+   const nameText=lkAddText(this,cx-265,y-17,name,{fontSize:'18px',color:'#ffe8a8'}).setDepth(232).setScrollFactor(0);
+   const descText=lkAddText(this,cx-265,y+7,desc,{fontSize:'13px',color:'#dbe8d7',wordWrap:{width:500}}).setDepth(232).setScrollFactor(0);
 
    card.on('pointerover',()=>card.setFillStyle(0x354b32,1));
    card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
@@ -3914,7 +5196,7 @@ createAshFieldsEnvironment(objects,zone){
 
   this.grantXp(40);
 
-  const txt=this.add.text(
+  const txt=lkAddText(this,
    this.player.x,this.player.y-62,
    `${rewardName}\nRELIC ACQUIRED`,
    {fontSize:'17px',color:'#ffe49b',align:'center',stroke:'#17120a',strokeThickness:3}
@@ -3974,20 +5256,120 @@ createAshFieldsEnvironment(objects,zone){
  showNoManaFeedback(){
   if(this.time.now-(this.lastNoManaFxAt||-9999)<600) return;
   this.lastNoManaFxAt=this.time.now;
-  const txt=this.add.text(this.player.x,this.player.y-48,'NO MANA',{fontSize:'14px',fontStyle:'bold',color:'#8fd8ff',stroke:'#10202d',strokeThickness:3})
+  const txt=lkAddText(this,this.player.x,this.player.y-48,'NO MANA',{fontSize:'14px',fontStyle:'bold',color:'#8fd8ff',stroke:'#10202d',strokeThickness:3})
    .setOrigin(0.5).setDepth(75);
   this.tweens.add({targets:txt,y:txt.y-20,alpha:0,duration:620,ease:'Quad.easeOut',onComplete:()=>txt.destroy()});
+ }
+
+ getHeroSocketDirectionFromVector(dx,dy,fallback='s'){
+  if(Math.abs(dx)<1 && Math.abs(dy)<1) return fallback;
+  const dir=this.getEightDirectionFromVector(dx,dy,'down');
+  return ({
+   up:'n',up_right:'ne',right:'e',down_right:'se',
+   down:'s',down_left:'sw',left:'w',up_left:'nw'
+  })[dir] || fallback;
+ }
+
+ startHeroSpinAttack(duration=HERO_SOCKET_SPIN_DURATION_MS){
+  this.playerAttackUntil=Math.max(this.playerAttackUntil||0,this.time.now+duration);
+  if(this.playerVisual && this.playerVisual.active){
+   this.playerVisualState='hero_socket_spin';
+   this.playerVisual.play('hero_socket_spin',true);
+  }
+  this.updateHeroWeaponAttachment();
+ }
+
+ createHeroWeaponAttachment(){
+  this.heroWeaponSocketProject=this.cache.json.get('last_knight_weapon_socket_project')||null;
+  const defaultTexture='weapon_socket_sword_n';
+  this.playerWeaponBack=this.add.sprite(this.player.x,this.player.y,defaultTexture)
+   .setDepth((this.playerVisual?.depth||20)-0.05)
+   .setVisible(false);
+  this.playerWeaponFront=this.add.sprite(this.player.x,this.player.y,defaultTexture)
+   .setDepth((this.playerVisual?.depth||20)+0.05)
+   .setVisible(false);
+  this.playerWeaponMaskShape=this.make.graphics({x:0,y:0,add:false});
+  this.playerWeaponFrontMask=this.playerWeaponMaskShape.createGeometryMask();
+ }
+
+ getHeroWeaponPlacementForCurrentFrame(){
+  if(!this.playerVisual || !this.playerVisual.active) return null;
+  const textureKey=this.playerVisual.texture?.key||'';
+  if(!textureKey.startsWith('hero_socket_')) return null;
+  const sourceName=textureKey.replace(/^hero_socket_/,'hero_')+'.png';
+  return this.heroWeaponSocketProject?.sockets?.frames?.[sourceName]||null;
+ }
+
+ updateHeroWeaponAttachment(){
+  const back=this.playerWeaponBack;
+  const front=this.playerWeaponFront;
+  const hero=this.playerVisual;
+  if(!back || !front || !hero || !hero.active){
+   if(back) back.setVisible(false);
+   if(front) front.setVisible(false);
+   return;
+  }
+
+  const placement=this.getHeroWeaponPlacementForCurrentFrame();
+  if(!placement){
+   back.setVisible(false);
+   front.setVisible(false);
+   return;
+  }
+
+  const variant=placement.variant||'sword_n';
+  const weaponMeta=this.heroWeaponSocketProject?.weapon?.variants?.[variant];
+  if(!weaponMeta){
+   back.setVisible(false);
+   front.setVisible(false);
+   return;
+  }
+
+  const textureKey=`weapon_socket_${variant}`;
+  const heroScaleX=hero.scaleX||1;
+  const heroScaleY=hero.scaleY||1;
+  const sourceW=placement.width||hero.frame?.realWidth||hero.frame?.width||1;
+  const sourceH=placement.height||hero.frame?.realHeight||hero.frame?.height||1;
+  const heroLeft=hero.x-sourceW*heroScaleX*hero.originX;
+  const heroTop=hero.y-sourceH*heroScaleY*hero.originY;
+  const socketX=heroLeft+(placement.socketX||0)*heroScaleX;
+  const socketY=heroTop+(placement.socketY||0)*heroScaleY;
+  const weaponScale=Math.abs(heroScaleX)*(placement.scale??1);
+  const originX=(weaponMeta.gripX||0)/Math.max(1,weaponMeta.width||1);
+  const originY=(weaponMeta.gripY||0)/Math.max(1,weaponMeta.height||1);
+  const rotation=Phaser.Math.DegToRad(placement.rotationDeg||0);
+
+  for(const sprite of [back,front]){
+   if(sprite.texture?.key!==textureKey) sprite.setTexture(textureKey);
+   sprite.setOrigin(originX,originY);
+   sprite.setPosition(socketX,socketY);
+   sprite.setScale(weaponScale);
+   sprite.setRotation(rotation);
+   sprite.setFlipX(!!placement.flipX);
+   sprite.setFlipY(!!placement.flipY);
+  }
+
+  back.setDepth((hero.depth||20)-0.05);
+  front.setDepth((hero.depth||20)+0.05);
+  front.clearMask();
+  const layer=placement.layer||'front';
+  back.setVisible(layer==='back'||layer==='split'||layer==='splitInvert');
+  front.setVisible(layer==='front'||layer==='split'||layer==='splitInvert');
+
+  if(layer==='split'||layer==='splitInvert'){
+   const radius=Math.max(0,placement.frontRevealRadius||0)*weaponScale;
+   this.playerWeaponMaskShape.clear();
+   this.playerWeaponMaskShape.fillStyle(0xffffff,1);
+   this.playerWeaponMaskShape.fillCircle(socketX,socketY,Math.max(0.01,radius));
+   this.playerWeaponFrontMask.setInvertAlpha(layer==='splitInvert');
+   front.setMask(this.playerWeaponFrontMask);
+  }
  }
 
  setSkillAttackPose(duration){
   this.skillLockUntil=Math.max(this.skillLockUntil||0,this.time.now+duration);
   this.playerAttackDir=this.playerDir||'down';
-  this.playerAttackUntil=Math.max(this.playerAttackUntil||0,this.time.now+duration);
-  const key=`player_${this.playerAttackDir}_attack`;
-  if(this.playerVisual && this.playerVisual.active){
-   this.playerVisualState=key;
-   this.playerVisual.play(key,true);
-  }
+  this.startHeroSpinAttack(duration);
  }
 
  consumeShieldBlock(enemy){
@@ -4020,7 +5402,7 @@ createAshFieldsEnvironment(objects,zone){
  castGroundTremor(){
   const radius=190;
   // Ground Tremor is primarily an escape / space-making tool, not a damage nuke.
-  const damage=this.meleeAttack.damage*0.4;
+  const damage=this.getEffectiveMeleeDamage()*0.4;
   const maxPushDistance=220;
   const pushMs=430;
   this.setSkillAttackPose(520);
@@ -4062,8 +5444,8 @@ createAshFieldsEnvironment(objects,zone){
 
  castLift(){
   const radius=175;
-  const initialDamage=this.meleeAttack.damage*0.75;
-  const landingDamage=this.meleeAttack.damage*0.75;
+  const initialDamage=this.getEffectiveMeleeDamage()*0.75;
+  const landingDamage=this.getEffectiveMeleeDamage()*0.75;
   this.setSkillAttackPose(650);
   const x=this.player.x,y=this.player.y;
   const field=this.add.circle(x,y,58,0x75b7ff,0.09).setStrokeStyle(4,0x9dd7ff,0.82).setDepth(16);
@@ -4132,7 +5514,7 @@ createAshFieldsEnvironment(objects,zone){
 
  castSpin(){
   const radius=132;
-  const perHit=this.meleeAttack.damage*0.55;
+  const perHit=this.getEffectiveMeleeDamage()*0.55;
   const x0=this.player.x,y0=this.player.y;
   this.setSkillAttackPose(760);
   for(let hit=0;hit<4;hit++){
@@ -4182,7 +5564,7 @@ createAshFieldsEnvironment(objects,zone){
     });
    }
 
-   const tick=this.add.text(
+   const tick=lkAddText(this,
     enemy.x,enemy.y-24,`-${applied}`,
     {
      fontSize:'11px',
@@ -4286,7 +5668,7 @@ createAshFieldsEnvironment(objects,zone){
    });
   }
 
-  const txt=this.add.text(
+  const txt=lkAddText(this,
    this.player.x,this.player.y-48,'ROOTED',
    {fontSize:'14px',color:'#c9ee8e',stroke:'#13200d',strokeThickness:3}
   ).setOrigin(0.5).setDepth(40);
@@ -4408,6 +5790,25 @@ createAshFieldsEnvironment(objects,zone){
   return Math.max(1,Math.round(damage));
  }
 
+ playHeroSwordAttackSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_attack')) return;
+  this.sound.play('sfx_hero_sword_attack',{volume:0.42});
+ }
+
+ playHeroSwordImpactSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_impact')) return;
+  this.sound.play('sfx_hero_sword_impact',{volume:0.45});
+ }
+
+ playSkeletonAttackSfx(time=this.time.now){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_skeleton_sword_attack')) return;
+  // One shared limiter for ordinary skeleton swings: simultaneous attackers do not
+  // produce a pile of identical transients, but slightly staggered attacks can still read.
+  if(time-(this.lastSkeletonAttackSfxAt||-9999)<110) return;
+  this.lastSkeletonAttackSfxAt=time;
+  this.sound.play('sfx_skeleton_sword_attack',{volume:0.24});
+ }
+
  onSwordAttack(attackCounter){
   if(!this.championRelics.has('holyFragment') || attackCounter%5!==0) return;
 
@@ -4433,7 +5834,7 @@ createAshFieldsEnvironment(objects,zone){
    const projection=dx*v.x+dy*v.y;
    const lateral=Math.abs(dx*v.y-dy*v.x);
    if(projection>=0 && projection<=length && lateral<=34){
-    const killed=this.damageEnemy(enemy,this.meleeAttack.damage*0.70,'holyFragment',0xffed9a);
+    const killed=this.damageEnemy(enemy,this.getEffectiveMeleeDamage()*0.70,'holyFragment',0xffed9a);
     if(!killed){
      const angle=Phaser.Math.Angle.Between(this.player.x,this.player.y,enemy.x,enemy.y);
      this.applyEnemyHitReaction(enemy,angle,75);
@@ -4487,7 +5888,7 @@ createAshFieldsEnvironment(objects,zone){
     if(d<best){ best=d; target=e; }
    }
    if(target && target.hp>0){
-    this.damageEnemy(target,this.meleeAttack.damage*0.48,'soulSkull',0x69ff87);
+    this.damageEnemy(target,this.getEffectiveMeleeDamage()*0.48,'soulSkull',0x69ff87);
     const orb=this.add.circle(this.player.x,this.player.y-24,7,0x69ff87,0.90).setDepth(24);
     this.tweens.add({
      targets:orb,x:target.x,y:target.y-8,duration:220,ease:'Quad.easeIn',
@@ -4498,7 +5899,7 @@ createAshFieldsEnvironment(objects,zone){
 
   if(this.championRelics.has('cursedGround') && time>=this.nextCursedGroundAt){
    this.nextCursedGroundAt=time+30000;
-   this.createRelicZone(this.player.x,this.player.y,82,6000,Math.max(4,this.meleeAttack.damage*0.18),0x8fd45a,'cursedGround');
+   this.createRelicZone(this.player.x,this.player.y,82,6000,Math.max(4,this.getEffectiveMeleeDamage()*0.18),0x8fd45a,'cursedGround');
   }
 
   for(const zone of this.relicZones){
@@ -4553,7 +5954,7 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(this.championRelics.has('greenCurse') && Math.random()<0.22){
-   this.createRelicZone(x,y,56,4600,Math.max(3,this.meleeAttack.damage*0.16),0x4cff6a,'poison');
+   this.createRelicZone(x,y,56,4600,Math.max(3,this.getEffectiveMeleeDamage()*0.16),0x4cff6a,'poison');
   }
 
   if(this.championRelics.has('rootHeart') && Math.random()<0.22){
@@ -4565,7 +5966,7 @@ createAshFieldsEnvironment(objects,zone){
     if(d<best){ best=d; target=e; }
    }
    if(target && target.hp>0){
-    this.damageEnemy(target,this.meleeAttack.damage*0.55,'rootHeart',0xb9e27f);
+    this.damageEnemy(target,this.getEffectiveMeleeDamage()*0.55,'rootHeart',0xb9e27f);
     target.staggerUntil=Math.max(target.staggerUntil||0,this.time.now+220);
     const root=this.add.rectangle(target.x,target.y+8,5,34,0xa8ce6b,0.9).setDepth(17);
     this.tweens.add({targets:root,y:root.y-18,alpha:0,duration:260,onComplete:()=>root.destroy()});
@@ -4777,8 +6178,8 @@ createAshFieldsEnvironment(objects,zone){
   for(const obj of this.waveBannerObjects){ if(obj && obj.destroy) obj.destroy(); }
   this.waveBannerObjects=[];
   const {cx,cy}=this.getUiMetrics();
-  const titleText=this.add.text(cx,cy-65,title,{fontSize:'34px',color,stroke:'#101610',strokeThickness:5}).setOrigin(0.5).setDepth(190).setScrollFactor(0).setAlpha(0);
-  const subText=this.add.text(cx,cy-25,subtitle,{fontSize:'16px',color:'#ffffff',stroke:'#101610',strokeThickness:3}).setOrigin(0.5).setDepth(190).setScrollFactor(0).setAlpha(0);
+  const titleText=lkAddText(this,cx,cy-65,title,{fontSize:'34px',color,stroke:'#101610',strokeThickness:5}).setOrigin(0.5).setDepth(190).setScrollFactor(0).setAlpha(0);
+  const subText=lkAddText(this,cx,cy-25,subtitle,{fontSize:'16px',color:'#ffffff',stroke:'#101610',strokeThickness:3}).setOrigin(0.5).setDepth(190).setScrollFactor(0).setAlpha(0);
   this.waveBannerObjects=[titleText,subText];
   this.tweens.add({targets:[titleText,subText],alpha:1,duration:180,hold:850,yoyo:true,onComplete:()=>{
    for(const obj of this.waveBannerObjects){ if(obj && obj.active) obj.destroy(); }
@@ -4791,16 +6192,10 @@ createAshFieldsEnvironment(objects,zone){
   this.spawned=0;
   this.waveIntermission=false;
   this.waveProfile=this.getWaveProfile(wave);
-  this.waveSpawnInterval=this.waveProfile.spawnInterval;
-  const baseTarget=wave===1 ? 10 : 8+wave*3;
   const championKind=this.getChampionForWave(wave);
   this.championEventActive=Boolean(championKind);
-
-  const populationScale=championKind ? 0.70 : 1;
-  this.waveTarget=Math.max(
-   1,
-   Math.ceil((baseTarget+this.waveProfile.targetBonus)*populationScale)
-  );
+  this.waveSpawnInterval=this.calculateWaveSpawnInterval(this.waveProfile);
+  this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind);
 
   this.waveText.setText(`WAVE ${wave}`);
   this.waveSubText.setText(championKind ? 'CHAMPION EVENT' : this.waveProfile.name);
@@ -4868,7 +6263,7 @@ createAshFieldsEnvironment(objects,zone){
    this.cameras.main.shake(45,0.0024);
    this.lastPlayerHitAt=this.time.now;
   }
-  const dmg=this.add.text(this.player.x+Phaser.Math.Between(-8,8),this.player.y-34,`-${damage}`,{fontSize:'15px',color:'#ffb0a6',stroke:'#351010',strokeThickness:3})
+  const dmg=lkAddText(this,this.player.x+Phaser.Math.Between(-8,8),this.player.y-34,`-${damage}`,{fontSize:'15px',color:'#ffb0a6',stroke:'#351010',strokeThickness:3})
    .setOrigin(0.5).setDepth(70);
   this.tweens.add({targets:dmg,y:dmg.y-22,alpha:0,duration:520,ease:'Quad.easeOut',onComplete:()=>dmg.destroy()});
  }
@@ -4951,13 +6346,13 @@ createAshFieldsEnvironment(objects,zone){
 
   const {cx,cy}=this.getUiMetrics();
   const panel=this.add.rectangle(cx,cy,520,260,0x000000,0.85).setDepth(200).setScrollFactor(0);
-  const title=this.add.text(cx,cy-95,`LEVEL ${this.level} - CHOOSE UPGRADE`,{fontSize:'26px',color:'#fff06a'})
+  const title=lkAddText(this,cx,cy-95,`LEVEL ${this.level} - CHOOSE UPGRADE`,{fontSize:'26px',color:'#fff06a'})
    .setOrigin(0.5).setDepth(201).setScrollFactor(0);
 
   this.levelChoiceObjects=[panel,title];
 
   choices.forEach((c,i)=>{
-   const b=this.add.text(
+   const b=lkAddText(this,
     cx,cy-45+i*55,c[0],
     {
      fontSize:'22px',
@@ -4998,7 +6393,7 @@ createAshFieldsEnvironment(objects,zone){
   this.levelChoiceOpen=false;
   this.setGameplayPaused('levelChoice',false);
 
-  const txt=this.add.text(
+  const txt=lkAddText(this,
    this.player.x,this.player.y-55,
    `LEVEL ${this.level}!`,
    {fontSize:'18px',color:'#fff06a'}
@@ -5019,8 +6414,9 @@ createAshFieldsEnvironment(objects,zone){
   this.gameOver=true;
   this.stopCriticalHeartbeat(false);
   this.player.body.setVelocity(0,0);
-  this.playerVisualState=`player_${this.playerDir}_idle`;
+  this.playerVisualState=`hero_socket_idle_${this.playerVisualDir8||'s'}`;
   this.playerVisual.play(this.playerVisualState,true);
+  this.updateHeroWeaponAttachment();
 
   for(const enemy of this.enemies){
    if(enemy.active && enemy.body){
@@ -5121,17 +6517,23 @@ createAshFieldsEnvironment(objects,zone){
    vy,
    this.playerDir
   );
+  this.playerVisualDir8=this.getHeroSocketDirectionFromVector(
+   vx,
+   vy,
+   this.playerVisualDir8||'s'
+  );
 
   if(time>=this.playerAttackUntil){
-   const nextPlayerKey=`player_${this.playerDir}_${
+   const nextPlayerKey=`hero_socket_${
     playerMoving ? 'walk' : 'idle'
-   }`;
+   }_${this.playerVisualDir8}`;
 
    if(this.playerVisualState!==nextPlayerKey){
     this.playerVisualState=nextPlayerKey;
     this.playerVisual.play(nextPlayerKey,true);
    }
   }
+  this.updateHeroWeaponAttachment();
 
   this.updateWorldRegion();
   this.updateWorldStreaming();
@@ -5164,6 +6566,7 @@ createAshFieldsEnvironment(objects,zone){
   this.updateChampionHazards(time);
   this.updateRelics(time);
   this.meleeAttack.update(time,this.enemies);
+  this.updateHeroWeaponAttachment();
   this.cleanupDefeatedEnemies(time);
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
 
@@ -5323,6 +6726,7 @@ createAshFieldsEnvironment(objects,zone){
      const attackCooldown=e.type==='shield' ? 1300 : 1100;
      if(!this.devFlags?.enemyAttacksDisabled && hasMeleeSlot && !e.pendingMeleeHitAt && distance<=attackRange && time-e.lastAttack>attackCooldown){
       e.lastAttack=time;
+      if(e.type==='skeleton') this.playSkeletonAttackSfx(time);
       const windup=e.type==='shield' ? 480 : 350;
       e.pendingMeleeHitAt=time+windup;
       e.pendingMeleeDamage=attackDamage;
@@ -5457,7 +6861,7 @@ createAshFieldsEnvironment(objects,zone){
 
     const healed=this.player.hp-hpBefore;
     if(healed>0){
-     const healText=this.add.text(
+     const healText=lkAddText(this,
       this.player.x,this.player.y-30,`+${healed}`,
       {fontSize:'13px',color:'#8dff9d',stroke:'#102010',strokeThickness:2}
      ).setOrigin(0.5).setDepth(35);
@@ -5513,7 +6917,7 @@ createAshFieldsEnvironment(objects,zone){
   const aliveSkeletons=this.enemies.filter(e=>e.active && e.type==='skeleton').length;
 
   this.hud.setText(
-   `Wave: ${this.wave} (${this.waveProfile ? this.waveProfile.name : '---'})\nHP: ${this.player.hp}\nLevel: ${this.level}\nXP: ${this.xp}/${this.getXpRequiredForLevel()}\nKills: ${this.kills}\nSword Lv${this.meleeAttack.level}: ${this.meleeAttack.damage} dmg / ${this.meleeAttack.cooldown}ms / R${this.meleeAttack.radius}\nMage alive: ${aliveMages} / spawned: ${this.mageSpawned}\nShield alive: ${aliveShields} / spawned: ${this.shieldSpawned}\nChampion alive: ${aliveChampions} / spawned: ${this.championSpawned}\nSkeleton alive: ${aliveSkeletons} / spawned: ${this.skeletonSpawned}\nRelics: ${Array.from(this.championRelics).join(', ') || 'none'}\nSoul stacks: ${this.championRelics.has('necromancerSoul') ? this.killStreakBonus : '-'}  Iron Will: ${this.championRelics.has('ironWill') && this.player.hp<=35 ? 'ACTIVE' : '-'}\nRegion: ${this.getWorldProgressName()}  Progress: ${Math.round(this.getZoneTravelProgress()*100)}%\nGates open: ${this.unlockedWorldGates.size}/4  Back seals: ${this.closedWorldGates.size}\nEmpty-screen x4 rush: ${this.emptyScreenRushActive ? 'ACTIVE' : '-'}\nWorld: ${Math.round(this.player.x)},${Math.round(this.player.y)}  View: ${Math.round(this.cameras.main.worldView.width)}x${Math.round(this.cameras.main.worldView.height)}\nProjectiles: ${this.projectiles.length}\nHearts: ${this.hearts.length}\nBuild 1.0.4: melee rings + 4-skeleton pressure + Holy Mark + corner fix + x4 Rush\nR: restart after death`
+   `Wave: ${this.wave} (${this.waveProfile ? this.waveProfile.name : '---'})\nHP: ${this.player.hp}\nLevel: ${this.level}\nXP: ${this.xp}/${this.getXpRequiredForLevel()}\nKills: ${this.kills}\nSword Lv${this.meleeAttack.level}: ${this.getEffectiveMeleeDamage()} dmg (${this.meleeAttack.damage}+${this.getRegionBalance().meleeDamageBonus}) / ${this.meleeAttack.cooldown}ms / R${this.meleeAttack.radius}\nMage alive: ${aliveMages} / spawned: ${this.mageSpawned}\nShield alive: ${aliveShields} / spawned: ${this.shieldSpawned}\nChampion alive: ${aliveChampions} / spawned: ${this.championSpawned}\nSkeleton alive: ${aliveSkeletons} / spawned: ${this.skeletonSpawned}\nRelics: ${Array.from(this.championRelics).join(', ') || 'none'}\nSoul stacks: ${this.championRelics.has('necromancerSoul') ? this.killStreakBonus : '-'}  Iron Will: ${this.championRelics.has('ironWill') && this.player.hp<=35 ? 'ACTIVE' : '-'}\nRegion: ${this.getWorldProgressName()}  Progress: ${Math.round(this.getZoneTravelProgress()*100)}%\nGates open: ${this.unlockedWorldGates.size}/4  Back seals: ${this.closedWorldGates.size}\nEmpty-screen x4 rush: ${this.emptyScreenRushActive ? 'ACTIVE' : '-'}\nWorld: ${Math.round(this.player.x)},${Math.round(this.player.y)}  View: ${Math.round(this.cameras.main.worldView.width)}x${Math.round(this.cameras.main.worldView.height)}\nProjectiles: ${this.projectiles.length}\nHearts: ${this.hearts.length}\nBuild 1.0.6 SOCKET TEST: separate sword + 8-dir hero + regional progression\nR: restart after death`
   );
  }
 }
@@ -5553,7 +6957,7 @@ class HUDScene extends Phaser.Scene {
   this.buildLevelChoiceOverlay();
   this.buildChampionRewardOverlay();
   this.buildFullscreenButton();
-  for(const obj of this.children.list){if(obj?.type==='Text')obj.setResolution?.(LK_TEXT_DPR);}
+  for(const obj of this.children.list){if(obj?.type==='Text')obj.setResolution?.(LK_TEXT_RESOLUTION);}
 
   this.scale.on('resize',this.layout,this);
   this.input.on('pointerdown',this.onPointerDown,this);
@@ -5808,44 +7212,44 @@ class HUDScene extends Phaser.Scene {
   this.heroFrameParts=null;
   this.levelBadge=null;
   this.levelBadgeSimple=this.add.graphics().setDepth(25);
-  this.levelCaption=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',color:'#ad9c78'}).setOrigin(0.5).setDepth(27);
-  this.levelText=this.add.text(0,0,'1',{fontFamily:'Georgia, serif',fontSize:'28px',fontStyle:'bold',color:'#fff0cf',stroke:'#140d08',strokeThickness:4}).setOrigin(0.5).setDepth(27);
+  this.levelCaption=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',color:'#ad9c78'}).setOrigin(0.5).setDepth(27);
+  this.levelText=lkAddText(this,0,0,'1',{fontFamily:'Georgia, serif',fontSize:'28px',fontStyle:'bold',color:'#fff0cf',stroke:'#140d08',strokeThickness:4}).setOrigin(0.5).setDepth(27);
 
   this.hpFill=this.add.rectangle(0,0,200,18,0xb51f24,1).setOrigin(0,0.5).setDepth(21);
   this.hpShine=this.add.rectangle(0,0,200,4,0xff8a78,0.25).setOrigin(0,0.5).setDepth(22);
   this.hpFrame=addHud('hp_bar_frame',24);
-  this.hpText=this.add.text(0,0,'100 / 100',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#fff4e8',stroke:'#24100e',strokeThickness:3}).setOrigin(0.5).setDepth(26);
-  this.hpLabel=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
+  this.hpText=lkAddText(this,0,0,'100 / 100',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#fff4e8',stroke:'#24100e',strokeThickness:3}).setOrigin(0.5).setDepth(26);
+  this.hpLabel=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
 
   // Clean mana slots are drawn as simple vector rings.
   this.manaHousing=null;
   this.manaRingsSimple=this.add.graphics().setDepth(23);
-  this.manaLabel=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
+  this.manaLabel=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
   this.manaGems=[];
   for(let i=0;i<3;i++) this.manaGems.push(this.add.image(0,0,'hero_hud_mana_bottle_blue').setDepth(25));
 
   this.xpFill=this.add.rectangle(0,0,190,5,0xf0bd28,1).setOrigin(0,0.5).setDepth(21);
   this.xpFrame=addHud('xp_bar_frame',24);
-  this.xpLabel=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
+  this.xpLabel=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'1px'}).setVisible(false);
  }
  buildWavePanel(){
   this.wavePanel=this.addPanelGraphics(20);
-  this.waveTitle=this.add.text(0,0,'WAVE 1',{fontFamily:'Arial, sans-serif',fontSize:'22px',fontStyle:'bold',color:'#f7e8c1',stroke:'#17120d',strokeThickness:4}).setOrigin(0.5).setDepth(23);
-  this.waveSub=this.add.text(0,0,'ASH FIELDS',{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#b9b6aa',letterSpacing:1}).setOrigin(0.5).setDepth(23);
+  this.waveTitle=lkAddText(this,0,0,'WAVE 1',{fontFamily:'Arial, sans-serif',fontSize:'22px',fontStyle:'bold',color:'#f7e8c1',stroke:'#17120d',strokeThickness:4}).setOrigin(0.5).setDepth(23);
+  this.waveSub=lkAddText(this,0,0,'ASH FIELDS',{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#b9b6aa',letterSpacing:1}).setOrigin(0.5).setDepth(23);
  }
 
  buildChampionPanel(){
   this.championPanel=this.addPanelGraphics(30).setVisible(false);
-  this.bossName=this.add.text(0,0,'BROKEN SAINT',{fontFamily:'Arial, sans-serif',fontSize:'20px',fontStyle:'bold',color:'#f5d78f',stroke:'#17100a',strokeThickness:4}).setOrigin(0.5).setDepth(33).setVisible(false);
+  this.bossName=lkAddText(this,0,0,'BROKEN SAINT',{fontFamily:'Arial, sans-serif',fontSize:'20px',fontStyle:'bold',color:'#f5d78f',stroke:'#17100a',strokeThickness:4}).setOrigin(0.5).setDepth(33).setVisible(false);
   this.bossHpBack=this.add.rectangle(0,0,500,22,0x130f0d,0.96).setStrokeStyle(2,0x8d7445,1).setDepth(32).setVisible(false);
   this.bossHpFill=this.add.rectangle(0,0,494,14,0xc59b46,1).setOrigin(0,0.5).setDepth(33).setVisible(false);
-  this.bossHpText=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#fff2cf',stroke:'#16100a',strokeThickness:3}).setOrigin(0.5).setDepth(34).setVisible(false);
+  this.bossHpText=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#fff2cf',stroke:'#16100a',strokeThickness:3}).setOrigin(0.5).setDepth(34).setVisible(false);
  }
 
  buildEventBanner(){
   this.eventBannerPanel=this.addPanelGraphics(88).setVisible(false);
-  this.eventBannerTitle=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#fff06a',stroke:'#101610',strokeThickness:5,align:'center'}).setOrigin(0.5).setDepth(90).setVisible(false);
-  this.eventBannerSub=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'15px',color:'#ffffff',stroke:'#101610',strokeThickness:3,align:'center'}).setOrigin(0.5).setDepth(90).setVisible(false);
+  this.eventBannerTitle=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#fff06a',stroke:'#101610',strokeThickness:5,align:'center'}).setOrigin(0.5).setDepth(90).setVisible(false);
+  this.eventBannerSub=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'15px',color:'#ffffff',stroke:'#101610',strokeThickness:3,align:'center'}).setOrigin(0.5).setDepth(90).setVisible(false);
   this.eventBannerTween=null;
  }
 
@@ -5898,8 +7302,8 @@ class HUDScene extends Phaser.Scene {
   const iconMaskShape=this.add.graphics().setDepth(27).setVisible(false);
   const iconMask=iconMaskShape.createGeometryMask();
   iconImage.setMask(iconMask);
-  const key=this.add.text(0,0,String(index),{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#ead9ad',backgroundColor:'#18140f',padding:{x:5,y:2}}).setOrigin(0.5).setDepth(29);
-  const label=this.add.text(0,0,title,{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#eee4cf',stroke:'#17120d',strokeThickness:3}).setOrigin(0.5,0).setDepth(29).setVisible(false);
+  const key=lkAddText(this,0,0,String(index),{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#ead9ad',backgroundColor:'#18140f',padding:{x:5,y:2}}).setOrigin(0.5).setDepth(29);
+  const label=lkAddText(this,0,0,title,{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#eee4cf',stroke:'#17120d',strokeThickness:3}).setOrigin(0.5,0).setDepth(29).setVisible(false);
   back.on('pointerdown',()=>{
    if(this.mainScene?.devTools?.uiEditor?.editMode)return;
    this.mainScene?.events.emit('mobile-skill',index);
@@ -5921,14 +7325,14 @@ class HUDScene extends Phaser.Scene {
   this.skill2=this.makeSkillButton(2,'LIFT','lift');
   this.skill3=this.makeSkillButton(3,'SPIN','spin');
   this.skills=[this.skill1,this.skill2,this.skill3];
-  this.skillCaption=this.add.text(0,0,'SKILLS',{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#b6aa8e',letterSpacing:2}).setOrigin(0.5).setDepth(24).setVisible(false);
+  this.skillCaption=lkAddText(this,0,0,'SKILLS',{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#b6aa8e',letterSpacing:2}).setOrigin(0.5).setDepth(24).setVisible(false);
  }
 
  buildJoystick(){
   this.joyBack=this.add.circle(0,0,66,0x080b09,0.32).setStrokeStyle(3,0xbeb49c,0.35).setDepth(24);
   this.joyRing=this.add.circle(0,0,47,0x171b17,0.20).setStrokeStyle(2,0xd9cfbb,0.22).setDepth(25);
   this.joyKnob=this.add.circle(0,0,29,0xbeb7a6,0.28).setStrokeStyle(2,0xf3ead8,0.35).setDepth(26);
-  this.joyHint=this.add.text(0,0,'MOVE',{fontFamily:'Arial, sans-serif',fontSize:'10px',fontStyle:'bold',color:'#c8c0ad'}).setOrigin(0.5).setDepth(27).setVisible(false);
+  this.joyHint=lkAddText(this,0,0,'MOVE',{fontFamily:'Arial, sans-serif',fontSize:'10px',fontStyle:'bold',color:'#c8c0ad'}).setOrigin(0.5).setDepth(27).setVisible(false);
  }
 
 
@@ -5938,11 +7342,11 @@ class HUDScene extends Phaser.Scene {
   this.levelChoiceButtons=[];
   this.levelChoiceShade=this.add.rectangle(0,0,100,100,0x050403,0.58).setOrigin(0).setDepth(108).setVisible(false);
   this.levelChoicePanel=this.addPanelGraphics(109).setVisible(false);
-  this.levelChoiceTitle=this.add.text(0,0,'LEVEL 2 - CHOOSE UPGRADE',{fontFamily:'Arial, sans-serif',fontSize:'24px',fontStyle:'bold',color:'#f1df97',stroke:'#17110c',strokeThickness:4}).setOrigin(0.5).setDepth(110).setVisible(false);
+  this.levelChoiceTitle=lkAddText(this,0,0,'LEVEL 2 - CHOOSE UPGRADE',{fontFamily:'Arial, sans-serif',fontSize:'24px',fontStyle:'bold',color:'#f1df97',stroke:'#17110c',strokeThickness:4}).setOrigin(0.5).setDepth(110).setVisible(false);
 
   for(let i=0;i<3;i++){
    const card=this.add.rectangle(0,0,100,44,0x243323,0.96).setStrokeStyle(2,0x789561,0.88).setDepth(110).setVisible(false).setInteractive({useHandCursor:true});
-   const label=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'18px',fontStyle:'bold',color:'#ffffff',stroke:'#14210f',strokeThickness:3,wordWrap:{width:360,useAdvancedWrap:true},align:'center'}).setOrigin(0.5).setDepth(111).setVisible(false).setInteractive({useHandCursor:true});
+   const label=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'18px',fontStyle:'bold',color:'#ffffff',stroke:'#14210f',strokeThickness:3,wordWrap:{width:360,useAdvancedWrap:true},align:'center'}).setOrigin(0.5).setDepth(111).setVisible(false).setInteractive({useHandCursor:true});
    card.on('pointerover',()=>{ if(this.levelChoiceVisible) card.setFillStyle(0x30482c,1); });
    card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
    card.on('pointerdown',()=>this.mainScene?.selectLevelChoice?.(i));
@@ -6080,13 +7484,13 @@ class HUDScene extends Phaser.Scene {
   this.championRewardData=[];
   this.championRewardShade=this.add.rectangle(0,0,100,100,0x050403,0.62).setOrigin(0).setDepth(118).setVisible(false);
   this.championRewardPanel=this.addPanelGraphics(119).setVisible(false);
-  this.championRewardTitle=this.add.text(0,0,'CHAMPION DEFEATED',{fontFamily:'Arial, sans-serif',fontSize:'26px',fontStyle:'bold',color:'#f5d78f',stroke:'#111111',strokeThickness:4,align:'center'}).setOrigin(0.5).setDepth(120).setVisible(false);
-  this.championRewardSubtitle=this.add.text(0,0,'CHOOSE ONE CHAMPION RELIC',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5).setDepth(120).setVisible(false);
+  this.championRewardTitle=lkAddText(this,0,0,'CHAMPION DEFEATED',{fontFamily:'Arial, sans-serif',fontSize:'26px',fontStyle:'bold',color:'#f5d78f',stroke:'#111111',strokeThickness:4,align:'center'}).setOrigin(0.5).setDepth(120).setVisible(false);
+  this.championRewardSubtitle=lkAddText(this,0,0,'CHOOSE ONE CHAMPION RELIC',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5).setDepth(120).setVisible(false);
   this.championRewardCards=[];
   for(let i=0;i<3;i++){
    const card=this.add.rectangle(0,0,100,60,0x243323,0.96).setStrokeStyle(2,0x7f9b68,0.82).setDepth(120).setVisible(false).setInteractive({useHandCursor:true});
-   const name=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'17px',fontStyle:'bold',color:'#ffe8a8'}).setOrigin(0,0.5).setDepth(121).setVisible(false);
-   const desc=this.add.text(0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#dbe8d7',wordWrap:{width:460,useAdvancedWrap:true}}).setOrigin(0,0.5).setDepth(121).setVisible(false);
+   const name=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'17px',fontStyle:'bold',color:'#ffe8a8'}).setOrigin(0,0.5).setDepth(121).setVisible(false);
+   const desc=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#dbe8d7',wordWrap:{width:460,useAdvancedWrap:true}}).setOrigin(0,0.5).setDepth(121).setVisible(false);
    card.on('pointerover',()=>{ if(this.championRewardVisible) card.setFillStyle(0x354b32,1); });
    card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
    card.on('pointerdown',()=>this.mainScene?.selectChampionReward?.(i));
@@ -6155,10 +7559,10 @@ class HUDScene extends Phaser.Scene {
  buildGameOver(){
   this.gameOverShade=this.add.rectangle(0,0,100,100,0x050403,0.72).setOrigin(0).setDepth(100).setVisible(false);
   this.gameOverFrame=this.add.rectangle(0,0,410,180,0x16120f,0.98).setStrokeStyle(3,0xa98649,1).setDepth(101).setVisible(false);
-  this.gameOverTitle=this.add.text(0,0,'YOU HAVE FALLEN',{fontFamily:'Arial, sans-serif',fontSize:'28px',fontStyle:'bold',color:'#e6cf9a',stroke:'#1a1009',strokeThickness:4}).setOrigin(0.5).setDepth(102).setVisible(false);
-  this.gameOverHint=this.add.text(0,0,'Press R to restart',{fontFamily:'Arial, sans-serif',fontSize:'15px',color:'#d1c7b5'}).setOrigin(0.5).setDepth(102).setVisible(false);
+  this.gameOverTitle=lkAddText(this,0,0,'YOU HAVE FALLEN',{fontFamily:'Arial, sans-serif',fontSize:'28px',fontStyle:'bold',color:'#e6cf9a',stroke:'#1a1009',strokeThickness:4}).setOrigin(0.5).setDepth(102).setVisible(false);
+  this.gameOverHint=lkAddText(this,0,0,'Press R to restart',{fontFamily:'Arial, sans-serif',fontSize:'15px',color:'#d1c7b5'}).setOrigin(0.5).setDepth(102).setVisible(false);
   this.restartButton=this.add.rectangle(0,0,180,44,0x2b2418,1).setStrokeStyle(2,0xc3a35d,1).setDepth(102).setVisible(false).setInteractive({useHandCursor:true});
-  this.restartLabel=this.add.text(0,0,'RESTART',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f5dfad'}).setOrigin(0.5).setDepth(103).setVisible(false);
+  this.restartLabel=lkAddText(this,0,0,'RESTART',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f5dfad'}).setOrigin(0.5).setDepth(103).setVisible(false);
   this.restartButton.on('pointerdown',()=>{ if(this.mainScene?.gameOver) this.mainScene.scene.restart(); });
  }
 
@@ -6562,7 +7966,7 @@ class HUDScene extends Phaser.Scene {
 
 const LK_INITIAL_CSS=lkCssViewport();
 try{
- const saved=Number(localStorage.getItem('lastKnight.dev.renderScale'));
+ const saved=Number(localStorage.getItem(LK_RENDER_SCALE_STORAGE_KEY));
  if(Number.isFinite(saved)&&saved>=1)LK_RENDER_SCALE=Phaser.Math.Clamp(saved,1,LK_RENDER_SCALE_MAX);
 }catch{}
 

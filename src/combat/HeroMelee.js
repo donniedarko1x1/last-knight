@@ -46,16 +46,17 @@ export default class HeroMelee {
     if(this.scene.onSwordAttack){
       this.scene.onSwordAttack(this.attackCounter);
     }
+    if(this.scene.playHeroSwordAttackSfx){
+      this.scene.playHeroSwordAttackSfx();
+    }
 
-    // The sword is baked into the hero attack frames; this controller owns gameplay only.
+    // Runtime weapon-socket build: the sword is a separate sprite and follows
+    // the exact current hero animation frame through the exported socket JSON.
     this.scene.playerAttackDir = this.scene.playerDir || 'down';
-    this.scene.playerAttackUntil = time + 500;
-
-    const attackKey = `player_${this.scene.playerAttackDir}_attack`;
-
-    if(this.scene.playerVisual && this.scene.playerVisual.active){
-      this.scene.playerVisualState = attackKey;
-      this.scene.playerVisual.play(attackKey, true);
+    if(this.scene.startHeroSpinAttack){
+      this.scene.startHeroSpinAttack();
+    } else {
+      this.scene.playerAttackUntil = time + 750;
     }
 
     if(this.scene.activeAttackFx && this.scene.activeAttackFx.active){
@@ -90,6 +91,8 @@ export default class HeroMelee {
       if(ring && ring.active) ring.destroy();
     });
 
+    let swordImpactSfxNeeded=false;
+
     for(const enemy of enemies){
       if(!enemy.active || enemy.hp<=0) continue;
 
@@ -101,12 +104,16 @@ export default class HeroMelee {
       );
 
       if(d <= this.radius){
+        swordImpactSfxNeeded=true;
         if(this.scene.consumeShieldBlock && this.scene.consumeShieldBlock(enemy)){
           this.createHitBurst(enemy.x, enemy.y - 16, 0xffffff);
         } else {
-          const resolvedDamage=this.scene.getSwordDamageAgainst
-            ? this.scene.getSwordDamageAgainst(enemy,this.damage)
+          const effectiveDamage=this.scene.getEffectiveMeleeDamage
+            ? this.scene.getEffectiveMeleeDamage(this.damage)
             : this.damage;
+          const resolvedDamage=this.scene.getSwordDamageAgainst
+            ? this.scene.getSwordDamageAgainst(enemy,effectiveDamage)
+            : effectiveDamage;
 
           enemy.hp -= resolvedDamage;
           const defeated=enemy.hp<=0;
@@ -158,6 +165,10 @@ export default class HeroMelee {
 
         }
       }
+    }
+
+    if(swordImpactSfxNeeded && this.scene.playHeroSwordImpactSfx){
+      this.scene.playHeroSwordImpactSfx();
     }
   }
 }

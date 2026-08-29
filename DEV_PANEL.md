@@ -84,7 +84,7 @@ Open **RENDER / DPI TEST** in the DEV panel.
 - **1.5×** renders 1.5× in both dimensions.
 - **2×** renders 2× in both dimensions (4× as many pixels total).
 - **AUTO DPR** uses `min(devicePixelRatio, 2)`.
-- The selected render scale is stored in localStorage key `lastKnight.dev.renderScale`.
+- The selected render scale is stored in localStorage key `lastKnight.dev.renderScale.v2`.
 - The panel shows device DPR, CSS viewport, real canvas backing size, CSS canvas size, backing/CSS ratio, renderer type and HUD text resolution.
 - Phaser Text objects in active scenes are refreshed to high-DPI text resolution (capped at 2×).
 - HUD uses a dedicated compensating camera zoom, so UI positions and apparent sizes should stay approximately unchanged while render density changes.
@@ -100,3 +100,26 @@ Open **RENDER / DPI TEST** in the DEV panel.
 6. Send both screenshots plus the diagnostic text shown in the panel.
 
 Expected proof of the original blur hypothesis: at 2×, Phaser-rendered HUD/world should become visibly sharper while the HTML DEV button changes little or not at all.
+
+
+## Render scale baseline
+
+Mobile default render scale is **1.75×**. DEV still allows 1× / 1.5× / 1.75× / 2× / Auto DPR (capped at 2×).
+
+## Regional combat progression (Build 1.0.5)
+
+Ash Fields remains the original combat baseline. Later regions add pressure without replacing the existing wave/enemy formulas.
+
+| Region | Ordinary population | Spawn rate | Hero max HP | Regional melee bonus |
+| --- | ---: | ---: | ---: | ---: |
+| Ash Fields | 1.00× | 1.00× | 100 | +0 |
+| Ruined Kingdom | 1.15× | 1.05× | 108 | +1 |
+| Cursed Graveyard | 1.30× | 1.10× | 117 | +2 |
+| Hollow Forest | 1.45× | 1.15× | 126 | +3 |
+| Spider Territory | 1.60× | 1.20× | 136 | +4 |
+
+- Existing wave-based enemy HP/speed scaling is unchanged.
+- Champion waves still reduce ordinary-enemy pressure by 30%, then apply the current region multiplier.
+- Regional melee bonus is added after normal sword upgrades and also feeds skills/relic effects that already scale from melee damage.
+- Regional HP/melee growth is applied on the official biome transition. DEV Travel teleports apply the destination balance immediately for testing.
+- DEV → ENEMIES includes **REGION POPULATION TEST** buttons (AUTO / 1.00× / 1.15× / 1.30× / 1.45× / 1.60×). They recalculate the current wave without changing enemy HP.

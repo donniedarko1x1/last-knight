@@ -1,0 +1,64 @@
+{
+  "format": "last-knight-weapon-set",
+  "version": 1.1,
+  "name": "weapon-set",
+  "variants": {
+    "sword_e": {
+      "name": "sword_e.png",
+      "width": 436,
+      "height": 271,
+      "gripX": 103.793,
+      "gripY": 108.249
+    },
+    "sword_n": {
+      "name": "sword_n.png",
+      "width": 316,
+      "height": 436,
+      "gripX": 151.771,
+      "gripY": 336.1
+    },
+    "sword_ne": {
+      "name": "sword_ne.png",
+      "width": 371,
+      "height": 376,
+      "gripX": 88.814,
+      "gripY": 271.047
+    },
+    "sword_nw": {
+      "name": "sword_nw.png",
+      "width": 401,
+      "height": 356,
+      "gripX": 271.7,
+      "gripY": 261.716
+    },
+    "sword_s": {
+      "name": "sword_s.png",
+      "width": 201,
+      "height": 431,
+      "gripX": 91.264,
+      "gripY": 92.117
+    },
+    "sword_se": {
+      "name": "sword_se.png",
+      "width": 336,
+      "height": 371,
+      "gripX": 83.2,
+      "gripY": 73.993
+    },
+    "sword_sw": {
+      "name": "sword_sw.png",
+      "width": 381,
+      "height": 371,
+      "gripX": 285.9,
+      "gripY": 111.093
+    },
+    "sword_w": {
+      "name": "sword_w.png",
+      "width": 421,
+      "height": 306,
+      "gripX": 324.157,
+      "gripY": 148.458
+    }
+  },
+  "note": "Each directional PNG has its own grip pivot. Hero frame placement selects variant."
+}
