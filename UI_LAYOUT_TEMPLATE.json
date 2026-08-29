@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "profiles": {
+    "desktop": {
+      "heroShell": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "levelBadge": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "hpBar": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "xpBar": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "mana": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "wavePanel": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "waveTitle": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "waveRegion": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossPanel": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossName": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossHp": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillQuake": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillLift": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillSpin": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "joystick": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "fullscreen": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      }
+    },
+    "mobileLandscape": {
+      "heroShell": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "levelBadge": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "hpBar": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "xpBar": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "mana": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "wavePanel": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "waveTitle": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "waveRegion": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossPanel": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossName": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "bossHp": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillQuake": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillLift": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "skillSpin": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "joystick": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      },
+      "fullscreen": {
+        "dx": 0,
+        "dy": 0,
+        "scale": 1,
+        "width": 1,
+        "height": 1,
+        "alpha": 1,
+        "depth": 0,
+        "fontScale": 1,
+        "locked": false
+      }
+    }
+  }
+}
