@@ -1554,6 +1554,9 @@ function queueGameplayArt(scene){
  scene.load.audio('sfx_hero_sword_attack','/assets/audio/hero_sword_attack.ogg');
  scene.load.audio('sfx_hero_sword_impact','/assets/audio/hero_sword_impact.ogg');
  scene.load.audio('sfx_skeleton_sword_attack','/assets/audio/skeleton_sword_attack.ogg');
+ scene.load.audio('sfx_skill_quake','/assets/audio/skill_quake.ogg');
+ scene.load.audio('sfx_skill_lift','/assets/audio/skill_lift.ogg');
+ scene.load.audio('sfx_skill_spin','/assets/audio/skill_spin.ogg');
  for(let i=0;i<2;i++){
   const frame=String(i).padStart(2,'0');
   scene.load.image(`mage_projectile_${frame}`,`/assets/gameplay/projectiles/mage_projectile_${frame}.png`);
@@ -3476,7 +3479,7 @@ class MainScene extends Phaser.Scene {
 
   if(isMage){
    e.setFillStyle(0x44ff66,0);
-   e.hp=30 + this.wave*5;
+   e.hp=20 + this.wave*3;
    e.maxHp=e.hp;
    e.speed=72 + this.wave*3.3;
    e.hitRadius=14;
@@ -5239,10 +5242,16 @@ createAshFieldsEnvironment(objects,zone){
    return;
   }
   if(!this.spendMana()) return;
-  if(index===1) this.castGroundTremor();
-  else if(index===2) this.castLift();
-  else if(index===3) this.castSpin();
-  else this.mana=Math.min(this.maxMana,this.mana+1);
+  if(index===1){
+   this.playSkillSfx('sfx_skill_quake');
+   this.castGroundTremor();
+  } else if(index===2){
+   this.playSkillSfx('sfx_skill_lift');
+   this.castLift();
+  } else if(index===3){
+   this.playSkillSfx('sfx_skill_spin');
+   this.castSpin();
+  } else this.mana=Math.min(this.maxMana,this.mana+1);
  }
 
  showNoManaFeedback(){
@@ -5785,6 +5794,11 @@ createAshFieldsEnvironment(objects,zone){
  playHeroSwordAttackSfx(){
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_attack')) return;
   this.sound.play('sfx_hero_sword_attack',{volume:0.42});
+ }
+
+ playSkillSfx(key){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists(key)) return;
+  this.sound.play(key,{volume:0.42});
  }
 
  playHeroSwordImpactSfx(){
