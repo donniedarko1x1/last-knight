@@ -1,5 +1,14 @@
 import Phaser from 'phaser';
 import HeroMelee from './combat/HeroMelee.js';
+import {
+ ASSET_CATEGORY,
+ ASSET_REQUIREMENT,
+ SKILL_ICON_KEYS,
+ PROLOGUE_PAGE_KEYS,
+ getAssetSpec,
+ queueAssetCategories,
+ releaseTextureKeys
+} from './config/assetManifest.mjs';
 
 // This artifact is an explicit development build. Set false for release; ?dev=1 still unlocks the tuner.
 const DEV_BUILD=true;
@@ -305,30 +314,6 @@ const REGION_BALANCE={
 };
 
 
-
-const ASH_ENVIRONMENT_ART={
- ground:[
-  'ash_ground_base_01',
-  'ash_edge_north_01',
-  'ash_edge_south_01',
-  'ash_edge_west_01',
-  'ash_edge_east_01'
- ],
- props:[
-  'ash_tree_01',
-  'ash_tree_02',
-  'ash_rock_01',
-  'ash_rock_02',
-  'ash_rock_03',
-  'ash_grass_01',
-  'ash_grass_02',
-  'ash_grass_03'
- ],
- landmarks:[
-  'ash_landmark_altar',
-  'ash_landmark_sword'
- ]
-};
 
 const ASH_FIELDS_CLUSTER_LIBRARY={
  quiet_top_01:[
@@ -1529,74 +1514,6 @@ const ASH_READABILITY={
 
 const LOADING_ART_KEY='lastknight_loading_art';
 const LOADING_SCREEN_STATUS='Loading Ash Fields...';
-const SKILL_ICON_ASSETS={quake:'/assets/ui/newskills/skill_quake_icon.png',lift:'/assets/ui/newskills/skill_lift_icon.png',spin:'/assets/ui/newskills/skill_spin_icon.png'};
-const SKILL_ICON_KEYS={quake:'skill_icon_quake',lift:'skill_icon_lift',spin:'skill_icon_spin'};
-const HERO_HUD_ASSETS={
- hp_bar_frame:'/assets/ui/hero_hud/hp_bar_frame.png',
- mana_bottle_blue:'/assets/ui/hero_hud/mana_bottle_blue.png',
- xp_bar_frame:'/assets/ui/hero_hud/xp_bar_frame.png'
-};
-
-function queueAshFieldsEnvironmentArt(scene){
- for(const key of ASH_ENVIRONMENT_ART.ground){
-  scene.load.image(key,`/assets/environment/ash_fields/ground_minimal/${key}.png`);
- }
- for(const key of ASH_ENVIRONMENT_ART.props){
-  scene.load.image(key,`/assets/environment/ash_fields/props_curated/${key}.png`);
- }
- for(const key of ASH_ENVIRONMENT_ART.landmarks){
-  scene.load.image(key,`/assets/environment/ash_fields/landmarks_curated/${key}.png`);
- }
-}
-
-function queueSkillIconArt(scene){
- for(const [kind,path] of Object.entries(SKILL_ICON_ASSETS)) scene.load.image(SKILL_ICON_KEYS[kind],path);
- for(const [key,path] of Object.entries(HERO_HUD_ASSETS)) scene.load.image(`hero_hud_${key}`,path);
-}
-
-function queueGameplayArt(scene){
- scene.load.image('xp_crystal','/assets/gameplay/pickups/xp_crystal.png');
- scene.load.image('health_heart','/assets/gameplay/pickups/health_heart.png');
- scene.load.audio('critical_heartbeat','/assets/audio/critical_heartbeat.wav');
- scene.load.audio('bgm_veil_of_the_past','/assets/audio/bgm_veil_of_the_past.ogg');
- scene.load.audio('sfx_hero_sword_attack','/assets/audio/hero_sword_attack.ogg');
- scene.load.audio('sfx_hero_sword_impact','/assets/audio/hero_sword_impact.ogg');
- scene.load.audio('sfx_skeleton_sword_attack','/assets/audio/skeleton_sword_attack.ogg');
- scene.load.audio('sfx_mage_cast','/assets/audio/mage_cast.ogg');
- scene.load.audio('sfx_hero_death','/assets/audio/hero_death.ogg');
- scene.load.audio('sfx_hero_hit','/assets/audio/hero_hit.ogg');
- scene.load.audio('sfx_skill_quake','/assets/audio/skill_quake.ogg');
- scene.load.audio('sfx_skill_lift','/assets/audio/skill_lift.ogg');
- scene.load.audio('sfx_skill_spin','/assets/audio/skill_spin.ogg');
- scene.load.audio('sfx_broken_saint_holy_warning','/assets/audio/broken_saint_holy_warning.ogg');
- scene.load.audio('sfx_broken_saint_holy_beam','/assets/audio/broken_saint_holy_beam.ogg');
- scene.load.audio('sfx_broken_saint_spawn','/assets/audio/broken_saint_spawn.ogg');
- for(let i=0;i<2;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(`mage_projectile_${frame}`,`/assets/gameplay/projectiles/mage_projectile_${frame}.png`);
- }
- const brokenSaintVfx={holy_mark:4,holy_impact:4,holy_beam:3,reflect_shield:4,reflect_spark:2};
- for(const [name,count] of Object.entries(brokenSaintVfx)){
-  for(let i=0;i<count;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(`broken_saint_${name}_${frame}`,`/assets/effects/broken_saint/broken_saint_${name}_${frame}.png`);
-  }
- }
-}
-
-function queueAttackRingArt(scene){
- for(let i=0;i<8;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(`ring_sweep_${frame}`,`/assets/effects/ring_sweep_${frame}.png`);
- }
-}
-
-function queueHitBurstArt(scene){
- for(let i=0;i<6;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(`hit_burst_${frame}`,`/assets/effects/hit_burst_${frame}.png`);
- }
-}
 
 const HERO_SOCKET_DIRS=['n','ne','e','se','s','sw','w','nw'];
 const HERO_SOCKET_SPIN_FRAME_COUNT=15;
@@ -1610,93 +1527,11 @@ const HERO_DEATH_HOLD_MS=1000;
 // live hero's ~224 px source height keeps the on-screen character size stable.
 const HERO_DEATH_VISUAL_SCALE=HERO_SOCKET_VISUAL_SCALE*(224/490);
 
-function queueHeroSocketAssets(scene){
- for(const dir of HERO_SOCKET_DIRS){
-  for(let i=1;i<=2;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(
-    `hero_socket_walk_${dir}_${frame}`,
-    `/assets/redraw/player_socket/hero_walk_${dir}_${frame}.png`
-   );
-  }
- }
- for(let i=1;i<=HERO_SOCKET_SPIN_FRAME_COUNT;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(
-   `hero_socket_spin_${frame}`,
-   `/assets/redraw/player_socket/hero_spin_${frame}.png`
-  );
- }
- for(let i=1;i<=HERO_DEATH_FRAME_COUNT;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(
-   `hero_death_${frame}`,
-   `/assets/redraw/player_socket/death/hero_death_${frame}.png`
-  );
- }
- for(const dir of ['n','ne','e','se','s','sw','w','nw']){
-  scene.load.image(
-   `weapon_socket_sword_${dir}`,
-   `/assets/weapons/sword1/sword_${dir}.png`
-  );
- }
- scene.load.json(
-  'last_knight_weapon_socket_project',
-  '/assets/config/last-knight-weapon-socket-project.json'
- );
-}
-
-function queueCinematicFrameAssets(scene){
- const frameBase='/assets/ui/cinematic_frame';
- scene.load.image('cinematic_stone_bar',`${frameBase}/cinematic_stone_bar.png`);
- scene.load.image('cinematic_stone_joint',`${frameBase}/cinematic_stone_joint.png`);
-
- const cinematicBase='/assets/ui/cinematic';
- for(let i=1;i<=4;i++){
-  const frame=String(i).padStart(2,'0');
-  scene.load.image(`prologue_scene_${frame}`,`${cinematicBase}/prologue_scene_${frame}.png`);
- }
-}
-
-function queueMainGameAssets(scene){
- queueCinematicFrameAssets(scene);
- queueHeroSocketAssets(scene);
- queueAttackRingArt(scene);
- queueHitBurstArt(scene);
- queueAshFieldsEnvironmentArt(scene);
- queueGameplayArt(scene);
- queueSkillIconArt(scene);
- const dirs=['down','left','right','up'];
- for(const dir of dirs){
-  for(let i=0;i<4;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(`skeleton_${dir}_idle_${frame}`,`/assets/redraw/skeleton/${dir}_idle_${frame}.png`);
-   if(i<3) scene.load.image(`mage_${dir}_idle_${frame}`,`/assets/redraw/mage/${dir}_idle_${frame}.png`);
-   scene.load.image(`shield_${dir}_idle_${frame}`,`/assets/redraw/shield/${dir}_idle_${dir==='right' && i<2 ? String(i+2).padStart(2,'0') : frame}.png`);
-  }
-  for(let i=0;i<6;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(`skeleton_${dir}_walk_${frame}`,`/assets/redraw/skeleton/${dir}_walk_${frame}.png`);
-   scene.load.image(`skeleton_${dir}_attack_${frame}`,`/assets/redraw/skeleton/${dir}_attack_${frame}.png`);
-   scene.load.image(`mage_${dir}_walk_${frame}`,`/assets/redraw/mage/${dir}_walk_${dir==='down' && i===4 ? '05' : dir==='down' && i===5 ? '06' : frame}.png`);
-   scene.load.image(`mage_${dir}_cast_${frame}`,`/assets/redraw/mage/${dir}_cast_${frame}.png`);
-   scene.load.image(`shield_${dir}_walk_${frame}`,`/assets/redraw/shield/${dir}_walk_${frame}.png`);
-   scene.load.image(`shield_${dir}_attack_${frame}`,`/assets/redraw/shield/${dir}_attack_${dir==='left' && i===1 ? '06' : frame}.png`);
-  }
- }
- const brokenSaintSourceDirs={down:'down',down_left:'down_right',left:'right',up_left:'up_right',up:'up',up_right:'up_left',right:'left',down_right:'down_left'};
- for(const [dir,sourceDir] of Object.entries(brokenSaintSourceDirs)){
-  for(let i=0;i<4;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(`broken_saint_${dir}_walk_${frame}`,`/assets/redraw/champion/broken_saint/${sourceDir}_walk_${frame}.png`);
-  }
-  for(let i=0;i<3;i++){
-   const frame=String(i).padStart(2,'0');
-   scene.load.image(`broken_saint_${dir}_attack_${frame}`,`/assets/redraw/champion/broken_saint/${sourceDir}_attack_${frame}.png`);
-  }
- }
-}
-
+const INITIAL_ASSET_CATEGORIES=[
+ ASSET_CATEGORY.CORE,
+ ASSET_CATEGORY.PROLOGUE,
+ ASSET_CATEGORY.REGION_ASH
+];
 
 class LastKnightUiLayoutEditor {
  constructor(devTools){
@@ -2644,11 +2479,18 @@ class PreloadScene extends Phaser.Scene {
  constructor(){
   super('PreloadScene');
   this.loadingFailed=false;
+  this.requiredLoadErrors=[];
+  this.optionalLoadErrors=[];
+  this.queuedAssetCount=0;
  }
  create(){
+  this.loadingFailed=false;
+  this.requiredLoadErrors=[];
+  this.optionalLoadErrors=[];
   this.cameras.main.setOrigin(0,0).setZoom(LK_RENDER_SCALE);
   this.buildLoadingScreen();
-  queueMainGameAssets(this);
+  const queued=queueAssetCategories(this,INITIAL_ASSET_CATEGORIES);
+  this.queuedAssetCount=queued.length;
   this.registerLoadingEvents();
   this.load.start();
  }
@@ -2705,30 +2547,49 @@ class PreloadScene extends Phaser.Scene {
   this.retryHint.setPosition(cx,cy+(mobile?97:108)).setFontSize(mobile?11:13);
  }
  registerLoadingEvents(){
-  const totalFiles=Math.max(1,this.load.list.size + this.load.inflight.size);
+  const totalFiles=Math.max(1,this.queuedAssetCount || this.load.list.size + this.load.inflight.size);
   this.load.on('progress',(value)=>this.setProgress(value));
   this.load.on('fileprogress',(file)=>{
    const raw=file?.key || LOADING_SCREEN_STATUS;
    const friendly=String(raw).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
    this.loadingStatus.setText(`Loading: ${friendly}`);
   });
-  this.load.on('loaderror',()=>{
+  this.load.on('loaderror',(file)=>{
+   const key=String(file?.key||'unknown');
+   const spec=getAssetSpec(key);
+   const optional=spec?.requirement===ASSET_REQUIREMENT.OPTIONAL;
+   if(optional){
+    this.optionalLoadErrors.push(key);
+    console.warn(`[AssetPipeline] Optional asset skipped: ${key}`,spec?.url||file?.url||'');
+    this.loadingStatus.setText(`Optional asset skipped: ${key.replace(/_/g,' ')}`);
+    return;
+   }
+
    this.loadingFailed=true;
-   this.loadingStatus.setText('Loading error');
+   this.requiredLoadErrors.push(key);
+   console.error(`[AssetPipeline] Required asset failed: ${key}`,spec?.url||file?.url||'');
+   this.loadingStatus.setText('Required asset failed');
    this.retryHint.setVisible(true);
   });
   this.load.once('complete',()=>{
    if(this.loadingFailed){
-    this.loadingStatus.setText('Loading failed');
+    const count=this.requiredLoadErrors.length;
+    this.loadingStatus.setText(`Loading failed (${count} required asset${count===1?'':'s'})`);
     this.retryHint.setVisible(true);
     return;
    }
    this.setProgress(1);
-   this.loadingStatus.setText('Opening prologue...');
+   const skipped=this.optionalLoadErrors.length;
+   this.loadingStatus.setText(skipped?`Opening prologue... (${skipped} optional skipped)`:'Opening prologue...');
    this.time.delayedCall(220,()=>{
     this.cameras.main.fadeOut(220,0,0,0);
     this.time.delayedCall(230,()=>{
-     if(!this.loadingFailed) this.scene.start('CinematicScene');
+     if(this.loadingFailed) return;
+     // Loading key art is one-shot. Destroy the display object first, then
+     // release the shared texture before entering the cinematic scene.
+     if(this.bg?.active) this.bg.destroy();
+     releaseTextureKeys(this,[LOADING_ART_KEY]);
+     this.scene.start('CinematicScene');
     });
    });
   });
@@ -3249,7 +3110,14 @@ class CinematicScene extends Phaser.Scene {
    this.prologueMusic=null;
   }
 
-  cinematicFadeOutAndRun(this,()=>this.scene.start('main'));
+  cinematicFadeOutAndRun(this,()=>{
+   // Prologue illustrations are one-shot textures. The reusable stone frame
+   // stays resident for future story cinematics, but the four large page images
+   // are released before gameplay begins.
+   if(this.cinematicImage?.active) this.cinematicImage.destroy();
+   releaseTextureKeys(this,PROLOGUE_PAGE_KEYS);
+   this.scene.start('main');
+  });
  }
 }
 
@@ -4055,7 +3923,7 @@ class MainScene extends Phaser.Scene {
    e.speed=72 + this.wave*2.8;
    e.blockNext=true;
    e.blockReadyAt=0;
-   e.attackDamage=13;
+   e.attackDamage=3.2;
    e.hitRadius=18;
 
    e.visual=this.add.sprite(
@@ -7484,7 +7352,9 @@ createAshFieldsEnvironment(objects,zone){
 
      const attackRange=e.type==='skeleton'
       ? 62
-      : (this.player.hitRadius||16)+(e.hitRadius||14)+8;
+      : (e.type==='shield'
+       ? 58
+       : (this.player.hitRadius||16)+(e.hitRadius||14)+8);
      const attackDamage=e.attackDamage || 5;
 
      const attackCooldown=e.type==='shield' ? 1300 : 1100;
