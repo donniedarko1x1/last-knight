@@ -2743,6 +2743,48 @@ class PreloadScene extends Phaser.Scene {
  }
 }
 
+const CINEMATIC_FADE={
+ IN_MS:260,
+ OUT_MS:220
+};
+
+// Shared transition helpers for every story screen that uses the cinematic frame.
+// Future dialogue/flashback scenes can call these instead of implementing their own fades.
+function cinematicFadeIn(scene,onComplete=null){
+ if(!scene?.cameras?.main) return;
+ scene.transitioning=true;
+ scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
+  scene.transitioning=false;
+  if(onComplete) onComplete();
+ });
+}
+
+function cinematicSwapWithFade(scene,swapContent,onComplete=null){
+ if(!scene?.cameras?.main || scene.transitioning) return false;
+ scene.transitioning=true;
+ scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
+  if(swapContent) swapContent();
+  scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
+  scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
+   scene.transitioning=false;
+   if(onComplete) onComplete();
+  });
+ });
+ return true;
+}
+
+function cinematicFadeOutAndRun(scene,onBlack){
+ if(!scene?.cameras?.main || scene.transitioning) return false;
+ scene.transitioning=true;
+ scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
+  if(onBlack) onBlack();
+ });
+ return true;
+}
+
 class CinematicScene extends Phaser.Scene {
  constructor(){
   super('CinematicScene');
@@ -2782,6 +2824,7 @@ class CinematicScene extends Phaser.Scene {
   this.setProloguePage(0);
   this.layout();
   this.startPrologueMusic();
+  cinematicFadeIn(this);
 
   this._cinematicResizeHandler=()=>this.layout();
   this.scale.on('resize',this._cinematicResizeHandler);
@@ -2943,7 +2986,8 @@ class CinematicScene extends Phaser.Scene {
   if(this.transitioning)return;
 
   if(this.pageIndex<this.prologuePages.length-1){
-   this.setProloguePage(this.pageIndex+1);
+   const nextIndex=this.pageIndex+1;
+   cinematicSwapWithFade(this,()=>this.setProloguePage(nextIndex));
    return;
   }
 
@@ -3144,7 +3188,7 @@ class CinematicScene extends Phaser.Scene {
 
  continueToGame(){
   if(this.transitioning)return;
-  this.transitioning=true;
+
   this.nextArrowHit.disableInteractive();
   this.lowerPanel.disableInteractive();
   this.fullscreenButton?.disableInteractive();
@@ -3156,8 +3200,7 @@ class CinematicScene extends Phaser.Scene {
    this.prologueMusic=null;
   }
 
-  this.cameras.main.fadeOut(180,0,0,0);
-  this.time.delayedCall(190,()=>this.scene.start('main'));
+  cinematicFadeOutAndRun(this,()=>this.scene.start('main'));
  }
 }
 
