@@ -2743,6 +2743,47 @@ class PreloadScene extends Phaser.Scene {
  }
 }
 
+const CINEMATIC_FADE={
+ IN_MS:520,
+ OUT_MS:440
+};
+
+// Shared transition helpers for every story screen that uses the cinematic frame.
+function cinematicFadeIn(scene,onComplete=null){
+ if(!scene?.cameras?.main) return;
+ scene.transitioning=true;
+ scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
+  scene.transitioning=false;
+  if(onComplete) onComplete();
+ });
+}
+
+function cinematicSwapWithFade(scene,swapContent,onComplete=null){
+ if(!scene?.cameras?.main || scene.transitioning) return false;
+ scene.transitioning=true;
+ scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
+  if(swapContent) swapContent();
+  scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
+  scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
+   scene.transitioning=false;
+   if(onComplete) onComplete();
+  });
+ });
+ return true;
+}
+
+function cinematicFadeOutAndRun(scene,onBlack){
+ if(!scene?.cameras?.main || scene.transitioning) return false;
+ scene.transitioning=true;
+ scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
+ scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
+  if(onBlack) onBlack();
+ });
+ return true;
+}
+
 class CinematicScene extends Phaser.Scene {
  constructor(){
   super('CinematicScene');
@@ -2783,6 +2824,7 @@ class CinematicScene extends Phaser.Scene {
   this.setProloguePage(0);
   this.layout();
   this.startPrologueMusic();
+  cinematicFadeIn(this);
 
   this._cinematicResizeHandler=()=>this.layout();
   this.scale.on('resize',this._cinematicResizeHandler);
@@ -2944,7 +2986,8 @@ class CinematicScene extends Phaser.Scene {
   if(this.transitioning)return;
 
   if(this.pageIndex<this.prologuePages.length-1){
-   this.setProloguePage(this.pageIndex+1);
+   const nextIndex=this.pageIndex+1;
+   cinematicSwapWithFade(this,()=>this.setProloguePage(nextIndex));
    return;
   }
 
@@ -3029,9 +3072,16 @@ class CinematicScene extends Phaser.Scene {
 
   const centerX=textX+textW*0.5;
   const centerY=textY+textH*0.5;
-  const targetLines=this.dialogueText.text.split('\n').length;
-  let fontSize=Math.round(Phaser.Math.Clamp(Math.min(textH/(targetLines+0.65), textW/18), 12, 28));
-  const minFontSize=10;
+  const targetLines=Math.max(1,this.dialogueText.text.split('\n').length);
+  const {width:sceneW,height:sceneH}=lkLogicalSceneSize(this);
+
+  // 1280x720 is the reference cinematic viewport. The font now scales with
+  // the real screen/frame size instead of staying at 28px until it overflows.
+  const responsiveScale=Math.min(sceneW/1280,sceneH/720);
+  const responsiveBase=Phaser.Math.Clamp(28*responsiveScale,10,28);
+  const contentLimit=Math.min(textH/(targetLines+0.65),textW/18);
+  let fontSize=Math.floor(Phaser.Math.Clamp(Math.min(responsiveBase,contentLimit),9,28));
+  const minFontSize=9;
 
   this.dialogueText
    .setAlign('center')
@@ -3041,7 +3091,7 @@ class CinematicScene extends Phaser.Scene {
   while(fontSize>=minFontSize){
    this.dialogueText
     .setFontSize(fontSize)
-    .setLineSpacing(Math.round(fontSize*0.18))
+    .setLineSpacing(Math.max(2,Math.round(fontSize*0.18)))
     .setWordWrapWidth(textW,true)
     .setPosition(centerX,centerY);
 
@@ -3052,6 +3102,7 @@ class CinematicScene extends Phaser.Scene {
    fontSize-=1;
   }
  }
+
 
  layout(){
   if(!this.upperPanel)return;
@@ -3069,7 +3120,7 @@ class CinematicScene extends Phaser.Scene {
   const frameW=Math.max(260,right-left);
   const frameH=Math.max(220,bottom-top);
 
-  const borderThickness=Phaser.Math.Clamp(Math.min(frameW,frameH)*0.030,18,28);
+  const borderThickness=Phaser.Math.Clamp(Math.min(frameW,frameH)*0.030,16,28);
   const jointSize=borderThickness*1.85;
   const halfBorder=borderThickness*0.58;
 
@@ -3080,14 +3131,13 @@ class CinematicScene extends Phaser.Scene {
   const innerWidth=Math.max(180,innerRight-innerLeft);
   const innerHeight=Math.max(140,innerBottom-innerTop);
 
-  const minTextHeight=Phaser.Math.Clamp(frameH*0.22,72,170);
-  const availableImageHeight=Math.max(80,innerHeight-minTextHeight);
-  const imageHeightByWidth=innerWidth/this.cinematicImageAspect;
-  const imageViewportHeight=Math.min(availableImageHeight,imageHeightByWidth);
-  const dividerY=innerTop+imageViewportHeight+halfBorder;
-  const clampedDividerY=Phaser.Math.Clamp(dividerY,top+frameH*0.48, bottom-minTextHeight);
+  // All cinematic illustrations use the same 2.75:1 source format.
+  // The upper viewport uses that exact ratio too, so images fill it 1:1
+  // with no stretch, letterboxing or device-dependent crop.
+  const imageViewportHeight=frameW/this.cinematicImageAspect;
   const imageTop=top;
-  const imageBottom=clampedDividerY;
+  const imageBottom=top+imageViewportHeight;
+  const clampedDividerY=imageBottom;
 
   this.upperPanel
    .setPosition(left,imageTop)
@@ -3114,7 +3164,7 @@ class CinematicScene extends Phaser.Scene {
   this.addStoneJoint(right,clampedDividerY,jointSize);
 
   const lowerTop=clampedDividerY+halfBorder;
-  const lowerHeight=Math.max(90,innerBottom-lowerTop);
+  const lowerHeight=Math.max(1,innerBottom-lowerTop);
 
   const showArrow=!this.isCompactMobile;
   this.nextArrowHit.setVisible(showArrow);
@@ -3130,12 +3180,12 @@ class CinematicScene extends Phaser.Scene {
   }
 
   const textPadX=Phaser.Math.Clamp(frameW*0.06,20,52);
-  const textPadY=Phaser.Math.Clamp(lowerHeight*0.16,10,24);
+  const textPadY=Phaser.Math.Clamp(lowerHeight*0.12,4,20);
   const reservedArrowW=showArrow ? Phaser.Math.Clamp(frameW*0.12,72,120) : 0;
   const textX=innerLeft+textPadX;
   const textY=lowerTop+textPadY;
   const textW=Math.max(140,innerWidth-textPadX*2-reservedArrowW);
-  const textH=Math.max(54,lowerHeight-textPadY*2);
+  const textH=Math.max(1,lowerHeight-textPadY*2);
   this.layoutDialogueText(textX,textY,textW,textH);
 
   if(this.fullscreenButton && this.fullscreenIconLabel){
@@ -3151,7 +3201,7 @@ class CinematicScene extends Phaser.Scene {
 
  continueToGame(){
   if(this.transitioning)return;
-  this.transitioning=true;
+
   this.nextArrowHit.disableInteractive();
   this.lowerPanel.disableInteractive();
   this.fullscreenButton?.disableInteractive();
@@ -3163,8 +3213,7 @@ class CinematicScene extends Phaser.Scene {
    this.prologueMusic=null;
   }
 
-  this.cameras.main.fadeOut(180,0,0,0);
-  this.time.delayedCall(190,()=>this.scene.start('main'));
+  cinematicFadeOutAndRun(this,()=>this.scene.start('main'));
  }
 }
 
@@ -6358,7 +6407,7 @@ createAshFieldsEnvironment(objects,zone){
 
  playHeroHitSfx(){
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_hit')) return;
-  this.sound.play('sfx_hero_hit',{volume:0.504});
+  this.sound.play('sfx_hero_hit',{volume:0.3528});
  }
 
  playSkillSfx(key,volume=0.42){
