@@ -149,7 +149,40 @@ if(!main.includes("const initialTexture=isBrokenSaint ? 'broken_saint_down_walk_
  fail('Champion visual fallback contract changed or missing');
 } else pass('Champion visual definitions/fallbacks present');
 
-// 8) Stability contracts added by Technical Stability v1.
+// 8) World Physics v1 contracts.
+for(const [label,needle] of [
+ ['decorative/blocking classification',"getAshPropPhysicsClass(prop,kind='grass')"],
+ ['enemy/world collider','this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup);'],
+ ['obstacle steering','setEnemySteeredVelocity(enemy,vx,vy,time){'],
+ ['safe enemy spawn','findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){'],
+ ['mage projectile obstacle collision','this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)']
+]){
+ if(!main.includes(needle)) fail(`Missing world-physics contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing world-physics contract:'))) pass('World Physics v1 contracts present');
+
+// 9) World Navigation v2 contracts.
+for(const [label,needle] of [
+ ['56px NavigationGrid','this.navigationCellSize=56;'],
+ ['grid rebuild','rebuildNavigationGrid(){'],
+ ['A* pathfinding','findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){'],
+ ['waypoint routing','getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){'],
+ ['local steering retained','setEnemySteeredVelocity(enemy,vx,vy,time){'],
+ ['soft enemy separation','applyEnemySoftSeparation(time){'],
+ ['stuck detector','updateEnemyStuckState(enemy,time,intendedSpeed){'],
+ ['navigation debug overlay','this.overlayFlags.navigation'],
+ ['nav-grid safe spawn','findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){']
+]){
+ if(!main.includes(needle)) fail(`Missing World Navigation v2 contract: ${label}`);
+}
+if(main.includes(`this.physics.add.collider(
+   this.enemyGroup,
+   this.enemyGroup,`)){
+ fail('Hard enemy-enemy Arcade collider returned; World Navigation v2 requires soft separation');
+}
+if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.startsWith('Hard enemy-enemy'))) pass('World Navigation v2 contracts present');
+
+// 10) Stability contracts added by Technical Stability v1.
 for(const [label,needle] of [
  ['unified champion hazard cleanup','clearChampionHazards(){'],
  ['Mage SFX limiter reset','this.lastMageCastSfxAt=-9999;'],

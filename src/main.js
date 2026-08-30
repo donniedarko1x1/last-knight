@@ -1883,7 +1883,7 @@ class LastKnightDevTools {
   this.maxHistory=120;
   this.hiddenSegments=new Set();
   this.envVisibility={props:true,trees:true,rocks:true,grass:true,landmarks:true,shadows:true};
-  this.overlayFlags={hitboxes:false,enemyRange:false,meleeRadius:false,championRange:false,propColliders:false,safeLane:false,cameraBounds:false,mobileFrame:false,desktopFrame:false};
+  this.overlayFlags={hitboxes:false,enemyRange:false,meleeRadius:false,championRange:false,propColliders:false,navigation:false,safeLane:false,cameraBounds:false,mobileFrame:false,desktopFrame:false};
   this.freeCamera=false;
   this.cameraLocked=false;
   this.cameraPan=null;
@@ -2019,7 +2019,7 @@ class LastKnightDevTools {
     <details class="lkdev-section" open><summary>SCENE / OVERLAYS</summary><div class="lkdev-body">
      <div class="lkdev-grid3"><button data-action="envToggle" data-value="props">Props</button><button data-action="envToggle" data-value="trees">Trees</button><button data-action="envToggle" data-value="rocks">Rocks</button><button data-action="envToggle" data-value="grass">Grass</button><button data-action="envToggle" data-value="landmarks">Landmarks</button><button data-action="envToggle" data-value="shadows">Shadows</button></div>
      <div class="lkdev-row"><button data-action="groundOnly">Ground Only</button><button data-action="collisionTest">Collision Test</button></div>
-     <div class="lkdev-grid3"><button data-action="overlay" data-value="hitboxes">Hitboxes</button><button data-action="overlay" data-value="enemyRange">Enemy Range</button><button data-action="overlay" data-value="meleeRadius">Melee Radius</button><button data-action="overlay" data-value="championRange">Champion Range</button><button data-action="overlay" data-value="propColliders">Prop Colliders</button><button data-action="overlay" data-value="safeLane">Safe Lane</button><button data-action="overlay" data-value="cameraBounds">Camera Bounds</button><button data-action="overlay" data-value="mobileFrame">Mobile Frame</button><button data-action="overlay" data-value="desktopFrame">Desktop Frame</button></div>
+     <div class="lkdev-grid3"><button data-action="overlay" data-value="hitboxes">Hitboxes</button><button data-action="overlay" data-value="enemyRange">Enemy Range</button><button data-action="overlay" data-value="meleeRadius">Melee Radius</button><button data-action="overlay" data-value="championRange">Champion Range</button><button data-action="overlay" data-value="propColliders">Prop Colliders</button><button data-action="overlay" data-value="navigation">Navigation</button><button data-action="overlay" data-value="safeLane">Safe Lane</button><button data-action="overlay" data-value="cameraBounds">Camera Bounds</button><button data-action="overlay" data-value="mobileFrame">Mobile Frame</button><button data-action="overlay" data-value="desktopFrame">Desktop Frame</button></div>
      <div class="lkdev-label">Ash Fields segments</div><div class="lkdev-grid4"><button data-action="segment" data-value="intro">Intro</button><button data-action="segment" data-value="burntEdge">Burnt Edge</button><button data-action="segment" data-value="brokenSword">Sword</button><button data-action="segment" data-value="postLandmark">Post</button></div>
     </div></details>
 
@@ -2255,7 +2255,7 @@ class LastKnightDevTools {
 
  setPlayerHp(percent){const s=this.scene;s.player.hp=Math.max(1,Math.round((s.player.maxHp||100)*percent/100));s.gameOver=false;s.updateLowHealthState(true);}
  resetUpgrades(){const s=this.scene;s.meleeAttack.level=1;s.meleeAttack.damage=15;s.meleeAttack.cooldown=1000;s.meleeAttack.radius=99;s.weaponLevels={sword:1};}
- applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
+ applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;if(this.scene.enemyAshCollider)this.scene.enemyAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
  teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.progressionBalanceZoneIndex=s.currentWorldZoneIndex;s.applyRegionalHeroBalance(s.progressionBalanceZoneIndex,false);s.recalculateCurrentWaveRegionBalance();s.updateWorldStreaming();}
 
  toggleGroundOnly(){const on=!(this.groundOnly||false);this.groundOnly=on;if(on){this.envVisibility.props=false;this.envVisibility.landmarks=false;}else{this.envVisibility.props=true;this.envVisibility.trees=true;this.envVisibility.rocks=true;this.envVisibility.grass=true;this.envVisibility.landmarks=true;}this.applyAllEnvironmentVisibility();}
@@ -2279,6 +2279,7 @@ class LastKnightDevTools {
   object.setVisible(visible);
   for(const shadow of object.devLinkedShadows||[])shadow.setVisible(visible&&this.envVisibility.shadows);
   for(const collider of object.devLinkedColliders||[]){if(collider.body)collider.body.enable=visible&&!this.scene.devFlags.noCollision;}
+  this.scene.markNavigationDirty?.();
  }
  applyAllEnvironmentVisibility(){for(const o of this.scene.devEnvironmentObjects||[])this.applyObjectVisibility(o);}
 
@@ -2430,6 +2431,26 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   if(this.overlayFlags.enemyRange){for(const e of s.enemies){if(!e.active||e.type==='champion')continue;const r=e.type==='mage'?210:(e.type==='shield'?75:62);g.lineStyle(1,e.type==='mage'?0x66ff88:0xffa65c,0.32);g.strokeCircle(e.x,e.y,r);}}
   if(this.overlayFlags.championRange&&s.activeChampion?.active){const e=s.activeChampion;let r=e.championKind==='hollowTree'?175:(e.championKind==='shieldWarden'?128:110);g.lineStyle(2,0xd879ff,0.55);g.strokeCircle(e.x,e.y,r);}
   if(this.overlayFlags.propColliders){for(const b of s.devEnvironmentColliders||[]){if(!b?.active||!b.body?.enable)continue;const q=s.getAshBlockerBounds(b);if(q){g.lineStyle(1,0x72ff8b,0.7);g.strokeRect(q.left,q.top,q.right-q.left,q.bottom-q.top);}}}
+  if(this.overlayFlags.navigation){
+   const nav=s.ensureNavigationGrid?.();
+   if(nav){
+    const view=c.worldView;
+    const minCol=Phaser.Math.Clamp(Math.floor(view.left/nav.cellSize)-1,0,nav.cols-1),maxCol=Phaser.Math.Clamp(Math.floor(view.right/nav.cellSize)+1,0,nav.cols-1);
+    const minRow=Phaser.Math.Clamp(Math.floor(view.top/nav.cellSize)-1,0,nav.rows-1),maxRow=Phaser.Math.Clamp(Math.floor(view.bottom/nav.cellSize)+1,0,nav.rows-1);
+    g.lineStyle(1,0x6aa8ff,0.13);
+    for(let col=minCol;col<=maxCol+1;col++)g.lineBetween(col*nav.cellSize,view.top,col*nav.cellSize,view.bottom);
+    for(let row=minRow;row<=maxRow+1;row++)g.lineBetween(view.left,row*nav.cellSize,view.right,row*nav.cellSize);
+    for(let row=minRow;row<=maxRow;row++)for(let col=minCol;col<=maxCol;col++)if(nav.blocked[row*nav.cols+col]){g.fillStyle(0xff4d5f,0.18);g.fillRect(col*nav.cellSize,row*nav.cellSize,nav.cellSize,nav.cellSize);}
+    for(const e of s.enemies||[]){
+     if(!e?.active||!e.navPath?.length)continue;
+     const start=Math.min(e.navPathIndex||0,e.navPath.length-1);
+     g.lineStyle(2,e.type==='champion'?0xff9dff:0xffd45a,0.72);
+     let px=e.x,py=e.y;
+     for(let i=start;i<e.navPath.length;i++){const wp=e.navPath[i];g.lineBetween(px,py,wp.x,wp.y);px=wp.x;py=wp.y;}
+     const wp=e.navPath[start];if(wp){g.fillStyle(0xffef7a,0.9);g.fillCircle(wp.x,wp.y,4);}
+    }
+   }
+  }
   if(this.overlayFlags.cameraBounds){const v=c.worldView;g.lineStyle(2,0xffffff,0.55);g.strokeRect(v.x,v.y,v.width,v.height);}
   const centerX=s.player.x,centerY=s.player.y;if(this.overlayFlags.mobileFrame){g.lineStyle(2,0x56d8ff,0.48);g.strokeRect(centerX-800,centerY-360,1600,720);}if(this.overlayFlags.desktopFrame){g.lineStyle(2,0xffcc55,0.48);g.strokeRect(centerX-640,centerY-360,1280,720);}
   if(this.editMode&&this.selected?.active&&!this.selected.devDeleted){const b=this.selected.getBounds();g.lineStyle(3,0xffe169,0.95);g.strokeRect(b.x,b.y,b.width,b.height);g.fillStyle(0xffe169,0.8);g.fillCircle(this.selected.x,this.selected.y,5);}
@@ -3530,6 +3551,15 @@ class MainScene extends Phaser.Scene {
 
   this.physics.world.setBounds(0,0,STAGE0.WORLD_WIDTH,STAGE0.WORLD_HEIGHT);
 
+  // World Navigation v2: a coarse navigation grid sits above static world
+  // colliders. It is rebuilt only when blockers change, never every frame.
+  this.navigationCellSize=56;
+  this.navigationClearance=20;
+  this.navigationGrid=null;
+  this.navigationGridDirty=true;
+  this.navigationGridVersion=0;
+  this.navigationPathfindBudget=0;
+
   // Stage 1 World Design prototype. These shapes are diagnostic placeholders,
   // not final environment art.
   this.worldGround=this.add.rectangle(
@@ -3625,31 +3655,10 @@ class MainScene extends Phaser.Scene {
 
   this.playerEnemyCollider=this.physics.add.collider(this.player,this.enemyGroup);
   this.playerAshCollider=this.physics.add.collider(this.player,this.ashLandmarkColliderGroup);
+  this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup);
 
-  // Slightly wider physical spacing so mobs form a crowd instead of visually merging.
-  this.physics.add.collider(
-   this.enemyGroup,
-   this.enemyGroup,
-   (a,b)=>{
-    if(!a.active || !b.active || !a.body || !b.body) return;
-
-    const dx=a.x-b.x;
-    const dy=a.y-b.y;
-    const dist=Math.max(0.001,Math.hypot(dx,dy));
-    const minDist=(a.crowdRadius||a.hitRadius||14)+(b.crowdRadius||b.hitRadius||14)+8;
-
-    if(dist<minDist){
-     const push=(minDist-dist)*0.11;
-     const nx=dx/dist;
-     const ny=dy/dist;
-
-     a.body.velocity.x+=nx*push*18;
-     a.body.velocity.y+=ny*push*18;
-     b.body.velocity.x-=nx*push*18;
-     b.body.velocity.y-=ny*push*18;
-    }
-   }
-  );
+  // Enemy/enemy hard Arcade collision was intentionally removed in World Navigation v2.
+  // A soft-separation pass keeps the crowd readable without creating rigid traffic jams.
 
   this.setupResponsiveWorldCamera();
   this.bindProgressionGateCollision();
@@ -3862,7 +3871,8 @@ class MainScene extends Phaser.Scene {
  }
 
  spawnEnemy(forcedType=null,forcedPosition=null){
-  const spawn=forcedPosition || this.getSpawnPointAroundCamera(52);
+  const rawSpawn=forcedPosition || this.getSpawnPointAroundCamera(52);
+  const spawn=this.findSafeEnemySpawnPoint(rawSpawn.x,rawSpawn.y,{padding:28,minPlayerDistance:120,maxRadius:420});
 
   let e=this.add.circle(
     spawn.x,
@@ -4114,6 +4124,504 @@ class MainScene extends Phaser.Scene {
 
 
 
+ markNavigationDirty(){
+  this.navigationGridDirty=true;
+ }
+
+ ensureNavigationGrid(){
+  if(!this.navigationGrid || this.navigationGridDirty) this.rebuildNavigationGrid();
+  return this.navigationGrid;
+ }
+
+ rebuildNavigationGrid(){
+  const cellSize=this.navigationCellSize||56;
+  const cols=Math.ceil(STAGE0.WORLD_WIDTH/cellSize);
+  const rows=Math.ceil(STAGE0.WORLD_HEIGHT/cellSize);
+  const blocked=new Uint8Array(cols*rows);
+  const clearance=this.navigationClearance||20;
+
+  const blockers=this.ashLandmarkColliderGroup?.getChildren?.()||[];
+  for(const blocker of blockers){
+   if(!blocker?.active || !blocker.body || blocker.body.enable===false) continue;
+   const b=this.getAshBlockerBounds(blocker,clearance);
+   if(!b) continue;
+   const minCol=Phaser.Math.Clamp(Math.floor(b.left/cellSize),0,cols-1);
+   const maxCol=Phaser.Math.Clamp(Math.floor(b.right/cellSize),0,cols-1);
+   const minRow=Phaser.Math.Clamp(Math.floor(b.top/cellSize),0,rows-1);
+   const maxRow=Phaser.Math.Clamp(Math.floor(b.bottom/cellSize),0,rows-1);
+   for(let row=minRow;row<=maxRow;row++){
+    const cy=row*cellSize+cellSize*0.5;
+    for(let col=minCol;col<=maxCol;col++){
+     const cx=col*cellSize+cellSize*0.5;
+     if(cx>=b.left && cx<=b.right && cy>=b.top && cy<=b.bottom){
+      blocked[row*cols+col]=1;
+     }
+    }
+   }
+  }
+
+  this.navigationGrid={cellSize,cols,rows,blocked};
+  this.navigationGridDirty=false;
+  this.navigationGridVersion=(this.navigationGridVersion||0)+1;
+  for(const enemy of this.enemies||[]){
+   if(!enemy) continue;
+   enemy.navPath=null;
+   enemy.navPathIndex=0;
+   enemy.navGridVersion=0;
+   enemy.navNextRepathAt=0;
+  }
+ }
+
+ worldToNavCell(x,y){
+  const grid=this.ensureNavigationGrid();
+  return {
+   col:Phaser.Math.Clamp(Math.floor(x/grid.cellSize),0,grid.cols-1),
+   row:Phaser.Math.Clamp(Math.floor(y/grid.cellSize),0,grid.rows-1)
+  };
+ }
+
+ navCellToWorld(col,row){
+  const grid=this.ensureNavigationGrid();
+  return {
+   x:this.clampWorldX(col*grid.cellSize+grid.cellSize*0.5,20),
+   y:this.clampWorldY(row*grid.cellSize+grid.cellSize*0.5,20)
+  };
+ }
+
+ isNavCellWalkable(col,row){
+  const grid=this.ensureNavigationGrid();
+  if(col<0||row<0||col>=grid.cols||row>=grid.rows) return false;
+  return grid.blocked[row*grid.cols+col]===0;
+ }
+
+ findNearestWalkableNavCell(col,row,maxRadius=10){
+  const grid=this.ensureNavigationGrid();
+  col=Phaser.Math.Clamp(col,0,grid.cols-1);
+  row=Phaser.Math.Clamp(row,0,grid.rows-1);
+  if(this.isNavCellWalkable(col,row)) return {col,row};
+
+  for(let r=1;r<=maxRadius;r++){
+   for(let dx=-r;dx<=r;dx++){
+    for(const dy of [-r,r]){
+     const c=col+dx,rr=row+dy;
+     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
+    }
+   }
+   for(let dy=-r+1;dy<=r-1;dy++){
+    for(const dx of [-r,r]){
+     const c=col+dx,rr=row+dy;
+     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
+    }
+   }
+  }
+  return null;
+ }
+
+ isNavigationLineBlocked(x1,y1,x2,y2){
+  const grid=this.ensureNavigationGrid();
+  const dx=x2-x1,dy=y2-y1;
+  const distance=Math.hypot(dx,dy);
+  const steps=Math.max(1,Math.ceil(distance/(grid.cellSize*0.45)));
+  for(let i=1;i<=steps;i++){
+   const t=i/steps;
+   const col=Phaser.Math.Clamp(Math.floor((x1+dx*t)/grid.cellSize),0,grid.cols-1);
+   const row=Phaser.Math.Clamp(Math.floor((y1+dy*t)/grid.cellSize),0,grid.rows-1);
+   if(grid.blocked[row*grid.cols+col]) return true;
+  }
+  return false;
+ }
+
+ findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){
+  const grid=this.ensureNavigationGrid();
+  let start=this.worldToNavCell(startX,startY);
+  let goal=this.worldToNavCell(targetX,targetY);
+  start=this.findNearestWalkableNavCell(start.col,start.row,8);
+  goal=this.findNearestWalkableNavCell(goal.col,goal.row,10);
+  if(!start||!goal) return [];
+  if(start.col===goal.col && start.row===goal.row) return [];
+
+  const total=grid.cols*grid.rows;
+  const gScore=new Float32Array(total);
+  gScore.fill(Number.POSITIVE_INFINITY);
+  const parent=new Int32Array(total);
+  parent.fill(-1);
+  const closed=new Uint8Array(total);
+  const heap=[];
+  const startIndex=start.row*grid.cols+start.col;
+  const goalIndex=goal.row*grid.cols+goal.col;
+  const heuristic=(c,r)=>{
+   const dx=Math.abs(c-goal.col),dy=Math.abs(r-goal.row);
+   return Math.max(dx,dy)+(Math.SQRT2-1)*Math.min(dx,dy);
+  };
+  const heapPush=(node)=>{
+   heap.push(node);
+   let i=heap.length-1;
+   while(i>0){
+    const p=(i-1)>>1;
+    if(heap[p].f<=node.f) break;
+    heap[i]=heap[p];i=p;
+   }
+   heap[i]=node;
+  };
+  const heapPop=()=>{
+   if(!heap.length) return null;
+   const root=heap[0];
+   const tail=heap.pop();
+   if(heap.length){
+    let i=0;
+    while(true){
+     let child=i*2+1;
+     if(child>=heap.length) break;
+     if(child+1<heap.length && heap[child+1].f<heap[child].f) child++;
+     if(heap[child].f>=tail.f) break;
+     heap[i]=heap[child];i=child;
+    }
+    heap[i]=tail;
+   }
+   return root;
+  };
+
+  gScore[startIndex]=0;
+  heapPush({index:startIndex,col:start.col,row:start.row,f:heuristic(start.col,start.row)});
+  let visited=0;
+  const preferUp=((enemy?.navSeed||0)&1)===0;
+  const dirs=preferUp
+   ? [[1,0],[0,-1],[0,1],[-1,0],[1,-1],[1,1],[-1,-1],[-1,1]]
+   : [[1,0],[0,1],[0,-1],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+  while(heap.length && visited<maxVisited){
+   const node=heapPop();
+   if(!node||closed[node.index]) continue;
+   closed[node.index]=1;
+   visited++;
+   if(node.index===goalIndex) break;
+
+   for(const [dx,dy] of dirs){
+    const nc=node.col+dx,nr=node.row+dy;
+    if(!this.isNavCellWalkable(nc,nr)) continue;
+    if(dx!==0 && dy!==0){
+     if(!this.isNavCellWalkable(node.col+dx,node.row) || !this.isNavCellWalkable(node.col,node.row+dy)) continue;
+    }
+    const ni=nr*grid.cols+nc;
+    if(closed[ni]) continue;
+    const ng=gScore[node.index]+(dx!==0&&dy!==0?Math.SQRT2:1);
+    if(ng>=gScore[ni]) continue;
+    gScore[ni]=ng;
+    parent[ni]=node.index;
+    heapPush({index:ni,col:nc,row:nr,f:ng+heuristic(nc,nr)});
+   }
+  }
+
+  if(parent[goalIndex]===-1) return [];
+  const cells=[];
+  let cursor=goalIndex;
+  while(cursor!==startIndex && cursor!==-1){
+   const row=Math.floor(cursor/grid.cols);
+   const col=cursor-row*grid.cols;
+   cells.push({col,row});
+   cursor=parent[cursor];
+  }
+  cells.reverse();
+  if(!cells.length) return [];
+
+  // Collapse the grid path into long clear segments. A* provides global route
+  // choice; the existing local steering still handles the final few pixels.
+  const raw=cells.map(c=>this.navCellToWorld(c.col,c.row));
+  const simplified=[];
+  let from={x:startX,y:startY};
+  let i=0;
+  const radius=(enemy?.hitRadius||14)+5;
+  while(i<raw.length){
+   let best=i;
+   for(let j=raw.length-1;j>i;j--){
+    if(!this.isAshPathBlocked(from.x,from.y,raw[j].x,raw[j].y,radius)){
+     best=j;
+     break;
+    }
+   }
+   simplified.push(raw[best]);
+   from=raw[best];
+   i=best+1;
+  }
+  return simplified;
+ }
+
+ updateEnemyStuckState(enemy,time,intendedSpeed){
+  if(!enemy) return;
+  if(!enemy.navStuckCheckAt){
+   enemy.navStuckCheckAt=time+650;
+   enemy.navLastX=enemy.x;
+   enemy.navLastY=enemy.y;
+   enemy.navStuckCount=0;
+   return;
+  }
+  if(time<enemy.navStuckCheckAt) return;
+
+  const moved=Phaser.Math.Distance.Between(enemy.x,enemy.y,enemy.navLastX??enemy.x,enemy.navLastY??enemy.y);
+  const locked=time<(enemy.attackAnimUntil||0) || time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0);
+  const farFromPlayer=this.player?.active && Phaser.Math.Distance.Between(enemy.x,enemy.y,this.player.x,this.player.y)>78;
+  if(intendedSpeed>20 && !locked && farFromPlayer && moved<8){
+   enemy.navStuckCount=(enemy.navStuckCount||0)+1;
+   enemy.navForceRepath=true;
+   enemy.navNextRepathAt=0;
+   enemy.obstacleSteerUntil=0;
+  } else {
+   enemy.navStuckCount=0;
+  }
+  enemy.navLastX=enemy.x;
+  enemy.navLastY=enemy.y;
+  enemy.navStuckCheckAt=time+650;
+ }
+
+ getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){
+  if(!enemy || !this.player?.active) return null;
+  this.ensureNavigationGrid();
+  const directBlocked=this.isNavigationLineBlocked(enemy.x,enemy.y,targetX,targetY);
+  if(!directBlocked){
+   enemy.navPath=null;
+   enemy.navPathIndex=0;
+   enemy.navForceRepath=false;
+   return null;
+  }
+
+  const targetMoved=Phaser.Math.Distance.Between(targetX,targetY,enemy.navTargetX??targetX,enemy.navTargetY??targetY)>(this.navigationCellSize||56)*1.5;
+  const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
+  const periodicRefresh=pathFinished && time>=(enemy.navNextRepathAt||0);
+  const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
+  if(needsPath && this.navigationPathfindBudget>0){
+   this.navigationPathfindBudget--;
+   enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
+   enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
+   enemy.navPathIndex=0;
+   enemy.navTargetX=targetX;
+   enemy.navTargetY=targetY;
+   enemy.navGridVersion=this.navigationGridVersion;
+   enemy.navForceRepath=false;
+   enemy.navNextRepathAt=time+900+(enemy.navSeed%420);
+  }
+
+  const path=enemy.navPath;
+  if(!path?.length) return null;
+  let index=Phaser.Math.Clamp(enemy.navPathIndex||0,0,path.length-1);
+  while(index<path.length-1 && Phaser.Math.Distance.Between(enemy.x,enemy.y,path[index].x,path[index].y)<(this.navigationCellSize||56)*0.48){
+   index++;
+  }
+  enemy.navPathIndex=index;
+  return path[index]||null;
+ }
+
+ applyEnemySoftSeparation(time){
+  if(this.devFlags?.noCollision) return;
+  const list=(this.enemies||[]).filter(e=>e?.active && e.hp>0 && e.body && e.body.enable!==false);
+  for(let i=0;i<list.length;i++){
+   const a=list[i];
+   for(let j=i+1;j<list.length;j++){
+    const b=list[j];
+    const dx=a.x-b.x,dy=a.y-b.y;
+    const minDist=(a.crowdRadius||a.hitRadius||14)+(b.crowdRadius||b.hitRadius||14)+5;
+    const d2=dx*dx+dy*dy;
+    if(d2>=minDist*minDist) continue;
+    const dist=Math.max(0.001,Math.sqrt(d2));
+    const overlap=minDist-dist;
+    const fallbackAngle=((i*31+j*17)%360)*Math.PI/180;
+    const nx=d2<0.0001?Math.cos(fallbackAngle):dx/dist;
+    const ny=d2<0.0001?Math.sin(fallbackAngle):dy/dist;
+    const frozenA=a.type==='champion'
+     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
+    const frozenB=b.type==='champion'
+     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
+    const attackA=frozenA?0:(time<(a.attackAnimUntil||0)?0.28:1);
+    const attackB=frozenB?0:(time<(b.attackAnimUntil||0)?0.28:1);
+    const championA=a.type==='champion'?0.45:1;
+    const championB=b.type==='champion'?0.45:1;
+    const force=Math.min(46,overlap*3.4+5);
+    a.body.velocity.x+=nx*force*attackA*championA;
+    a.body.velocity.y+=ny*force*attackA*championA;
+    b.body.velocity.x-=nx*force*attackB*championB;
+    b.body.velocity.y-=ny*force*attackB*championB;
+   }
+  }
+
+  for(const e of list){
+   if(!e.body?.velocity) continue;
+   const base=Math.max(40,this.getEnemyMovementSpeed(e)||e.speed||80);
+   const maxSpeed=base*1.32+24;
+   const len=e.body.velocity.length();
+   if(len>maxSpeed && len>0) e.body.velocity.scale(maxSpeed/len);
+  }
+ }
+
+ findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){
+  const grid=this.ensureNavigationGrid();
+  const start=this.worldToNavCell(x,y);
+  const maxCells=Math.max(1,Math.ceil(maxRadius/grid.cellSize));
+  const candidates=[];
+  for(let r=0;r<=maxCells;r++){
+   if(r===0){candidates.push(start);}
+   else{
+    for(let dx=-r;dx<=r;dx++){
+     candidates.push({col:start.col+dx,row:start.row-r},{col:start.col+dx,row:start.row+r});
+    }
+    for(let dy=-r+1;dy<=r-1;dy++){
+     candidates.push({col:start.col-r,row:start.row+dy},{col:start.col+r,row:start.row+dy});
+    }
+   }
+   for(const c of candidates.splice(0,candidates.length)){
+    if(!this.isNavCellWalkable(c.col,c.row)) continue;
+    const point=this.navCellToWorld(c.col,c.row);
+    if(Phaser.Math.Distance.Between(point.x,point.y,x,y)>maxRadius+grid.cellSize) continue;
+    if(this.isSafeEnemySpawnPoint(point.x,point.y,padding,minPlayerDistance)) return point;
+   }
+  }
+  return null;
+ }
+
+ getAshPropPhysicsClass(prop,kind='grass'){
+  if(kind==='landmark') return 'blocking';
+  if(kind==='grass') return 'decorative';
+
+  const displayW=Math.max(1,prop?.displayWidth||0);
+  const displayH=Math.max(1,prop?.displayHeight||0);
+
+  // Trees are meaningful silhouettes and always block movement. Tiny rock chips
+  // remain decorative so combat lanes do not become cluttered with invisible walls.
+  if(kind==='tree') return 'blocking';
+  if(kind==='rock') return (displayW<70 && displayH<40) ? 'decorative' : 'blocking';
+  return 'decorative';
+ }
+
+ isAshCircleBlocked(x,y,radius=0){
+  if(!this.ashLandmarkColliderGroup) return false;
+  for(const blocker of this.ashLandmarkColliderGroup.getChildren()){
+   if(!blocker?.active || !blocker.body || blocker.body.enable===false) continue;
+   const b=this.getAshBlockerBounds(blocker,0);
+   if(!b) continue;
+   const nearestX=Phaser.Math.Clamp(x,b.left,b.right);
+   const nearestY=Phaser.Math.Clamp(y,b.top,b.bottom);
+   const dx=x-nearestX;
+   const dy=y-nearestY;
+   if(dx*dx+dy*dy<=radius*radius) return true;
+  }
+  return false;
+ }
+
+ isAshPathBlocked(x1,y1,x2,y2,radius=0){
+  if(!this.ashLandmarkColliderGroup) return false;
+  const dx=x2-x1;
+  const dy=y2-y1;
+  const distance=Math.hypot(dx,dy);
+  const step=Math.max(8,Math.min(20,radius||12));
+  const samples=Math.max(1,Math.ceil(distance/step));
+  for(let i=1;i<=samples;i++){
+   const t=i/samples;
+   if(this.isAshCircleBlocked(x1+dx*t,y1+dy*t,radius)) return true;
+  }
+  return false;
+ }
+
+ isSafeEnemySpawnPoint(x,y,padding=26,minPlayerDistance=120){
+  const px=this.clampWorldX(x,padding+6);
+  const py=this.clampWorldY(y,padding+6);
+  if(this.isAshCircleBlocked(px,py,padding)) return false;
+
+  if(this.player?.active){
+   const d=Phaser.Math.Distance.Between(px,py,this.player.x,this.player.y);
+   if(d<minPlayerDistance) return false;
+  }
+
+  for(const other of (this.enemies||[])){
+   if(!other?.active || other.hp<=0) continue;
+   const minDist=padding+(other.hitRadius||14)+10;
+   if(Phaser.Math.Distance.Between(px,py,other.x,other.y)<minDist) return false;
+  }
+  return true;
+ }
+
+ findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){
+  const startX=this.clampWorldX(x,padding+6);
+  const startY=this.clampWorldY(y,padding+6);
+  const startCell=this.worldToNavCell(startX,startY);
+  if(this.isNavCellWalkable(startCell.col,startCell.row) && this.isSafeEnemySpawnPoint(startX,startY,padding,minPlayerDistance)){
+   return {x:startX,y:startY};
+  }
+
+  const navPoint=this.findSafeNavSpawnPoint(startX,startY,{padding,minPlayerDistance,maxRadius});
+  if(navPoint) return navPoint;
+
+  // Last-resort geometric fallback for malformed/debug-edited navigation layouts.
+  return this.findNearestFreeGroundPoint(startX,startY,searchStep,maxRadius,padding);
+ }
+
+ setEnemySteeredVelocity(enemy,vx,vy,time){
+  if(!enemy?.body){return;}
+  if(this.devFlags?.noCollision){enemy.body.setVelocity(vx,vy);return;}
+
+  const speed=Math.hypot(vx,vy);
+  if(speed<1){enemy.body.setVelocity(0,0);return;}
+  this.updateEnemyStuckState(enemy,time,speed);
+
+  const radius=(enemy.hitRadius||14)+5;
+  let desiredAngle=Math.atan2(vy,vx);
+  const toPlayerX=(this.player?.x??enemy.x)-enemy.x;
+  const toPlayerY=(this.player?.y??enemy.y)-enemy.y;
+  const towardPlayer=(vx*toPlayerX+vy*toPlayerY)>0;
+
+  // Global A* routing is used only while pursuing the player. Retreating mages
+  // keep their direct/local-steering behaviour and do not try to path back toward him.
+  if(towardPlayer && this.player?.active){
+   const waypoint=this.getEnemyNavigationWaypoint(enemy,time,this.player.x,this.player.y,radius);
+   if(waypoint){
+    desiredAngle=Phaser.Math.Angle.Between(enemy.x,enemy.y,waypoint.x,waypoint.y);
+   }
+  }
+
+  const probeDistance=Math.max(34,radius*1.55+speed*0.16);
+  const probeX=enemy.x+Math.cos(desiredAngle)*probeDistance;
+  const probeY=enemy.y+Math.sin(desiredAngle)*probeDistance;
+
+  if(!this.isAshPathBlocked(enemy.x,enemy.y,probeX,probeY,radius)){
+   enemy.obstacleSteerUntil=0;
+   enemy.body.setVelocity(Math.cos(desiredAngle)*speed,Math.sin(desiredAngle)*speed);
+   return;
+  }
+
+  if(!enemy.obstacleTurnSign || time>=(enemy.obstacleSteerUntil||0)){
+   const leftAngle=desiredAngle-Math.PI*0.38;
+   const rightAngle=desiredAngle+Math.PI*0.38;
+   const leftBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(leftAngle)*probeDistance,enemy.y+Math.sin(leftAngle)*probeDistance,radius);
+   const rightBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(rightAngle)*probeDistance,enemy.y+Math.sin(rightAngle)*probeDistance,radius);
+   if(leftBlocked!==rightBlocked) enemy.obstacleTurnSign=leftBlocked?1:-1;
+   else {
+    const target=enemy.navPath?.[enemy.navPathIndex||0]||this.player;
+    const leftD=Phaser.Math.Distance.Squared(enemy.x+Math.cos(leftAngle)*probeDistance,enemy.y+Math.sin(leftAngle)*probeDistance,target.x,target.y);
+    const rightD=Phaser.Math.Distance.Squared(enemy.x+Math.cos(rightAngle)*probeDistance,enemy.y+Math.sin(rightAngle)*probeDistance,target.x,target.y);
+    enemy.obstacleTurnSign=leftD<=rightD?-1:1;
+   }
+   enemy.obstacleSteerUntil=time+300;
+  }
+
+  const sign=enemy.obstacleTurnSign||1;
+  const turns=[0.28,0.42,0.58,0.74,0.92,1.0];
+  for(const fraction of turns){
+   for(const direction of [sign,-sign]){
+    const angle=desiredAngle+direction*Math.PI*fraction;
+    const tx=enemy.x+Math.cos(angle)*probeDistance;
+    const ty=enemy.y+Math.sin(angle)*probeDistance;
+    if(this.isAshPathBlocked(enemy.x,enemy.y,tx,ty,radius)) continue;
+    enemy.obstacleTurnSign=direction;
+    enemy.body.setVelocity(Math.cos(angle)*speed,Math.sin(angle)*speed);
+    return;
+   }
+  }
+
+  // Hard stop only as a last resort; the stuck detector will force a fresh A* path.
+  enemy.navForceRepath=true;
+  enemy.navNextRepathAt=0;
+  enemy.body.setVelocity(0,0);
+ }
+
  createAshLandmarkBlocker(objects,x,y,width,height,name){
   const blocker=this.add.zone(x,y,width,height);
   blocker.ashLandmarkName=name;
@@ -4124,6 +4632,7 @@ class MainScene extends Phaser.Scene {
   }
   objects.push(blocker);
   this.devEnvironmentColliders.push(blocker);
+  this.markNavigationDirty();
   return blocker;
  }
 
@@ -4165,6 +4674,7 @@ class MainScene extends Phaser.Scene {
 
  
 addAshLandmarkCollision(objects,landmark,key){
+ landmark.worldPhysicsClass='blocking';
  landmark.devLinkedColliders=[];
  const displayW=Math.max(1,landmark.displayWidth);
  const displayH=Math.max(1,landmark.displayHeight);
@@ -4224,7 +4734,8 @@ createAshPropShadow(objects,prop,kind){
 
  addAshPropCollision(objects,prop,kind,key){
   prop.devLinkedColliders=[];
-  if(kind==='grass') return;
+  prop.worldPhysicsClass=this.getAshPropPhysicsClass(prop,kind);
+  if(prop.worldPhysicsClass!=='blocking') return;
   const displayW=Math.max(1,prop.displayWidth);
   const displayH=Math.max(1,prop.displayHeight);
   const isLarge=(kind==='tree' ? displayH>=150 : displayW>=95);
@@ -4407,6 +4918,7 @@ updateDevEnvironmentLinks(object){
  };
  (object.devLinkedShadows||[]).forEach(update);
  (object.devLinkedColliders||[]).forEach(update);
+ this.markNavigationDirty?.();
 }
 
 createAshFieldsEnvironment(objects,zone){
@@ -4508,6 +5020,7 @@ createAshFieldsEnvironment(objects,zone){
   // This prevents deleted/rejected prototype tiles and diagnostic markers from
   // appearing on the game field while preserving progression/gameplay systems.
   this.loadedWorldZones.set(index,objects);
+  this.markNavigationDirty();
 
   if(index<WORLD_DESIGN.GATES.length){
    this.ensureProgressionGate(index);
@@ -4524,6 +5037,7 @@ createAshFieldsEnvironment(objects,zone){
     if(obj && obj.active) obj.destroy();
    }
    this.loadedWorldZones.delete(index);
+   this.markNavigationDirty();
   }
 
   const preview=this.loadedWorldPreviews.get(index);
@@ -5072,6 +5586,7 @@ createAshFieldsEnvironment(objects,zone){
    candidates.sort((a,b)=>Phaser.Math.Distance.Between(b.x,b.y,this.player.x,this.player.y)-Phaser.Math.Distance.Between(a.x,a.y,this.player.x,this.player.y));
    pos=candidates[0];
   }
+  pos=this.findSafeEnemySpawnPoint(pos.x,pos.y,{padding:(def.hitRadius||24)+8,minPlayerDistance:150,maxRadius:460});
 
   const e=this.add.circle(pos.x,pos.y,def.hitRadius,0xb34cff,0);
   this.physics.add.existing(e);
@@ -5288,7 +5803,8 @@ createAshFieldsEnvironment(objects,zone){
  }
 
  spawnChampionMinion(x,y){
-  const e=this.add.circle(x,y,14,0xcc3333,0);
+  const safeSpawn=this.findSafeEnemySpawnPoint(x,y,{padding:22,minPlayerDistance:90,maxRadius:280});
+  const e=this.add.circle(safeSpawn.x,safeSpawn.y,14,0xcc3333,0);
   this.physics.add.existing(e);
   e.type='skeleton';
   e.hp=24+this.wave*4;
@@ -5328,7 +5844,7 @@ createAshFieldsEnvironment(objects,zone){
   const devNoChampionAttacks=Boolean(this.devFlags?.championAttacksDisabled);
 
   if(kind==='brokenSaint'){
-   e.body.setVelocity(Math.cos(a)*e.speed,Math.sin(a)*e.speed);
+   this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
 
    if(!devNoChampionSkills && time>=e.nextSkillAt){
     e.nextSkillAt=time+3000;
@@ -5414,9 +5930,9 @@ createAshFieldsEnvironment(objects,zone){
 
   if(kind==='necromancer'){
    if(distance>220){
-    e.body.setVelocity(Math.cos(a)*e.speed,Math.sin(a)*e.speed);
+    this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
    } else if(distance<165){
-    e.body.setVelocity(-Math.cos(a)*e.speed,-Math.sin(a)*e.speed);
+    this.setEnemySteeredVelocity(e,-Math.cos(a)*e.speed,-Math.sin(a)*e.speed,time);
    } else {
     e.body.setVelocity(0,0);
    }
@@ -5446,7 +5962,7 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(kind==='shieldWarden'){
-   e.body.setVelocity(Math.cos(a)*e.speed,Math.sin(a)*e.speed);
+   this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
 
    if(!devNoChampionSkills && time>=e.nextSecondaryAt){
     e.nextSecondaryAt=time+6200;
@@ -7203,6 +7719,10 @@ createAshFieldsEnvironment(objects,zone){
 
   this.updateEmptyScreenRush();
 
+  // Spread A* work across frames. Direct line-of-sight chasers spend no budget;
+  // only enemies whose route is actually blocked request a path.
+  this.navigationPathfindBudget=2;
+
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed
   // to deal contact damage at once. The rest still chase and surround the player.
   // This keeps a mob dangerous without turning a full surround into instant death.
@@ -7265,9 +7785,9 @@ createAshFieldsEnvironment(objects,zone){
      this.updateChampion(e,time,a,distance);
     } else if(e.type==='mage'){
      if(distance>210){
-      e.body.setVelocity(Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed);
+      this.setEnemySteeredVelocity(e,Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed,time);
      } else if(distance<160){
-      e.body.setVelocity(-Math.cos(a)*pursuitSpeed,-Math.sin(a)*pursuitSpeed);
+      this.setEnemySteeredVelocity(e,-Math.cos(a)*pursuitSpeed,-Math.sin(a)*pursuitSpeed,time);
      } else {
       e.body.setVelocity(0,0);
      }
@@ -7319,6 +7839,8 @@ createAshFieldsEnvironment(objects,zone){
        projectile.damage=BALANCE.MAGE_PROJECTILE_DAMAGE;
        projectile.born=this.time.now;
        projectile.owner=e;
+       projectile.lastWorldX=projectile.x;
+       projectile.lastWorldY=projectile.y;
        this.projectiles.push(projectile);
       });
      }
@@ -7335,19 +7857,19 @@ createAshFieldsEnvironment(objects,zone){
       if(time<e.attackAnimUntil){
        e.body.setVelocity(0,0);
       } else if(distance>desiredRange+deadZone){
-       e.body.setVelocity(Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed);
+       this.setEnemySteeredVelocity(e,Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed,time);
       } else if(distance<desiredRange-deadZone){
        // If crowd pressure pushes a skeleton inside its ring, gently push it
        // back out rather than letting bodies stack on the hero.
        const retreatSpeed=Math.max(34,pursuitSpeed*0.55);
-       e.body.setVelocity(-Math.cos(a)*retreatSpeed,-Math.sin(a)*retreatSpeed);
+       this.setEnemySteeredVelocity(e,-Math.cos(a)*retreatSpeed,-Math.sin(a)*retreatSpeed,time);
       } else {
        e.body.setVelocity(0,0);
       }
      } else if(e.type==='shield' && time<e.attackAnimUntil){
       e.body.setVelocity(0,0);
      } else {
-      e.body.setVelocity(Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed);
+      this.setEnemySteeredVelocity(e,Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed,time);
      }
 
      const attackRange=e.type==='skeleton'
@@ -7464,6 +7986,8 @@ createAshFieldsEnvironment(objects,zone){
 
   }
 
+  this.applyEnemySoftSeparation(time);
+
   for(const o of this.orbs){
    if(o.active && Phaser.Math.Distance.Between(o.x,o.y,this.player.x,this.player.y)<40){
     o.destroy();
@@ -7510,6 +8034,15 @@ createAshFieldsEnvironment(objects,zone){
 
   for(const projectile of this.projectiles){
    if(!projectile.active) continue;
+
+   const lastProjectileX=Number.isFinite(projectile.lastWorldX)?projectile.lastWorldX:projectile.x;
+   const lastProjectileY=Number.isFinite(projectile.lastWorldY)?projectile.lastWorldY:projectile.y;
+   if(!this.devFlags?.noCollision && this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)){
+    projectile.destroy();
+    continue;
+   }
+   projectile.lastWorldX=projectile.x;
+   projectile.lastWorldY=projectile.y;
 
    const projectileDistance=Phaser.Math.Distance.Between(
     projectile.x,projectile.y,
