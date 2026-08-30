@@ -8,7 +8,8 @@ const STORY_STATE=Object.freeze({
 const STORY_ACTION=Object.freeze({
  CINEMATIC:'cinematic',
  DIALOGUE:'dialogue',
- CALLBACK:'callback'
+ CALLBACK:'callback',
+ OBJECTIVE:'objective'
 });
 
 function normalizeRegion(value){
@@ -22,6 +23,8 @@ class StoryDirector {
   this.state=STORY_STATE.NORMAL;
   this.flags=new Map();
   this.completedEvents=new Set();
+  this.completedObjectives=new Set();
+  this.activeObjective=null;
   this.activeEvent=null;
   this.installed=false;
   this.lastEvaluationAt=-Infinity;
@@ -44,6 +47,7 @@ class StoryDirector {
   }catch{}
   try{this.scene?.setGameplayPaused?.('story',false);}catch{}
   this.activeEvent=null;
+  this.activeObjective=null;
   this.state=STORY_STATE.NORMAL;
   this.installed=false;
   this.scene=null;
@@ -83,6 +87,48 @@ class StoryDirector {
   this.scene?.events?.emit?.('story-event-completed',normalized);
  }
 
+ getActiveObjective(){return this.activeObjective;}
+ hasCompletedObjective(id){return this.completedObjectives.has(String(id));}
+ isObjectiveActive(id){return Boolean(this.activeObjective && this.activeObjective.id===String(id));}
+
+ activateObjective(objective={}){
+  if(!objective || !objective.id || !objective.targetId)return false;
+  const normalized={...objective,id:String(objective.id),targetId:String(objective.targetId)};
+  if(this.hasCompletedObjective(normalized.id))return false;
+  if(this.activeObjective?.id===normalized.id){
+   this.activeObjective={...this.activeObjective,...normalized};
+   this.scene?.events?.emit?.('story-objective-updated',this.activeObjective);
+   return true;
+  }
+  if(this.activeObjective){
+   const previous=this.activeObjective;
+   this.activeObjective=null;
+   this.scene?.events?.emit?.('story-objective-cleared',previous,{reason:'replaced'});
+  }
+  this.activeObjective=normalized;
+  this.scene?.events?.emit?.('story-objective-activated',this.activeObjective);
+  return true;
+ }
+
+ completeObjective(id=this.activeObjective?.id){
+  const normalized=String(id??'');
+  if(!normalized)return false;
+  this.completedObjectives.add(normalized);
+  const completed=this.activeObjective?.id===normalized?this.activeObjective:{id:normalized};
+  if(this.activeObjective?.id===normalized)this.activeObjective=null;
+  this.scene?.events?.emit?.('story-objective-completed',completed);
+  return true;
+ }
+
+ clearObjective(id=this.activeObjective?.id,{reason='cleared'}={}){
+  if(!this.activeObjective)return false;
+  if(id!==undefined && id!==null && String(id)!==this.activeObjective.id)return false;
+  const previous=this.activeObjective;
+  this.activeObjective=null;
+  this.scene?.events?.emit?.('story-objective-cleared',previous,{reason});
+  return true;
+ }
+
  getContext(){
   const scene=this.scene;
   const zoneIndex=scene?.currentWorldZoneIndex??0;
@@ -93,6 +139,7 @@ class StoryDirector {
    y:scene?.player?.y??0,
    kills:scene?.kills??0,
    wave:scene?.wave??1,
+   spawned:scene?.spawned??0,
    level:scene?.level??1,
    region,
    regionIndex:zoneIndex,
@@ -110,6 +157,9 @@ class StoryDirector {
   if(trigger.regionIndex!==undefined && context.regionIndex!==trigger.regionIndex)return false;
   if(trigger.kills!==undefined && context.kills<Number(trigger.kills))return false;
   if(trigger.wave!==undefined && context.wave<Number(trigger.wave))return false;
+  if(trigger.waveExact!==undefined && context.wave!==Number(trigger.waveExact))return false;
+  if(trigger.spawnedMin!==undefined && context.spawned<Number(trigger.spawnedMin))return false;
+  if(trigger.spawnedMax!==undefined && context.spawned>Number(trigger.spawnedMax))return false;
   if(trigger.level!==undefined && context.level<Number(trigger.level))return false;
   if(trigger.xMin!==undefined && context.x<Number(trigger.xMin))return false;
   if(trigger.xMax!==undefined && context.x>Number(trigger.xMax))return false;
@@ -164,6 +214,17 @@ class StoryDirector {
 
   if(action.type===STORY_ACTION.DIALOGUE){
    return this.beginDialogue(action,{eventId:event.id,once:event.once!==false});
+  }
+
+  if(action.type===STORY_ACTION.OBJECTIVE){
+   // Objective activation is declarative and non-blocking: no combat pause or
+   // StoryDirector busy state. The objective remains active until its client
+   // explicitly completes it (dialogue, pickup, boss, door, etc.).
+   this.activateObjective(action.objective||{});
+   if(event.id && event.once!==false)this.markCompleted(event.id);
+   this.activeEvent=null;
+   this.scene?.events?.emit?.('story-event-finished',event,context);
+   return true;
   }
 
   if(action.type===STORY_ACTION.CALLBACK && typeof action.run==='function'){

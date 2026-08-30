@@ -8,6 +8,7 @@ import {
  PROLOGUE_PAGE_KEYS
 } from '../src/config/assetManifest.mjs';
 import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
+import StoryEnemyAnomalySystem,{STORY_WAVE_ANOMALY_COUNTS} from '../src/story/StoryEnemyAnomalySystem.js';
 import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from '../src/story/storyEvents.js';
 
 const root=process.cwd();
@@ -34,7 +35,7 @@ function register(key,url,{required=true}={}){
 function pad2(n){return String(n).padStart(2,'0');}
 
 // 1) JS syntax.
-for(const file of ['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/storyEvents.js']){
+for(const file of ['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/storyEvents.js']){
  const result=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8'});
  if(result.status!==0) fail(`Syntax check failed: ${file}\n${result.stderr||result.stdout}`);
  else pass(`Syntax: ${file}`);
@@ -48,6 +49,9 @@ const cinematicTransitions=fs.readFileSync(path.join(root,'src/ui/cinematicTrans
 const gameplayConfig=fs.readFileSync(path.join(root,'src/config/gameplayConfig.mjs'),'utf8');
 const worldConfig=fs.readFileSync(path.join(root,'src/config/worldConfig.mjs'),'utf8');
 const storyDirectorSource=fs.readFileSync(path.join(root,'src/story/StoryDirector.js'),'utf8');
+const objectiveMarkerSource=fs.readFileSync(path.join(root,'src/story/StoryObjectiveMarker.js'),'utf8');
+const woundedInteractionSource=fs.readFileSync(path.join(root,'src/story/WoundedKnightInteractionSystem.js'),'utf8');
+const storyEnemyAnomalySource=fs.readFileSync(path.join(root,'src/story/StoryEnemyAnomalySystem.js'),'utf8');
 const storyEventsSource=fs.readFileSync(path.join(root,'src/story/storyEvents.js'),'utf8');
 
 // 2) Removed legacy namespaces must not come back as runtime animation refs.
@@ -231,9 +235,15 @@ for(const [label,source,needle] of [
  ['story state DIALOGUE',storyDirectorSource,"DIALOGUE:'DIALOGUE'"],
  ['story state CINEMATIC',storyDirectorSource,"CINEMATIC:'CINEMATIC'"],
  ['declarative trigger evaluation',storyDirectorSource,'evaluateTrigger(trigger={},context=this.getContext())'],
+ ['exact-wave trigger support',storyDirectorSource,'trigger.waveExact!==undefined'],
+ ['wave-spawn pacing trigger support',storyDirectorSource,'trigger.spawnedMin!==undefined'],
  ['one-shot completion flags',storyDirectorSource,'completedEvents=new Set()'],
  ['generic cinematic launcher',storyDirectorSource,'playCinematic(pages,{eventId=null,once=true,releaseTextureKeys=[],onComplete=null}={})'],
  ['dialogue event bridge',storyDirectorSource,"this.scene?.events?.emit?.('story-dialogue-start'"],
+ ['generic active objective state',storyDirectorSource,'activeObjective=null'],
+ ['objective activation API',storyDirectorSource,'activateObjective(objective={})'],
+ ['objective completion API',storyDirectorSource,'completeObjective(id=this.activeObjective?.id)'],
+ ['declarative objective action',storyDirectorSource,"OBJECTIVE:'objective'"],
  ['MainScene StoryDirector import',main,"import StoryDirector from './story/StoryDirector.js';"],
  ['MainScene StoryDirector install',main,'this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();'],
  ['MainScene StoryDirector update',main,'if(this.storyDirector?.update(time)) return;'],
@@ -265,11 +275,94 @@ try{
  if(smoke.getState()!==STORY_STATE.NORMAL) throw new Error('director did not return to NORMAL');
  if(paused) throw new Error('story pause remained active after callback event');
  if(smoke.update(1200)) throw new Error('one-shot event triggered twice');
+ const objective={id:'validator_objective',targetId:'validator_target',kind:'talk'};
+ if(!smoke.activateObjective(objective)) throw new Error('objective did not activate');
+ if(!smoke.isObjectiveActive('validator_objective')) throw new Error('active objective was not reported');
+ if(smoke.getActiveObjective()?.targetId!=='validator_target') throw new Error('objective target was not stored');
+ if(!smoke.completeObjective('validator_objective')) throw new Error('objective did not complete');
+ if(smoke.isObjectiveActive('validator_objective')) throw new Error('objective remained active after completion');
+ if(!smoke.hasCompletedObjective('validator_objective')) throw new Error('objective completion was not recorded');
  smoke.destroy();
 }catch(error){
  fail(`StoryDirector v1 state-machine smoke test failed: ${error.message}`);
 }
 if(!errors.some(e=>e.startsWith('Missing StoryDirector v1 contract:')||e.startsWith('StoryDirector v1'))) pass('StoryDirector v1 contracts + state-machine smoke test present');
+
+// 13) Reusable story-objective marker + wounded-knight first story objective.
+for(const [label,source,needle] of [
+ ['objective marker module',objectiveMarkerSource,'class StoryObjectiveMarker'],
+ ['strict 10 percent marker frame',objectiveMarkerSource,'const FRAME_INSET_RATIO=0.10;'],
+ ['marker ray/rectangle intersection',objectiveMarkerSource,'rayRectIntersection(ox,oy,dx,dy,rect)'],
+ ['marker direction from player to target',objectiveMarkerSource,'const dx=target.x-player.x;'],
+ ['marker direction from player to target Y',objectiveMarkerSource,'const dy=target.y-player.y;'],
+ ['interaction system module',woundedInteractionSource,'class WoundedKnightInteractionSystem'],
+ ['E/tap interaction prompt',woundedInteractionSource,"Нажмите E, чтобы поговорить"],
+ ['camera focus zoom',woundedInteractionSource,'cam.zoomTo(targetZoom,CAMERA_IN_MS'],
+ ['generic marker client',woundedInteractionSource,"new StoryObjectiveMarker(scene,{insetRatio:0.10})"],
+ ['story dialogue StoryDirector bridge',woundedInteractionSource,'this.storyDirector?.beginDialogue?.({'],
+ ['story NPC locked until objective',woundedInteractionSource,'if(entry.story && !this.isStoryEntryUnlocked(entry))continue;'],
+ ['story interaction hard lock',woundedInteractionSource,'if(entry.story && !this.isStoryEntryUnlocked(entry))return false;'],
+ ['objective activation listener',woundedInteractionSource,"scene.events.on('story-objective-activated'"],
+ ['objective completion from story dialogue',woundedInteractionSource,'this.storyDirector?.completeObjective?.(STORY_OBJECTIVE_ID);'],
+ ['ambient wounded dialogue set',woundedInteractionSource,'const AMBIENT_DIALOGUES=Object.freeze(['],
+ ['MainScene interaction install',main,'this.woundedKnightInteractions=new WoundedKnightInteractionSystem'],
+ ['wounded knight registration',main,'this.woundedKnightInteractions?.registerKnight(knight,{'],
+ ['interaction update before gameplay pause',main,'this.woundedKnightInteractions?.update(time);'],
+ ['existing-knight registration backfill',woundedInteractionSource,'this.registerExistingKnightsFromScene();'],
+ ['first objective definition',storyEventsSource,'const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({'],
+ ['first objective exact wave 3 trigger',storyEventsSource,'waveExact:3'],
+ ['first objective mid-wave pacing trigger',storyEventsSource,'spawnedMin:3'],
+ ['first objective declarative action',storyEventsSource,"type:'objective'"]
+]){
+ if(!source.includes(needle)) fail(`Missing story-objective interaction contract: ${label}`);
+}
+const firstObjectiveEvent=STORY_EVENTS.find(event=>event?.action?.type==='objective');
+if(!firstObjectiveEvent) fail('No declarative first story objective event found');
+else{
+ if(firstObjectiveEvent.trigger?.waveExact!==3) fail('First story objective must unlock during wave 3');
+ if(firstObjectiveEvent.trigger?.spawnedMin!==3) fail('First story objective must unlock after the first 3 wave-3 spawns');
+ if(firstObjectiveEvent.trigger?.xMin!==undefined || firstObjectiveEvent.trigger?.kills!==undefined) fail('First story objective must not depend on old x/kills triggers');
+ if(!firstObjectiveEvent.action?.objective?.targetId) fail('First story objective has no targetId');
+}
+if(main.includes('ash_campfire_01_')) fail('Rejected Ash Fields campfire is still referenced by runtime code');
+if(ASSET_MANIFEST.some(entry=>String(entry.key).startsWith('ash_campfire_01_'))) fail('Rejected Ash Fields campfire is still present in AssetManifest');
+if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')||e.includes('First story objective')||e.includes('No declarative first story objective')||e.includes('Rejected Ash Fields campfire'))) pass('Reusable objective marker + wave-3 gated wounded-knight story objective contracts present; rejected campfire removed');
+
+// 14) Act-I wave pacing: subtle enemy hesitation from waves 2-5, then Broken Saint
+// only after the ordinary fifth wave has been cleared.
+for(const [label,source,needle] of [
+ ['enemy anomaly module',storyEnemyAnomalySource,'class StoryEnemyAnomalySystem'],
+ ['wave anomaly counts',storyEnemyAnomalySource,'const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:2,3:3,4:2,5:3})'],
+ ['distributed wave selection',storyEnemyAnomalySource,'this.selectedOrdinals.add(ordinal);'],
+ ['hesitation phase',storyEnemyAnomalySource,"state.phase='hesitate';"],
+ ['retreat phase',storyEnemyAnomalySource,"state.phase='retreat';"],
+ ['MainScene anomaly import',main,"import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';"],
+ ['MainScene anomaly install',main,'this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();'],
+ ['wave plan hook',main,'this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);'],
+ ['spawn registration hook',main,'this.storyEnemyAnomalies?.registerEnemy(e,{'],
+ ['AI anomaly override',main,'const storyAnomaly=!devFreezeAI'],
+ ['post-wave Broken Saint state',main,'this.postWaveChampionKind=isPostWaveBrokenSaint?championKind:null;'],
+ ['post-wave Broken Saint spawn',main,'if(this.postWaveChampionKind){']
+]){
+ if(!source.includes(needle)) fail(`Missing Act-I wave pacing contract: ${label}`);
+}
+try{
+ const fakeScene={time:{now:1000}};
+ const anomaly=new StoryEnemyAnomalySystem(fakeScene).install();
+ for(const wave of [2,3,4,5]){
+  anomaly.beginWave(wave,20);
+  const expected=STORY_WAVE_ANOMALY_COUNTS[wave];
+  if(anomaly.selectedOrdinals.size!==expected) throw new Error(`wave ${wave} planned ${anomaly.selectedOrdinals.size}, expected ${expected}`);
+ }
+ anomaly.beginWave(1,20);
+ if(anomaly.selectedOrdinals.size!==0) throw new Error('wave 1 must have no story anomalies');
+ anomaly.destroy();
+}catch(error){
+ fail(`Act-I enemy anomaly smoke test failed: ${error.message}`);
+}
+if(!main.includes("const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint';")) fail('Broken Saint wave 5 must use a full ordinary-wave population target');
+if(!main.includes("const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint';")) fail('Broken Saint must be deferred until after wave 5');
+if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.includes('Broken Saint'))) pass('Act-I waves 2-5 anomaly pacing + post-wave Broken Saint contracts present');
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');

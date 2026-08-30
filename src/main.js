@@ -27,6 +27,8 @@ import { cinematicFadeIn, cinematicSwapWithFade, cinematicFadeOutAndRun } from '
 import NavigationSystem from './world/NavigationSystem.js';
 import AudioManager from './audio/AudioManager.js';
 import StoryDirector from './story/StoryDirector.js';
+import WoundedKnightInteractionSystem from './story/WoundedKnightInteractionSystem.js';
+import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
 import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from './story/storyEvents.js';
 import {
  ASSET_CATEGORY,
@@ -2049,6 +2051,8 @@ class MainScene extends Phaser.Scene {
   this.devEnvironmentColliders=[];
   this.devTools=null;
   this.storyDirector=null;
+  this.storyEnemyAnomalies=null;
+  this.postWaveChampionKind=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -2164,6 +2168,8 @@ class MainScene extends Phaser.Scene {
   this.devEnvironmentObjects=[];
   this.devEnvironmentShadows=[];
   this.devEnvironmentColliders=[];
+  this.storyEnemyAnomalies=null;
+  this.postWaveChampionKind=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -2306,12 +2312,15 @@ class MainScene extends Phaser.Scene {
 
   this.currentWorldZoneIndex=0;
   this.regionText.setText(WORLD_DESIGN.ZONES[0].name);
-  this.updateWorldStreaming();
 
-  // StoryDirector v1 owns story state, one-shot flags and declarative triggers.
-  // STORY_EVENTS is intentionally empty in this build, so wiring the director
-  // changes no current gameplay until story beats are explicitly authored.
+  // StoryDirector owns one-shot story state. WoundedKnightInteractionSystem is
+  // the first in-world dialogue client: it pauses combat, focuses the camera and
+  // uses StoryDirector completion flags so every wounded knight speaks only once.
   this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();
+  this.woundedKnightInteractions=new WoundedKnightInteractionSystem(this,{storyDirector:this.storyDirector}).install();
+  this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();
+
+  this.updateWorldStreaming();
 
   // Development-only Scene Tuner. The DEV build exposes it by button and F2.
   this.devTools=new LastKnightDevTools(this);
@@ -2330,6 +2339,10 @@ class MainScene extends Phaser.Scene {
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
+   this.woundedKnightInteractions?.destroy();
+   this.woundedKnightInteractions=null;
+   this.storyEnemyAnomalies?.destroy();
+   this.storyEnemyAnomalies=null;
    this.storyDirector?.destroy();
    this.storyDirector=null;
    this.devTools?.destroy();
@@ -2580,6 +2593,10 @@ class MainScene extends Phaser.Scene {
   this.configureEnemyCollision(e,4);
   this.enemyGroup.add(e);
   this.enemies.push(e);
+  this.storyEnemyAnomalies?.registerEnemy(e,{
+   wave:this.wave,
+   spawnOrdinal:this.spawned+1
+  });
  }
 
  getChampionForWave(wave){
@@ -3238,7 +3255,61 @@ createAshWoundedKnights(objects){
    landmark:false,
    created:false
   });
+  this.woundedKnightInteractions?.registerKnight(knight,{
+   id:`ash:wounded_knight:${index}`,
+   index,
+   story:index===3
+  });
  });
+}
+
+
+createAshBattlefieldCasualties(objects){
+ const heroSource=this.textures.get('hero_socket_walk_s_01').getSourceImage();
+ const heroDisplayHeight=(heroSource?.height||224)*HERO_SOCKET_VISUAL_SCALE;
+
+ const corpses=[
+  {key:'ash_corpse_01',x:900,y:1235,flipX:false,targetWidth:heroDisplayHeight*1.78,colliderW:0.64,colliderH:0.34},
+  {key:'ash_corpse_02',x:2380,y:1045,flipX:true,targetWidth:heroDisplayHeight*1.62,colliderW:0.60,colliderH:0.36}
+ ];
+
+ corpses.forEach((placement,index)=>{
+  if(!this.textures.exists(placement.key)) return;
+  const source=this.textures.get(placement.key).getSourceImage();
+  const sourceW=Math.max(1,source?.width||placement.targetWidth);
+  const sourceH=Math.max(1,source?.height||heroDisplayHeight);
+  const scale=placement.targetWidth/sourceW;
+  const sprite=this.add.image(placement.x,placement.y,placement.key)
+   .setOrigin(0.5,0.86)
+   .setScale(scale)
+   .setDepth(11)
+   .setFlipX(Boolean(placement.flipX));
+
+  objects.push(sprite);
+  const displayW=sourceW*scale;
+  const displayH=sourceH*scale;
+  const collider=this.createAshLandmarkBlocker(
+   objects,
+   sprite.x,
+   sprite.y+displayH*0.01,
+   Math.max(36,displayW*placement.colliderW),
+   Math.max(16,displayH*placement.colliderH),
+   `${placement.key}_${index}`
+  );
+  sprite.devLinkedColliders=[collider];
+
+  this.registerDevEnvironmentObject(sprite,{
+   id:`ash:corpse:${index}`,
+   segment:'ash',
+   cluster:null,
+   kind:'corpse',
+   key:placement.key,
+   landmark:false,
+   created:false
+  });
+ });
+
+
 }
 
 createAshFieldsEnvironment(objects,zone){
@@ -3322,6 +3393,7 @@ createAshFieldsEnvironment(objects,zone){
  // ASH_FIELDS_BAKED_LAYOUT so manually adjusted individual props are preserved exactly.
  this.createAshFieldsBakedLayout(objects);
  this.createAshWoundedKnights(objects);
+ this.createAshBattlefieldCasualties(objects);
 }
 
 
@@ -3709,7 +3781,8 @@ createAshFieldsEnvironment(objects,zone){
  calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave)){
   const baseTarget=wave===1 ? 10 : 8+wave*3;
   const targetBonus=profile?.targetBonus||0;
-  const championScale=championKind ? 0.70 : 1;
+  const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint';
+  const championScale=(championKind && !postWaveBrokenSaint) ? 0.70 : 1;
   return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()));
  }
 
@@ -5488,15 +5561,20 @@ createAshFieldsEnvironment(objects,zone){
   this.waveIntermission=false;
   this.waveProfile=this.getWaveProfile(wave);
   const championKind=this.getChampionForWave(wave);
-  this.championEventActive=Boolean(championKind);
+  const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint';
+  this.postWaveChampionKind=isPostWaveBrokenSaint?championKind:null;
+  this.championEventActive=Boolean(championKind && !isPostWaveBrokenSaint);
   this.waveSpawnInterval=this.calculateWaveSpawnInterval(this.waveProfile);
   this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind);
+  this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);
 
   this.waveText.setText(`WAVE ${wave}`);
-  this.waveSubText.setText(championKind ? 'CHAMPION EVENT' : this.waveProfile.name);
+  this.waveSubText.setText(
+   isPostWaveBrokenSaint ? 'FINAL ASSAULT' : (championKind ? 'CHAMPION EVENT' : this.waveProfile.name)
+  );
   if(!initial) this.lastSpawn=this.time.now-250;
 
-  if(championKind){
+  if(championKind && !isPostWaveBrokenSaint){
    const def=this.getChampionDefinition(championKind);
    const region=this.getWorldProgressName();
    this.showWaveBanner(
@@ -5857,6 +5935,7 @@ createAshFieldsEnvironment(objects,zone){
   this.syncOrientationPause();
   this.updateLowHealthState();
   this.devTools?.update();
+  this.woundedKnightInteractions?.update(time);
   if(this.storyDirector?.update(time)) return;
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
 
@@ -5968,7 +6047,12 @@ createAshFieldsEnvironment(objects,zone){
     this.enemies.length===0 &&
     !this.activeChampion
    ){
-    if(this.pendingWorldAdvance){
+    if(this.postWaveChampionKind){
+     const kind=this.postWaveChampionKind;
+     this.postWaveChampionKind=null;
+     this.championEventActive=true;
+     this.spawnChampion(kind);
+    } else if(this.pendingWorldAdvance){
      this.beginWorldTravel();
     } else {
      this.beginWaveIntermission(time);
@@ -6021,13 +6105,29 @@ createAshFieldsEnvironment(objects,zone){
    const pursuitSpeed=this.getEnemyMovementSpeed(e);
    const devFreezeAI=e.type==='champion' ? this.devFlags?.championFrozen : this.devFlags?.enemyAiFrozen;
    const devFreezeMove=e.type==='champion' ? this.devFlags?.championMovementFrozen : this.devFlags?.enemyMovementFrozen;
+   const storyAnomaly=!devFreezeAI
+    ? this.storyEnemyAnomalies?.updateEnemy(e,time,distance)
+    : null;
+
+   if(storyAnomaly){
+    e.pendingMeleeHitAt=0;
+    e.pendingMeleeDamage=0;
+    e.pendingMeleeRange=0;
+    e.attackAnimUntil=0;
+    if(storyAnomaly.kind==='retreat'){
+     const retreatSpeed=Math.max(36,pursuitSpeed*(storyAnomaly.speedFactor||0.62));
+     e.body.setVelocity(-Math.cos(a)*retreatSpeed,-Math.sin(a)*retreatSpeed);
+    } else {
+     e.body.setVelocity(0,0);
+    }
+   }
 
    if(devFreezeAI){
     if(e.body)e.body.setVelocity(0,0);
     e.pendingMeleeHitAt=0;e.pendingMeleeDamage=0;e.pendingMeleeRange=0;
    }
 
-   if(!devFreezeAI && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
+   if(!devFreezeAI && !storyAnomaly && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
     const pendingDamage=e.pendingMeleeDamage||e.attackDamage||8;
     const pendingRange=e.pendingMeleeRange||70;
     e.pendingMeleeHitAt=0;
@@ -6038,7 +6138,7 @@ createAshFieldsEnvironment(objects,zone){
     }
    }
 
-   if(!devFreezeAI){
+   if(!devFreezeAI && !storyAnomaly){
     if(time<(e.skillTremorUntil||0)){
      e.body.setVelocity(e.skillTremorVX||0,e.skillTremorVY||0);
     } else if(time<(e.skillLiftUntil||0)){
@@ -6081,6 +6181,7 @@ createAshFieldsEnvironment(objects,zone){
       // lateral movement matter without turning the shot into perfect aim-bot tracking.
       this.time.delayedCall(castWindup,()=>{
        if(!e || !e.active || e.hp<=0 || this.gameOver || this.devFlags?.enemyAttacksDisabled || this.devFlags?.enemyAiFrozen) return;
+       if(this.storyEnemyAnomalies?.isEnemyAnomalyActive(e,this.time.now)) return;
        if(this.time.now<(e.staggerUntil||0) || this.time.now<(e.skillLiftUntil||0)) return;
 
        const leadX=this.clampWorldX(

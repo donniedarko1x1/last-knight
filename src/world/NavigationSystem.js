@@ -307,12 +307,12 @@ class NavigationSystem {
     const fallbackAngle=((i*31+j*17)%360)*Math.PI/180;
     const nx=d2<0.0001?Math.cos(fallbackAngle):dx/dist;
     const ny=d2<0.0001?Math.sin(fallbackAngle):dy/dist;
-    const frozenA=a.type==='champion'
+    const frozenA=(time<(a.storyAnomalyFreezeUntil||0)) || (a.type==='champion'
      ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
-     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
-    const frozenB=b.type==='champion'
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen));
+    const frozenB=(time<(b.storyAnomalyFreezeUntil||0)) || (b.type==='champion'
      ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
-     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen));
     const attackA=frozenA?0:(time<(a.attackAnimUntil||0)?0.28:1);
     const attackB=frozenB?0:(time<(b.attackAnimUntil||0)?0.28:1);
     const championA=a.type==='champion'?0.45:1;

@@ -137,6 +137,12 @@ for(let knight=1;knight<=3;knight++){
  }
 }
 
+// Additional battlefield casualties for Act 1 dressing. These are optional so
+// one missing decorative asset never blocks boot or region streaming.
+for(const key of ['ash_corpse_01','ash_corpse_02']){
+ image(REGION_ASH,O,key,`/assets/environment/ash_fields/corpses/${key}.png`);
+}
+
 for(const [key,url] of Object.entries({
  sfx_broken_saint_holy_warning:'/assets/audio/broken_saint_holy_warning.ogg',
  sfx_broken_saint_holy_beam:'/assets/audio/broken_saint_holy_beam.ogg',
