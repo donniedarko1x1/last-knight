@@ -1,0 +1,363 @@
+import Phaser from 'phaser';
+import { STAGE0 } from '../config/gameplayConfig.mjs';
+
+// World Navigation v2 core algorithms. Methods deliberately operate on the
+// MainScene instance (`this`) so Architecture Refactor v1 can move the system
+// without changing runtime state or gameplay behavior.
+class NavigationSystem {
+ markNavigationDirty(){
+  this.navigationGridDirty=true;
+ }
+
+ ensureNavigationGrid(){
+  if(!this.navigationGrid || this.navigationGridDirty) this.rebuildNavigationGrid();
+  return this.navigationGrid;
+ }
+
+ rebuildNavigationGrid(){
+  const cellSize=this.navigationCellSize||56;
+  const cols=Math.ceil(STAGE0.WORLD_WIDTH/cellSize);
+  const rows=Math.ceil(STAGE0.WORLD_HEIGHT/cellSize);
+  const blocked=new Uint8Array(cols*rows);
+  const clearance=this.navigationClearance||20;
+
+  const blockers=this.ashLandmarkColliderGroup?.getChildren?.()||[];
+  for(const blocker of blockers){
+   if(!blocker?.active || !blocker.body || blocker.body.enable===false) continue;
+   const b=this.getAshBlockerBounds(blocker,clearance);
+   if(!b) continue;
+   const minCol=Phaser.Math.Clamp(Math.floor(b.left/cellSize),0,cols-1);
+   const maxCol=Phaser.Math.Clamp(Math.floor(b.right/cellSize),0,cols-1);
+   const minRow=Phaser.Math.Clamp(Math.floor(b.top/cellSize),0,rows-1);
+   const maxRow=Phaser.Math.Clamp(Math.floor(b.bottom/cellSize),0,rows-1);
+   for(let row=minRow;row<=maxRow;row++){
+    const cy=row*cellSize+cellSize*0.5;
+    for(let col=minCol;col<=maxCol;col++){
+     const cx=col*cellSize+cellSize*0.5;
+     if(cx>=b.left && cx<=b.right && cy>=b.top && cy<=b.bottom){
+      blocked[row*cols+col]=1;
+     }
+    }
+   }
+  }
+
+  this.navigationGrid={cellSize,cols,rows,blocked};
+  this.navigationGridDirty=false;
+  this.navigationGridVersion=(this.navigationGridVersion||0)+1;
+  for(const enemy of this.enemies||[]){
+   if(!enemy) continue;
+   enemy.navPath=null;
+   enemy.navPathIndex=0;
+   enemy.navGridVersion=0;
+   enemy.navNextRepathAt=0;
+  }
+ }
+
+ worldToNavCell(x,y){
+  const grid=this.ensureNavigationGrid();
+  return {
+   col:Phaser.Math.Clamp(Math.floor(x/grid.cellSize),0,grid.cols-1),
+   row:Phaser.Math.Clamp(Math.floor(y/grid.cellSize),0,grid.rows-1)
+  };
+ }
+
+ navCellToWorld(col,row){
+  const grid=this.ensureNavigationGrid();
+  return {
+   x:this.clampWorldX(col*grid.cellSize+grid.cellSize*0.5,20),
+   y:this.clampWorldY(row*grid.cellSize+grid.cellSize*0.5,20)
+  };
+ }
+
+ isNavCellWalkable(col,row){
+  const grid=this.ensureNavigationGrid();
+  if(col<0||row<0||col>=grid.cols||row>=grid.rows) return false;
+  return grid.blocked[row*grid.cols+col]===0;
+ }
+
+ findNearestWalkableNavCell(col,row,maxRadius=10){
+  const grid=this.ensureNavigationGrid();
+  col=Phaser.Math.Clamp(col,0,grid.cols-1);
+  row=Phaser.Math.Clamp(row,0,grid.rows-1);
+  if(this.isNavCellWalkable(col,row)) return {col,row};
+
+  for(let r=1;r<=maxRadius;r++){
+   for(let dx=-r;dx<=r;dx++){
+    for(const dy of [-r,r]){
+     const c=col+dx,rr=row+dy;
+     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
+    }
+   }
+   for(let dy=-r+1;dy<=r-1;dy++){
+    for(const dx of [-r,r]){
+     const c=col+dx,rr=row+dy;
+     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
+    }
+   }
+  }
+  return null;
+ }
+
+ isNavigationLineBlocked(x1,y1,x2,y2){
+  const grid=this.ensureNavigationGrid();
+  const dx=x2-x1,dy=y2-y1;
+  const distance=Math.hypot(dx,dy);
+  const steps=Math.max(1,Math.ceil(distance/(grid.cellSize*0.45)));
+  for(let i=1;i<=steps;i++){
+   const t=i/steps;
+   const col=Phaser.Math.Clamp(Math.floor((x1+dx*t)/grid.cellSize),0,grid.cols-1);
+   const row=Phaser.Math.Clamp(Math.floor((y1+dy*t)/grid.cellSize),0,grid.rows-1);
+   if(grid.blocked[row*grid.cols+col]) return true;
+  }
+  return false;
+ }
+
+ findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){
+  const grid=this.ensureNavigationGrid();
+  let start=this.worldToNavCell(startX,startY);
+  let goal=this.worldToNavCell(targetX,targetY);
+  start=this.findNearestWalkableNavCell(start.col,start.row,8);
+  goal=this.findNearestWalkableNavCell(goal.col,goal.row,10);
+  if(!start||!goal) return [];
+  if(start.col===goal.col && start.row===goal.row) return [];
+
+  const total=grid.cols*grid.rows;
+  const gScore=new Float32Array(total);
+  gScore.fill(Number.POSITIVE_INFINITY);
+  const parent=new Int32Array(total);
+  parent.fill(-1);
+  const closed=new Uint8Array(total);
+  const heap=[];
+  const startIndex=start.row*grid.cols+start.col;
+  const goalIndex=goal.row*grid.cols+goal.col;
+  const heuristic=(c,r)=>{
+   const dx=Math.abs(c-goal.col),dy=Math.abs(r-goal.row);
+   return Math.max(dx,dy)+(Math.SQRT2-1)*Math.min(dx,dy);
+  };
+  const heapPush=(node)=>{
+   heap.push(node);
+   let i=heap.length-1;
+   while(i>0){
+    const p=(i-1)>>1;
+    if(heap[p].f<=node.f) break;
+    heap[i]=heap[p];i=p;
+   }
+   heap[i]=node;
+  };
+  const heapPop=()=>{
+   if(!heap.length) return null;
+   const root=heap[0];
+   const tail=heap.pop();
+   if(heap.length){
+    let i=0;
+    while(true){
+     let child=i*2+1;
+     if(child>=heap.length) break;
+     if(child+1<heap.length && heap[child+1].f<heap[child].f) child++;
+     if(heap[child].f>=tail.f) break;
+     heap[i]=heap[child];i=child;
+    }
+    heap[i]=tail;
+   }
+   return root;
+  };
+
+  gScore[startIndex]=0;
+  heapPush({index:startIndex,col:start.col,row:start.row,f:heuristic(start.col,start.row)});
+  let visited=0;
+  const preferUp=((enemy?.navSeed||0)&1)===0;
+  const dirs=preferUp
+   ? [[1,0],[0,-1],[0,1],[-1,0],[1,-1],[1,1],[-1,-1],[-1,1]]
+   : [[1,0],[0,1],[0,-1],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+  while(heap.length && visited<maxVisited){
+   const node=heapPop();
+   if(!node||closed[node.index]) continue;
+   closed[node.index]=1;
+   visited++;
+   if(node.index===goalIndex) break;
+
+   for(const [dx,dy] of dirs){
+    const nc=node.col+dx,nr=node.row+dy;
+    if(!this.isNavCellWalkable(nc,nr)) continue;
+    if(dx!==0 && dy!==0){
+     if(!this.isNavCellWalkable(node.col+dx,node.row) || !this.isNavCellWalkable(node.col,node.row+dy)) continue;
+    }
+    const ni=nr*grid.cols+nc;
+    if(closed[ni]) continue;
+    const ng=gScore[node.index]+(dx!==0&&dy!==0?Math.SQRT2:1);
+    if(ng>=gScore[ni]) continue;
+    gScore[ni]=ng;
+    parent[ni]=node.index;
+    heapPush({index:ni,col:nc,row:nr,f:ng+heuristic(nc,nr)});
+   }
+  }
+
+  if(parent[goalIndex]===-1) return [];
+  const cells=[];
+  let cursor=goalIndex;
+  while(cursor!==startIndex && cursor!==-1){
+   const row=Math.floor(cursor/grid.cols);
+   const col=cursor-row*grid.cols;
+   cells.push({col,row});
+   cursor=parent[cursor];
+  }
+  cells.reverse();
+  if(!cells.length) return [];
+
+  // Collapse the grid path into long clear segments. A* provides global route
+  // choice; the existing local steering still handles the final few pixels.
+  const raw=cells.map(c=>this.navCellToWorld(c.col,c.row));
+  const simplified=[];
+  let from={x:startX,y:startY};
+  let i=0;
+  const radius=(enemy?.hitRadius||14)+5;
+  while(i<raw.length){
+   let best=i;
+   for(let j=raw.length-1;j>i;j--){
+    if(!this.isAshPathBlocked(from.x,from.y,raw[j].x,raw[j].y,radius)){
+     best=j;
+     break;
+    }
+   }
+   simplified.push(raw[best]);
+   from=raw[best];
+   i=best+1;
+  }
+  return simplified;
+ }
+
+ updateEnemyStuckState(enemy,time,intendedSpeed){
+  if(!enemy) return;
+  if(!enemy.navStuckCheckAt){
+   enemy.navStuckCheckAt=time+650;
+   enemy.navLastX=enemy.x;
+   enemy.navLastY=enemy.y;
+   enemy.navStuckCount=0;
+   return;
+  }
+  if(time<enemy.navStuckCheckAt) return;
+
+  const moved=Phaser.Math.Distance.Between(enemy.x,enemy.y,enemy.navLastX??enemy.x,enemy.navLastY??enemy.y);
+  const locked=time<(enemy.attackAnimUntil||0) || time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0);
+  const farFromPlayer=this.player?.active && Phaser.Math.Distance.Between(enemy.x,enemy.y,this.player.x,this.player.y)>78;
+  if(intendedSpeed>20 && !locked && farFromPlayer && moved<8){
+   enemy.navStuckCount=(enemy.navStuckCount||0)+1;
+   enemy.navForceRepath=true;
+   enemy.navNextRepathAt=0;
+   enemy.obstacleSteerUntil=0;
+  } else {
+   enemy.navStuckCount=0;
+  }
+  enemy.navLastX=enemy.x;
+  enemy.navLastY=enemy.y;
+  enemy.navStuckCheckAt=time+650;
+ }
+
+ getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){
+  if(!enemy || !this.player?.active) return null;
+  this.ensureNavigationGrid();
+  const directBlocked=this.isNavigationLineBlocked(enemy.x,enemy.y,targetX,targetY);
+  if(!directBlocked){
+   enemy.navPath=null;
+   enemy.navPathIndex=0;
+   enemy.navForceRepath=false;
+   return null;
+  }
+
+  const targetMoved=Phaser.Math.Distance.Between(targetX,targetY,enemy.navTargetX??targetX,enemy.navTargetY??targetY)>(this.navigationCellSize||56)*1.5;
+  const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
+  const periodicRefresh=pathFinished && time>=(enemy.navNextRepathAt||0);
+  const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
+  if(needsPath && this.navigationPathfindBudget>0){
+   this.navigationPathfindBudget--;
+   enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
+   enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
+   enemy.navPathIndex=0;
+   enemy.navTargetX=targetX;
+   enemy.navTargetY=targetY;
+   enemy.navGridVersion=this.navigationGridVersion;
+   enemy.navForceRepath=false;
+   enemy.navNextRepathAt=time+900+(enemy.navSeed%420);
+  }
+
+  const path=enemy.navPath;
+  if(!path?.length) return null;
+  let index=Phaser.Math.Clamp(enemy.navPathIndex||0,0,path.length-1);
+  while(index<path.length-1 && Phaser.Math.Distance.Between(enemy.x,enemy.y,path[index].x,path[index].y)<(this.navigationCellSize||56)*0.48){
+   index++;
+  }
+  enemy.navPathIndex=index;
+  return path[index]||null;
+ }
+
+ applyEnemySoftSeparation(time){
+  if(this.devFlags?.noCollision) return;
+  const list=(this.enemies||[]).filter(e=>e?.active && e.hp>0 && e.body && e.body.enable!==false);
+  for(let i=0;i<list.length;i++){
+   const a=list[i];
+   for(let j=i+1;j<list.length;j++){
+    const b=list[j];
+    const dx=a.x-b.x,dy=a.y-b.y;
+    const minDist=(a.crowdRadius||a.hitRadius||14)+(b.crowdRadius||b.hitRadius||14)+5;
+    const d2=dx*dx+dy*dy;
+    if(d2>=minDist*minDist) continue;
+    const dist=Math.max(0.001,Math.sqrt(d2));
+    const overlap=minDist-dist;
+    const fallbackAngle=((i*31+j*17)%360)*Math.PI/180;
+    const nx=d2<0.0001?Math.cos(fallbackAngle):dx/dist;
+    const ny=d2<0.0001?Math.sin(fallbackAngle):dy/dist;
+    const frozenA=a.type==='champion'
+     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
+    const frozenB=b.type==='champion'
+     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
+     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
+    const attackA=frozenA?0:(time<(a.attackAnimUntil||0)?0.28:1);
+    const attackB=frozenB?0:(time<(b.attackAnimUntil||0)?0.28:1);
+    const championA=a.type==='champion'?0.45:1;
+    const championB=b.type==='champion'?0.45:1;
+    const force=Math.min(46,overlap*3.4+5);
+    a.body.velocity.x+=nx*force*attackA*championA;
+    a.body.velocity.y+=ny*force*attackA*championA;
+    b.body.velocity.x-=nx*force*attackB*championB;
+    b.body.velocity.y-=ny*force*attackB*championB;
+   }
+  }
+
+  for(const e of list){
+   if(!e.body?.velocity) continue;
+   const base=Math.max(40,this.getEnemyMovementSpeed(e)||e.speed||80);
+   const maxSpeed=base*1.32+24;
+   const len=e.body.velocity.length();
+   if(len>maxSpeed && len>0) e.body.velocity.scale(maxSpeed/len);
+  }
+ }
+
+ findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){
+  const grid=this.ensureNavigationGrid();
+  const start=this.worldToNavCell(x,y);
+  const maxCells=Math.max(1,Math.ceil(maxRadius/grid.cellSize));
+  const candidates=[];
+  for(let r=0;r<=maxCells;r++){
+   if(r===0){candidates.push(start);}
+   else{
+    for(let dx=-r;dx<=r;dx++){
+     candidates.push({col:start.col+dx,row:start.row-r},{col:start.col+dx,row:start.row+r});
+    }
+    for(let dy=-r+1;dy<=r-1;dy++){
+     candidates.push({col:start.col-r,row:start.row+dy},{col:start.col+r,row:start.row+dy});
+    }
+   }
+   for(const c of candidates.splice(0,candidates.length)){
+    if(!this.isNavCellWalkable(c.col,c.row)) continue;
+    const point=this.navCellToWorld(c.col,c.row);
+    if(Phaser.Math.Distance.Between(point.x,point.y,x,y)>maxRadius+grid.cellSize) continue;
+    if(this.isSafeEnemySpawnPoint(point.x,point.y,padding,minPlayerDistance)) return point;
+   }
+  }
+  return null;
+ }
+}
+
+export default NavigationSystem;

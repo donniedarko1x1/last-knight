@@ -7,6 +7,8 @@ import {
  ASSET_REQUIREMENT,
  PROLOGUE_PAGE_KEYS
 } from '../src/config/assetManifest.mjs';
+import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from '../src/story/storyEvents.js';
 
 const root=process.cwd();
 const errors=[];
@@ -32,7 +34,7 @@ function register(key,url,{required=true}={}){
 function pad2(n){return String(n).padStart(2,'0');}
 
 // 1) JS syntax.
-for(const file of ['src/main.js','src/combat/HeroMelee.js']){
+for(const file of ['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/storyEvents.js']){
  const result=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8'});
  if(result.status!==0) fail(`Syntax check failed: ${file}\n${result.stderr||result.stdout}`);
  else pass(`Syntax: ${file}`);
@@ -40,6 +42,13 @@ for(const file of ['src/main.js','src/combat/HeroMelee.js']){
 
 const mainPath=path.join(root,'src/main.js');
 const main=fs.readFileSync(mainPath,'utf8');
+const navigation=fs.readFileSync(path.join(root,'src/world/NavigationSystem.js'),'utf8');
+const audio=fs.readFileSync(path.join(root,'src/audio/AudioManager.js'),'utf8');
+const cinematicTransitions=fs.readFileSync(path.join(root,'src/ui/cinematicTransitions.js'),'utf8');
+const gameplayConfig=fs.readFileSync(path.join(root,'src/config/gameplayConfig.mjs'),'utf8');
+const worldConfig=fs.readFileSync(path.join(root,'src/config/worldConfig.mjs'),'utf8');
+const storyDirectorSource=fs.readFileSync(path.join(root,'src/story/StoryDirector.js'),'utf8');
+const storyEventsSource=fs.readFileSync(path.join(root,'src/story/storyEvents.js'),'utf8');
 
 // 2) Removed legacy namespaces must not come back as runtime animation refs.
 const forbidden=[
@@ -161,19 +170,21 @@ for(const [label,needle] of [
 }
 if(!errors.some(e=>e.startsWith('Missing world-physics contract:'))) pass('World Physics v1 contracts present');
 
-// 9) World Navigation v2 contracts.
-for(const [label,needle] of [
- ['56px NavigationGrid','this.navigationCellSize=56;'],
- ['grid rebuild','rebuildNavigationGrid(){'],
- ['A* pathfinding','findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){'],
- ['waypoint routing','getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){'],
- ['local steering retained','setEnemySteeredVelocity(enemy,vx,vy,time){'],
- ['soft enemy separation','applyEnemySoftSeparation(time){'],
- ['stuck detector','updateEnemyStuckState(enemy,time,intendedSpeed){'],
- ['navigation debug overlay','this.overlayFlags.navigation'],
- ['nav-grid safe spawn','findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){']
+// 9) World Navigation v2 contracts. Architecture Refactor v1 moves the
+// global A*/grid implementation into src/world/NavigationSystem.js while the
+// MainScene keeps thin compatibility delegates and local steering.
+for(const [label,source,needle] of [
+ ['56px NavigationGrid',main,'this.navigationCellSize=56;'],
+ ['grid rebuild',navigation,'rebuildNavigationGrid(){'],
+ ['A* pathfinding',navigation,'findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){'],
+ ['waypoint routing',navigation,'getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){'],
+ ['local steering retained',main,'setEnemySteeredVelocity(enemy,vx,vy,time){'],
+ ['soft enemy separation',navigation,'applyEnemySoftSeparation(time){'],
+ ['stuck detector',navigation,'updateEnemyStuckState(enemy,time,intendedSpeed){'],
+ ['navigation debug overlay',main,'this.overlayFlags.navigation'],
+ ['nav-grid safe spawn',navigation,'findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){']
 ]){
- if(!main.includes(needle)) fail(`Missing World Navigation v2 contract: ${label}`);
+ if(!source.includes(needle)) fail(`Missing World Navigation v2 contract: ${label}`);
 }
 if(main.includes(`this.physics.add.collider(
    this.enemyGroup,
@@ -183,14 +194,78 @@ if(main.includes(`this.physics.add.collider(
 if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.startsWith('Hard enemy-enemy'))) pass('World Navigation v2 contracts present');
 
 // 10) Stability contracts added by Technical Stability v1.
-for(const [label,needle] of [
- ['unified champion hazard cleanup','clearChampionHazards(){'],
- ['Mage SFX limiter reset','this.lastMageCastSfxAt=-9999;'],
- ['Broken Saint warning shutdown cleanup','this.stopBrokenSaintHolyWarningSfx();'],
- ['BGM unlock handoff','this.sound.once(\'unlocked\',startMusic);']
+for(const [label,source,needle] of [
+ ['unified champion hazard cleanup',main,'clearChampionHazards(){'],
+ ['Mage SFX limiter reset',main,'this.lastMageCastSfxAt=-9999;'],
+ ['Broken Saint warning shutdown cleanup',main,'this.stopBrokenSaintHolyWarningSfx();'],
+ ['BGM unlock handoff',audio,"this.sound.once('unlocked',startMusic);"]
 ]){
- if(!main.includes(needle)) fail(`Missing stability contract: ${label}`);
+ if(!source.includes(needle)) fail(`Missing stability contract: ${label}`);
 }
+
+// 11) Architecture Refactor v1 contracts.
+for(const [label,source,needle] of [
+ ['gameplay config module',gameplayConfig,'export {'],
+ ['world config module',worldConfig,'ASH_FIELDS_BAKED_LAYOUT'],
+ ['navigation module',navigation,'class NavigationSystem'],
+ ['audio module',audio,'class AudioManager'],
+ ['cinematic transition module',cinematicTransitions,'cinematicSwapWithFade'],
+ ['navigation delegate import',main,"import NavigationSystem from './world/NavigationSystem.js';"],
+ ['audio delegate import',main,"import AudioManager from './audio/AudioManager.js';"]
+]){
+ if(!source.includes(needle)) fail(`Missing Architecture Refactor v1 contract: ${label}`);
+}
+if(main.includes('const STAGE0={')) fail('STAGE0 is still defined inline in main.js');
+if(main.includes('const WORLD_DESIGN={')) fail('WORLD_DESIGN is still defined inline in main.js');
+if(main.includes('const CINEMATIC_FADE={')) fail('Cinematic transition implementation is still inline in main.js');
+if(!errors.some(e=>e.startsWith('Missing Architecture Refactor v1 contract:')||e.includes('still defined inline')||e.includes('still inline'))) pass('Architecture Refactor v1 module boundaries present');
+
+// 12) StoryDirector v1 contracts and a tiny headless state-machine smoke test.
+for(const [label,source,needle] of [
+ ['StoryDirector module',storyDirectorSource,'class StoryDirector'],
+ ['story state NORMAL',storyDirectorSource,"NORMAL:'NORMAL'"],
+ ['story state DIALOGUE',storyDirectorSource,"DIALOGUE:'DIALOGUE'"],
+ ['story state CINEMATIC',storyDirectorSource,"CINEMATIC:'CINEMATIC'"],
+ ['declarative trigger evaluation',storyDirectorSource,'evaluateTrigger(trigger={},context=this.getContext())'],
+ ['one-shot completion flags',storyDirectorSource,'completedEvents=new Set()'],
+ ['generic cinematic launcher',storyDirectorSource,'playCinematic(pages,{eventId=null,once=true,releaseTextureKeys=[],onComplete=null}={})'],
+ ['dialogue event bridge',storyDirectorSource,"this.scene?.events?.emit?.('story-dialogue-start'"],
+ ['MainScene StoryDirector import',main,"import StoryDirector from './story/StoryDirector.js';"],
+ ['MainScene StoryDirector install',main,'this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();'],
+ ['MainScene StoryDirector update',main,'if(this.storyDirector?.update(time)) return;'],
+ ['runtime cinematic mode',main,"this.cinematicMode=data?.mode==='story' ? 'story' : 'prologue';"],
+ ['shared prologue story data',storyEventsSource,'const PROLOGUE_STORY_PAGES=Object.freeze([']
+]){
+ if(!source.includes(needle)) fail(`Missing StoryDirector v1 contract: ${label}`);
+}
+if(PROLOGUE_STORY_PAGES.length!==4) fail(`StoryDirector v1 expected 4 shared prologue pages, got ${PROLOGUE_STORY_PAGES.length}`);
+if(!Array.isArray(STORY_EVENTS)) fail('STORY_EVENTS must be an array');
+try{
+ const emitted=[];
+ let paused=false;
+ const fakeScene={
+  kills:3,wave:1,level:1,currentWorldZoneIndex:0,gameOver:false,levelChoiceOpen:false,championRewardOpen:false,
+  player:{x:100,y:200},regionText:{text:'ASH FIELDS'},activeChampion:null,
+  events:{emit:(...args)=>emitted.push(args)},
+  setGameplayPaused:(reason,value)=>{if(reason==='story')paused=Boolean(value);},
+  scene:{isActive:()=>false,stop:()=>{}},
+  textures:{exists:()=>true}
+ };
+ const smoke=new StoryDirector(fakeScene,{events:[{
+  id:'validator_story_event',once:true,trigger:{region:'ASH FIELDS',kills:2},
+  action:{type:'callback',run:()=>{}}
+ }]}).install();
+ if(smoke.getState()!==STORY_STATE.NORMAL) throw new Error('initial state is not NORMAL');
+ if(!smoke.update(1000)) throw new Error('eligible event did not trigger');
+ if(!smoke.hasCompleted('validator_story_event')) throw new Error('one-shot event was not completed');
+ if(smoke.getState()!==STORY_STATE.NORMAL) throw new Error('director did not return to NORMAL');
+ if(paused) throw new Error('story pause remained active after callback event');
+ if(smoke.update(1200)) throw new Error('one-shot event triggered twice');
+ smoke.destroy();
+}catch(error){
+ fail(`StoryDirector v1 state-machine smoke test failed: ${error.message}`);
+}
+if(!errors.some(e=>e.startsWith('Missing StoryDirector v1 contract:')||e.startsWith('StoryDirector v1'))) pass('StoryDirector v1 contracts + state-machine smoke test present');
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');

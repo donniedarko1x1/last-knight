@@ -1,6 +1,34 @@
 import Phaser from 'phaser';
 import HeroMelee from './combat/HeroMelee.js';
 import {
+ STAGE0,
+ PURSUIT,
+ BALANCE,
+ LOW_HEALTH_CONFIG,
+ HERO_SOCKET_DIRS,
+ HERO_SOCKET_SPIN_FRAME_COUNT,
+ HERO_SOCKET_VISUAL_SCALE,
+ HERO_SOCKET_SPIN_FRAME_RATE,
+ HERO_SOCKET_SPIN_DURATION_MS,
+ HERO_DEATH_FRAME_COUNT,
+ HERO_DEATH_ANIMATION_MS,
+ HERO_DEATH_HOLD_MS,
+ HERO_DEATH_VISUAL_SCALE
+} from './config/gameplayConfig.mjs';
+import {
+ WORLD_DESIGN,
+ REGION_BALANCE,
+ ASH_FIELDS_CLUSTER_LIBRARY,
+ ASH_FIELDS_SEGMENTS,
+ ASH_FIELDS_BAKED_LAYOUT,
+ ASH_READABILITY
+} from './config/worldConfig.mjs';
+import { cinematicFadeIn, cinematicSwapWithFade, cinematicFadeOutAndRun } from './ui/cinematicTransitions.js';
+import NavigationSystem from './world/NavigationSystem.js';
+import AudioManager from './audio/AudioManager.js';
+import StoryDirector from './story/StoryDirector.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from './story/storyEvents.js';
+import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
  SKILL_ICON_KEYS,
@@ -101,1431 +129,15 @@ function lkApplyRenderScale(game,value,{remember=true}={}){
  return target;
 }
 
-const STAGE0={
- WORLD_WIDTH:18400,
- WORLD_HEIGHT:1728,
- REFERENCE_HEIGHT:720,
- MAX_GAMEPLAY_ASPECT:Number.POSITIVE_INFINITY,
- CAMERA_DEADZONE_WIDTH:0.52,
- CAMERA_DEADZONE_HEIGHT:0.46
-};
-
-const PURSUIT={
- // Simple rule requested for long biomes:
- // when the player's screen is empty, unseen normal enemies run 4x faster.
- EMPTY_SCREEN_SPEED_MULTIPLIER:4,
-
- // Normal spawn points sit roughly 52 world units outside the camera.
- // Once a rushing enemy reaches this band, its speed immediately returns to normal.
- NORMAL_SPAWN_BAND:65
-};
-
-const BALANCE={
- XP_BASE:100,
- XP_PER_LEVEL:15,
- PLAYER_BASE_MAX_HP:100,
- PLAYER_SPEED:220,
- PLAYER_IFRAME_MS:250,
- MANA_REGEN_MS:18000,
- HEART_BASE_CHANCE:0.06,
- HEART_HEAL:25,
- HEART_PITY_HP_THRESHOLD:50,
- HEART_PITY_START_KILLS:4,
- HEART_PITY_STEP:0.025,
- HEART_PITY_MAX_CHANCE:0.22,
- SWORD_DAMAGE_STEP:3,
- SWORD_DAMAGE_CAP:45,
- SWORD_SPEED_FACTOR:0.88,
- SWORD_COOLDOWN_CAP:520,
- SWORD_RADIUS_STEP:18,
- SWORD_RADIUS_CAP:170,
- SHIELD_BLOCK_RESET_MS:1700,
- SHIELD_RELIC_COOLDOWN_MS:25000,
- MAGE_PROJECTILE_SPEED:240,
- MAGE_PROJECTILE_DAMAGE:11,
- MAGE_LEAD_SECONDS:0.32
-};
 
 
-const LOW_HEALTH_CONFIG={
- LOW_THRESHOLD:0.30,
- CRITICAL_THRESHOLD:0.20,
- DEATH_DOOR_THRESHOLD:0.10,
- LOW_PULSE_MS:1200,
- CRITICAL_PULSE_MS:980,
- DEATH_DOOR_PULSE_MS:700,
- CRITICAL_VIGNETTE_ALPHA:0.36,
- DEATH_DOOR_VIGNETTE_ALPHA:0.52,
- VIGNETTE_DEPTH_RATIO:0.28,
- VIGNETTE_DEPTH_MIN:110,
- VIGNETTE_DEPTH_MAX:280,
- VIGNETTE_BANDS:12,
- CRITICAL_FLASH_ALPHA:0.68,
- CRITICAL_FLASH_MS:200,
- RECOVERY_FADE_MS:300,
- HEARTBEAT_LOW_INTERVAL_MS:1080,
- HEARTBEAT_CRITICAL_INTERVAL_MS:820,
- HEARTBEAT_DEATH_DOOR_INTERVAL_MS:620,
- HEARTBEAT_VOLUME:0.48
-};
-
-const WORLD_DESIGN={
- ROUTE_Y:864,
- START_X:400,
-
- // 20:9 mobile view = 1600 world units wide.
- // 7200 / 1600 = 4.5 wide-screen phone views per biome.
- MOBILE_REFERENCE_VIEW_WIDTH:1600,
- ZONE_LENGTH:3600,
-
- // The final ~1 phone screen of a biome starts showing traces of the next one.
- PREVIEW_WIDTH:800,
-
- // Once the player is this deep into the new biome, the old route seals.
- BACK_LOCK_DEPTH:600,
-
- // Old prototype visuals are discarded once safely outside camera range.
- UNLOAD_DEPTH:1200,
-
- ZONES:[
-  {
-   id:'ashFields',
-   name:'ASH FIELDS',
-   subtitle:'The kingdom burned here first',
-   start:0,
-   end:4000,
-   color:0x37372f,
-   accent:0x706a58,
-   previewKind:'ash',
-   landmark:'BROKEN SWORD',
-   landmarkX:2275,
-   landmarkY:725
-  },
-  {
-   id:'ruinedKingdom',
-   name:'RUINED KINGDOM',
-   subtitle:'Stone remembers the dead',
-   start:4000,
-   end:7600,
-   color:0x474640,
-   accent:0x8b806e,
-   previewKind:'ruins',
-   landmark:'FALLEN KING',
-   landmarkX:5800,
-   landmarkY:950
-  },
-  {
-   id:'cursedGraveyard',
-   name:'CURSED GRAVEYARD',
-   subtitle:'The soil refuses to rest',
-   start:7600,
-   end:11200,
-   color:0x303c35,
-   accent:0x668267,
-   previewKind:'graveyard',
-   landmark:'OLD MAUSOLEUM',
-   landmarkX:9400,
-   landmarkY:715
-  },
-  {
-   id:'hollowForest',
-   name:'HOLLOW FOREST',
-   subtitle:'Roots feed on what remains',
-   start:11200,
-   end:14800,
-   color:0x263329,
-   accent:0x637c55,
-   previewKind:'forest',
-   landmark:'DEAD HEART TREE',
-   landmarkX:13000,
-   landmarkY:960
-  },
-  {
-   id:'spiderTerritory',
-   name:'SPIDER TERRITORY',
-   subtitle:'Nothing leaves the web',
-   start:14800,
-   end:18400,
-   color:0x29272d,
-   accent:0x766d7e,
-   previewKind:'spider',
-   landmark:'THE GREAT COCOON',
-   landmarkX:16600,
-   landmarkY:755
-  }
- ],
-
- GATES:[
-  {
-   id:'saintGate',
-   x:4000,
-   champion:'brokenSaint',
-   fromZone:0,
-   toZone:1,
-   name:"SAINT'S SEAL",
-   closeName:'ASHFALL',
-   color:0xd8c878
-  },
-  {
-   id:'soulGate',
-   x:7600,
-   champion:'necromancer',
-   fromZone:1,
-   toZone:2,
-   name:'SOUL MIST',
-   closeName:'SOUL VEIL',
-   color:0x67d979
-  },
-  {
-   id:'wardenGate',
-   x:11200,
-   champion:'shieldWarden',
-   fromZone:2,
-   toZone:3,
-   name:'WARDEN BARRIER',
-   closeName:'FALLEN STONE',
-   color:0xb8c8d8
-  },
-  {
-   id:'rootGate',
-   x:14800,
-   champion:'hollowTree',
-   fromZone:3,
-   toZone:4,
-   name:'ROOT WALL',
-   closeName:'SEALED ROOTS',
-   color:0x91b967
-  }
- ]
-};
-
-// Regional progression is deliberately layered on top of the existing wave balance.
-// Ash Fields is the untouched baseline. Enemy HP/speed formulas still come from the
-// current wave system; regions only change ordinary population/spawn pressure and
-// grant small permanent hero bonuses after an official biome transition.
-const REGION_BALANCE={
- ZONES:[
-  {id:'ashFields',populationMultiplier:1.00,spawnRateMultiplier:1.00,playerMaxHpMultiplier:1.00,meleeDamageBonus:0},
-  {id:'ruinedKingdom',populationMultiplier:1.15,spawnRateMultiplier:1.05,playerMaxHpMultiplier:1.08,meleeDamageBonus:1},
-  {id:'cursedGraveyard',populationMultiplier:1.30,spawnRateMultiplier:1.10,playerMaxHpMultiplier:1.17,meleeDamageBonus:2},
-  {id:'hollowForest',populationMultiplier:1.45,spawnRateMultiplier:1.15,playerMaxHpMultiplier:1.26,meleeDamageBonus:3},
-  {id:'spiderTerritory',populationMultiplier:1.60,spawnRateMultiplier:1.20,playerMaxHpMultiplier:1.36,meleeDamageBonus:4}
- ]
-};
-
-
-
-const ASH_FIELDS_CLUSTER_LIBRARY={
- quiet_top_01:[
-  {kind:'grass',key:'ash_grass_01',ox:-96,oy:-18,scale:0.34,alpha:0.46,rotation:-0.05},
-  {kind:'grass',key:'ash_grass_02',ox:8,oy:-30,scale:0.29,alpha:0.42,rotation:0.04},
-  {kind:'rock',key:'ash_rock_03',ox:118,oy:20,scale:0.18,alpha:0.92,rotation:0.05}
- ],
- quiet_bottom_01:[
-  {kind:'grass',key:'ash_grass_03',ox:-76,oy:-10,scale:0.28,alpha:0.42,rotation:0.03},
-  {kind:'rock',key:'ash_rock_02',ox:48,oy:8,scale:0.21,alpha:0.93,rotation:-0.03},
-  {kind:'grass',key:'ash_grass_01',ox:120,oy:-8,scale:0.22,alpha:0.37,rotation:0.02}
- ],
- tree_cluster_top_01:[
-  {kind:'tree',key:'ash_tree_01',ox:0,oy:0,scale:0.42,alpha:0.98,rotation:-0.02},
-  {kind:'rock',key:'ash_rock_01',ox:-148,oy:112,scale:0.23,alpha:0.96,rotation:-0.06},
-  {kind:'rock',key:'ash_rock_03',ox:126,oy:120,scale:0.18,alpha:0.94,rotation:0.05},
-  {kind:'grass',key:'ash_grass_02',ox:-104,oy:80,scale:0.24,alpha:0.34,rotation:0.05},
-  {kind:'grass',key:'ash_grass_03',ox:116,oy:84,scale:0.21,alpha:0.33,rotation:-0.04}
- ],
- tree_cluster_bottom_01:[
-  {kind:'tree',key:'ash_tree_02',ox:0,oy:0,scale:0.39,alpha:0.98,rotation:0.02,flipX:true},
-  {kind:'rock',key:'ash_rock_02',ox:-132,oy:112,scale:0.22,alpha:0.95,rotation:-0.05},
-  {kind:'rock',key:'ash_rock_03',ox:144,oy:124,scale:0.18,alpha:0.93,rotation:0.06},
-  {kind:'grass',key:'ash_grass_01',ox:102,oy:84,scale:0.22,alpha:0.34,rotation:-0.04}
- ],
- rock_cluster_top_01:[
-  {kind:'rock',key:'ash_rock_01',ox:-92,oy:6,scale:0.28,alpha:0.96,rotation:-0.05},
-  {kind:'rock',key:'ash_rock_02',ox:38,oy:12,scale:0.23,alpha:0.94,rotation:0.03},
-  {kind:'rock',key:'ash_rock_03',ox:152,oy:24,scale:0.21,alpha:0.93,rotation:0.06},
-  {kind:'grass',key:'ash_grass_02',ox:-8,oy:-20,scale:0.22,alpha:0.32,rotation:0.02},
-  {kind:'grass',key:'ash_grass_03',ox:112,oy:-10,scale:0.18,alpha:0.31,rotation:-0.03}
- ],
- rock_cluster_bottom_01:[
-  {kind:'rock',key:'ash_rock_02',ox:-86,oy:8,scale:0.24,alpha:0.94,rotation:-0.04},
-  {kind:'rock',key:'ash_rock_01',ox:52,oy:-2,scale:0.26,alpha:0.96,rotation:0.04,flipX:true},
-  {kind:'grass',key:'ash_grass_03',ox:-6,oy:-20,scale:0.22,alpha:0.31,rotation:0.04},
-  {kind:'grass',key:'ash_grass_01',ox:106,oy:-12,scale:0.18,alpha:0.28,rotation:-0.03}
- ],
- tree_solo_top_01:[
-  {kind:'tree',key:'ash_tree_02',ox:0,oy:0,scale:0.34,alpha:0.97,rotation:0.03},
-  {kind:'rock',key:'ash_rock_03',ox:96,oy:124,scale:0.17,alpha:0.92,rotation:0.05},
-  {kind:'grass',key:'ash_grass_02',ox:-92,oy:94,scale:0.18,alpha:0.30,rotation:-0.03}
- ],
- tree_solo_bottom_01:[
-  {kind:'tree',key:'ash_tree_01',ox:0,oy:0,scale:0.36,alpha:0.97,rotation:-0.03,flipX:true},
-  {kind:'rock',key:'ash_rock_02',ox:-124,oy:118,scale:0.18,alpha:0.92,rotation:-0.04},
-  {kind:'grass',key:'ash_grass_01',ox:92,oy:92,scale:0.19,alpha:0.31,rotation:0.03}
- ],
- landmark_sword_support_01:[
-  {kind:'tree',key:'ash_tree_02',ox:-282,oy:-12,scale:0.30,alpha:0.95,rotation:-0.02},
-  {kind:'rock',key:'ash_rock_01',ox:-184,oy:90,scale:0.27,alpha:0.95,rotation:-0.04},
-  {kind:'rock',key:'ash_rock_02',ox:204,oy:82,scale:0.22,alpha:0.93,rotation:0.05},
-  {kind:'grass',key:'ash_grass_02',ox:-110,oy:52,scale:0.16,alpha:0.28,rotation:0.05},
-  {kind:'grass',key:'ash_grass_03',ox:122,oy:40,scale:0.16,alpha:0.26,rotation:-0.04}
- ],
- landmark_altar_support_01:[
-  {kind:'rock',key:'ash_rock_02',ox:-182,oy:88,scale:0.24,alpha:0.93,rotation:-0.04},
-  {kind:'rock',key:'ash_rock_03',ox:132,oy:102,scale:0.18,alpha:0.91,rotation:0.05},
-  {kind:'tree',key:'ash_tree_01',ox:264,oy:-6,scale:0.28,alpha:0.95,rotation:0.02,flipX:true},
-  {kind:'grass',key:'ash_grass_01',ox:164,oy:70,scale:0.18,alpha:0.28,rotation:-0.02}
- ]
-};
-
-
-const ASH_FIELDS_SEGMENTS=[
- {
-  id:'intro',
-  start:0,
-  end:900,
-  clusters:[
-   {x:470,y:304,cluster:'quiet_top_01'},
-   {x:620,y:1390,cluster:'quiet_bottom_01'},
-   {x:810,y:352,cluster:'tree_solo_top_01'}
-  ],
-  landmarks:[]
- },
- {
-  id:'burntEdge',
-  start:900,
-  end:1900,
-  clusters:[
-   {x:1060,y:1364,cluster:'rock_cluster_bottom_01'},
-   {x:1400,y:338,cluster:'tree_cluster_top_01'},
-   {x:1690,y:1382,cluster:'tree_cluster_bottom_01'}
-  ],
-  landmarks:[]
- },
- {
-  id:'brokenSword',
-  start:1900,
-  end:2900,
-  clusters:[
-   {x:2050,y:326,cluster:'quiet_top_01'},
-   {x:2250,y:1058,cluster:'landmark_sword_support_01'},
-   {x:2620,y:344,cluster:'rock_cluster_top_01'}
-  ],
-  landmarks:[
-   {key:'ash_landmark_sword',x:2260,y:1260,scale:0.58,rotation:0}
-  ]
- },
- {
-  id:'postLandmark',
-  start:2900,
-  end:4000,
-  clusters:[
-   {x:3010,y:382,cluster:'landmark_altar_support_01'},
-   {x:3310,y:1362,cluster:'tree_solo_bottom_01'},
-   {x:3560,y:348,cluster:'tree_cluster_top_01'},
-   {x:3780,y:1382,cluster:'quiet_bottom_01'}
-  ],
-  landmarks:[
-   {key:'ash_landmark_altar',x:3030,y:470,scale:0.50,rotation:0}
-  ]
- }
-];
-
-
-// Baked Ash Fields layout exported from the DEV environment editor on 2026-08-29.
-// This is now the clean default world composition, independent of browser localStorage.
-// Objects that were originally created in the editor are promoted to ordinary base scenery
-// so Reset Segment / Reset All returns to this approved composition instead of deleting them.
-const ASH_FIELDS_BAKED_LAYOUT={
- "version": 2,
- "objects": {
-  "intro:cluster0:item0": {
-   "x": 374,
-   "y": 286,
-   "scale": 0.34,
-   "rotation": -0.05,
-   "alpha": 0.46,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster0:item1": {
-   "x": 478,
-   "y": 274,
-   "scale": 0.29,
-   "rotation": 0.04,
-   "alpha": 0.42,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster0:item2": {
-   "x": 588,
-   "y": 324,
-   "scale": 0.18,
-   "rotation": 0.05,
-   "alpha": 0.92,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster1:item0": {
-   "x": 544,
-   "y": 1380,
-   "scale": 0.28,
-   "rotation": 0.03,
-   "alpha": 0.42,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster1:item1": {
-   "x": 668,
-   "y": 1398,
-   "scale": 0.21,
-   "rotation": -0.03,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster1:item2": {
-   "x": 740,
-   "y": 1382,
-   "scale": 0.22,
-   "rotation": 0.02,
-   "alpha": 0.37,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster2:item0": {
-   "x": 810,
-   "y": 352,
-   "scale": 0.34,
-   "rotation": 0.03,
-   "alpha": 0.97,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_02",
-   "kind": "tree",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster2:item1": {
-   "x": 906,
-   "y": 476,
-   "scale": 0.17,
-   "rotation": 0.05,
-   "alpha": 0.92,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "intro:cluster2:item2": {
-   "x": 718,
-   "y": 446,
-   "scale": 0.18,
-   "rotation": -0.03,
-   "alpha": 0.3,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster0:item0": {
-   "x": 974,
-   "y": 1372,
-   "scale": 0.24,
-   "rotation": -0.04,
-   "alpha": 0.94,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster0:item1": {
-   "x": 1112,
-   "y": 1362,
-   "scale": 0.26,
-   "rotation": 0.04,
-   "alpha": 0.96,
-   "flipX": true,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster0:item2": {
-   "x": 1054,
-   "y": 1344,
-   "scale": 0.22,
-   "rotation": 0.04,
-   "alpha": 0.31,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster0:item3": {
-   "x": 1166,
-   "y": 1352,
-   "scale": 0.18,
-   "rotation": -0.03,
-   "alpha": 0.28,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster1:item0": {
-   "x": 1400,
-   "y": 338,
-   "scale": 0.42,
-   "rotation": -0.02,
-   "alpha": 0.98,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster1:item1": {
-   "x": 1252,
-   "y": 450,
-   "scale": 0.23,
-   "rotation": -0.06,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster1:item2": {
-   "x": 1526,
-   "y": 458,
-   "scale": 0.18,
-   "rotation": 0.05,
-   "alpha": 0.94,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster1:item3": {
-   "x": 1296,
-   "y": 418,
-   "scale": 0.24,
-   "rotation": 0.05,
-   "alpha": 0.34,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster1:item4": {
-   "x": 1516,
-   "y": 422,
-   "scale": 0.21,
-   "rotation": -0.04,
-   "alpha": 0.33,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster2:item0": {
-   "x": 1690,
-   "y": 1382,
-   "scale": 0.39,
-   "rotation": 0.02,
-   "alpha": 0.98,
-   "flipX": true,
-   "deleted": false,
-   "key": "ash_tree_02",
-   "kind": "tree",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster2:item1": {
-   "x": 1558,
-   "y": 1494,
-   "scale": 0.22,
-   "rotation": -0.05,
-   "alpha": 0.95,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster2:item2": {
-   "x": 1834,
-   "y": 1506,
-   "scale": 0.18,
-   "rotation": 0.06,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "burntEdge:cluster2:item3": {
-   "x": 1792,
-   "y": 1466,
-   "scale": 0.22,
-   "rotation": -0.04,
-   "alpha": 0.34,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster0:item0": {
-   "x": 1954,
-   "y": 308,
-   "scale": 0.34,
-   "rotation": -0.05,
-   "alpha": 0.46,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster0:item1": {
-   "x": 2058,
-   "y": 296,
-   "scale": 0.29,
-   "rotation": 0.04,
-   "alpha": 0.42,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster0:item2": {
-   "x": 2168,
-   "y": 346,
-   "scale": 0.18,
-   "rotation": 0.05,
-   "alpha": 0.92,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster1:item0": {
-   "x": 1879.77,
-   "y": 1043.11,
-   "scale": 0.3,
-   "rotation": -0.02,
-   "alpha": 0.95,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_02",
-   "kind": "tree",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster1:item1": {
-   "x": 2066,
-   "y": 1148,
-   "scale": 0.27,
-   "rotation": -0.04,
-   "alpha": 0.95,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster1:item2": {
-   "x": 2454,
-   "y": 1140,
-   "scale": 0.22,
-   "rotation": 0.05,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster1:item3": {
-   "x": 2140,
-   "y": 1110,
-   "scale": 0.16,
-   "rotation": 0.05,
-   "alpha": 0.28,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster1:item4": {
-   "x": 2372,
-   "y": 1098,
-   "scale": 0.16,
-   "rotation": -0.04,
-   "alpha": 0.26,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster2:item0": {
-   "x": 2528,
-   "y": 350,
-   "scale": 0.28,
-   "rotation": -0.05,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster2:item1": {
-   "x": 2658,
-   "y": 356,
-   "scale": 0.23,
-   "rotation": 0.03,
-   "alpha": 0.94,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster2:item2": {
-   "x": 2772,
-   "y": 368,
-   "scale": 0.21,
-   "rotation": 0.06,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster2:item3": {
-   "x": 2612,
-   "y": 324,
-   "scale": 0.22,
-   "rotation": 0.02,
-   "alpha": 0.32,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:cluster2:item4": {
-   "x": 2732,
-   "y": 334,
-   "scale": 0.18,
-   "rotation": -0.03,
-   "alpha": 0.31,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "brokenSword:landmark0": {
-   "x": 2260,
-   "y": 1260,
-   "scale": 0.58,
-   "rotation": 0,
-   "alpha": 0.98,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_landmark_sword",
-   "kind": "landmark",
-   "segment": "brokenSword",
-   "landmark": true,
-   "created": false
-  },
-  "postLandmark:cluster0:item0": {
-   "x": 2828,
-   "y": 470,
-   "scale": 0.24,
-   "rotation": -0.04,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster0:item1": {
-   "x": 3142,
-   "y": 484,
-   "scale": 0.18,
-   "rotation": 0.05,
-   "alpha": 0.91,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster0:item2": {
-   "x": 3274,
-   "y": 376,
-   "scale": 0.28,
-   "rotation": 0.02,
-   "alpha": 0.95,
-   "flipX": true,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster0:item3": {
-   "x": 3174,
-   "y": 452,
-   "scale": 0.18,
-   "rotation": -0.02,
-   "alpha": 0.28,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster1:item0": {
-   "x": 3310,
-   "y": 1362,
-   "scale": 0.36,
-   "rotation": -0.03,
-   "alpha": 0.97,
-   "flipX": true,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster1:item1": {
-   "x": 3186,
-   "y": 1480,
-   "scale": 0.18,
-   "rotation": -0.04,
-   "alpha": 0.92,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster1:item2": {
-   "x": 3402,
-   "y": 1454,
-   "scale": 0.19,
-   "rotation": 0.03,
-   "alpha": 0.31,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster2:item0": {
-   "x": 3560,
-   "y": 348,
-   "scale": 0.42,
-   "rotation": -0.02,
-   "alpha": 0.98,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster2:item1": {
-   "x": 3412,
-   "y": 460,
-   "scale": 0.23,
-   "rotation": -0.06,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster2:item2": {
-   "x": 3686,
-   "y": 468,
-   "scale": 0.18,
-   "rotation": 0.05,
-   "alpha": 0.94,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster2:item3": {
-   "x": 3456,
-   "y": 428,
-   "scale": 0.24,
-   "rotation": 0.05,
-   "alpha": 0.34,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster2:item4": {
-   "x": 3676,
-   "y": 432,
-   "scale": 0.21,
-   "rotation": -0.04,
-   "alpha": 0.33,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster3:item0": {
-   "x": 3704,
-   "y": 1372,
-   "scale": 0.28,
-   "rotation": 0.03,
-   "alpha": 0.42,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster3:item1": {
-   "x": 3828,
-   "y": 1390,
-   "scale": 0.21,
-   "rotation": -0.03,
-   "alpha": 0.93,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:cluster3:item2": {
-   "x": 3900,
-   "y": 1374,
-   "scale": 0.22,
-   "rotation": 0.02,
-   "alpha": 0.37,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "postLandmark:landmark0": {
-   "x": 3030,
-   "y": 470,
-   "scale": 0.5,
-   "rotation": 0,
-   "alpha": 0.98,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_landmark_altar",
-   "kind": "landmark",
-   "segment": "postLandmark",
-   "landmark": true,
-   "created": false
-  },
-  "devCreated:mtdxu8k2:1": {
-   "x": 232.36,
-   "y": 1103.17,
-   "scale": 0.42,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdxyhcq:4": {
-   "x": 638.5,
-   "y": 682.62,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "intro",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdxz16u:5": {
-   "x": 1959.15,
-   "y": 74.16,
-   "scale": 0.46,
-   "rotation": 0,
-   "alpha": 0.95,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_02",
-   "kind": "tree",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdxzj99:6": {
-   "x": 1172.04,
-   "y": 1376.81,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 1,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy0bhe:7": {
-   "x": 1035.23,
-   "y": 1365.02,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.9,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_01",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy0npg:8": {
-   "x": 1355.04,
-   "y": 473.04,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 1,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy156r:9": {
-   "x": 1817.22,
-   "y": 471.28,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy18zx:10": {
-   "x": 1903.37,
-   "y": 434.71,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy1j5i:11": {
-   "x": 2081.54,
-   "y": 565.4,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy1pv3:12": {
-   "x": 1946.73,
-   "y": 494.14,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 1,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_03",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtdy1wmn:13": {
-   "x": 1973.71,
-   "y": 535.5,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 1,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_grass_02",
-   "kind": "grass",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtejr7vy:1": {
-   "x": 1825.15,
-   "y": 686.75,
-   "scale": 0.36,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "burntEdge",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek8n61:1": {
-   "x": 2376.19,
-   "y": 533.75,
-   "scale": 0.6,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "brokenSword",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9k5v:2": {
-   "x": 3495.21,
-   "y": 741.45,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9mst:3": {
-   "x": 3414.7,
-   "y": 802.13,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9nu7:4": {
-   "x": 3574.56,
-   "y": 972.49,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9p70:5": {
-   "x": 3393.7,
-   "y": 1119.51,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_02",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9spl:6": {
-   "x": 3323.68,
-   "y": 1009.83,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtek9xal:7": {
-   "x": 3456.71,
-   "y": 907.14,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_03",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mteka0jx:8": {
-   "x": 3578.06,
-   "y": 813.8,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mteka28n:9": {
-   "x": 3400.7,
-   "y": 664.44,
-   "scale": 0.24,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_rock_01",
-   "kind": "rock",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtekaal3:10": {
-   "x": 3593.23,
-   "y": 1118.34,
-   "scale": 0.36,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_02",
-   "kind": "tree",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  },
-  "devCreated:mtekat92:11": {
-   "x": 3314.05,
-   "y": 870.64,
-   "scale": 0.36,
-   "rotation": 0,
-   "alpha": 0.96,
-   "flipX": false,
-   "deleted": false,
-   "key": "ash_tree_01",
-   "kind": "tree",
-   "segment": "postLandmark",
-   "landmark": false,
-   "created": false
-  }
- }
-};
-
-
-
-const ASH_READABILITY={
- PLAYER_AURA_WIDTH:260,
- PLAYER_AURA_HEIGHT:200,
- PLAYER_SHADOW_WIDTH:48,
- PLAYER_SHADOW_HEIGHT:22,
- PLAYER_SHADOW_Y_OFFSET:12,
- PLAYER_DEATH_SHADOW_Y_OFFSET:2,
- PLAYER_ROUTE_LIGHT_ALPHA:0.045,
- ENEMY_SHADOW_ALPHA:0.26,
- MAGE_SHADOW_ALPHA:0.38,
- MAGE_SHADOW_WIDTH:34,
- MAGE_SHADOW_HEIGHT:10,
- MAGE_SHADOW_Y_OFFSET:2,
- SHIELD_SHADOW_Y_OFFSET:6,
- CHAMPION_SHADOW_ALPHA:0.34
-};
 
 
 
 const LOADING_ART_KEY='lastknight_loading_art';
 const LOADING_SCREEN_STATUS='Loading Ash Fields...';
 
-const HERO_SOCKET_DIRS=['n','ne','e','se','s','sw','w','nw'];
-const HERO_SOCKET_SPIN_FRAME_COUNT=15;
-const HERO_SOCKET_VISUAL_SCALE=0.28;
-const HERO_SOCKET_SPIN_FRAME_RATE=20;
-const HERO_SOCKET_SPIN_DURATION_MS=Math.ceil(HERO_SOCKET_SPIN_FRAME_COUNT/HERO_SOCKET_SPIN_FRAME_RATE*1000);
-const HERO_DEATH_FRAME_COUNT=6;
-const HERO_DEATH_ANIMATION_MS=3000;
-const HERO_DEATH_HOLD_MS=1000;
-// Death frames share a 526x490 transparent canvas. Matching 490 px to the
-// live hero's ~224 px source height keeps the on-screen character size stable.
-const HERO_DEATH_VISUAL_SCALE=HERO_SOCKET_VISUAL_SCALE*(224/490);
+
 
 const INITIAL_ASSET_CATEGORIES=[
  ASSET_CATEGORY.CORE,
@@ -2625,46 +1237,7 @@ class PreloadScene extends Phaser.Scene {
  }
 }
 
-const CINEMATIC_FADE={
- IN_MS:520,
- OUT_MS:440
-};
 
-// Shared transition helpers for every story screen that uses the cinematic frame.
-function cinematicFadeIn(scene,onComplete=null){
- if(!scene?.cameras?.main) return;
- scene.transitioning=true;
- scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
-  scene.transitioning=false;
-  if(onComplete) onComplete();
- });
-}
-
-function cinematicSwapWithFade(scene,swapContent,onComplete=null){
- if(!scene?.cameras?.main || scene.transitioning) return false;
- scene.transitioning=true;
- scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
-  if(swapContent) swapContent();
-  scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
-  scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
-   scene.transitioning=false;
-   if(onComplete) onComplete();
-  });
- });
- return true;
-}
-
-function cinematicFadeOutAndRun(scene,onBlack){
- if(!scene?.cameras?.main || scene.transitioning) return false;
- scene.transitioning=true;
- scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
-  if(onBlack) onBlack();
- });
- return true;
-}
 
 class CinematicScene extends Phaser.Scene {
  constructor(){
@@ -2678,24 +1251,32 @@ class CinematicScene extends Phaser.Scene {
   this.fullscreenIcon=null;
   this.isCompactMobile=false;
   this.cinematicImageAspect=2.75;
-  this.prologuePages=[
-   {
-    image:'prologue_scene_01',
-    text:'Его нашли за северной стеной.\nБез имени. Без памяти. Едва живого.'
-   },
-   {
-    image:'prologue_scene_02',
-    text:'Ему дали меч.\nИ причину им воспользоваться.'
-   },
-   {
-    image:'prologue_scene_03',
-    text:'Королевство умирало.\nОн верил, что его долг — спасти его.'
-   },
-   {
-    image:'prologue_scene_04',
-    text:'Последний рыцарь: "Они за это ответят."'
-   }
-  ];
+  this.prologuePages=PROLOGUE_STORY_PAGES;
+  this.cinematicMode='prologue';
+  this.cinematicPages=this.prologuePages;
+  this.runtimeReleaseTextureKeys=[];
+  this.runtimeOnComplete=null;
+  this.runtimeOnCancel=null;
+  this.runtimeCompletionDispatched=false;
+ }
+
+ init(data={}){
+  const runtimePages=Array.isArray(data?.pages)
+   ? data.pages.filter(page=>page && page.image && page.text!==undefined)
+   : [];
+  this.cinematicMode=data?.mode==='story' ? 'story' : 'prologue';
+  this.cinematicPages=this.cinematicMode==='story' && runtimePages.length
+   ? runtimePages
+   : this.prologuePages;
+  this.runtimeReleaseTextureKeys=Array.isArray(data?.releaseTextureKeys)
+   ? [...new Set(data.releaseTextureKeys.filter(Boolean))]
+   : [];
+  this.runtimeOnComplete=typeof data?.onComplete==='function' ? data.onComplete : null;
+  this.runtimeOnCancel=typeof data?.onCancel==='function' ? data.onCancel : null;
+  this.runtimeCompletionDispatched=false;
+  this.transitioning=false;
+  this.pageIndex=0;
+  this.musicHandedOff=false;
  }
 
  create(){
@@ -2705,7 +1286,7 @@ class CinematicScene extends Phaser.Scene {
   this.buildCinematicUi();
   this.setProloguePage(0);
   this.layout();
-  this.startPrologueMusic();
+  if(this.cinematicMode==='prologue') this.startPrologueMusic();
   cinematicFadeIn(this);
 
   this._cinematicResizeHandler=()=>this.layout();
@@ -2719,6 +1300,9 @@ class CinematicScene extends Phaser.Scene {
     document.removeEventListener('fullscreenchange',this._fullscreenChangeHandler);
    }
    if(!this.musicHandedOff) this.stopPrologueMusic();
+   if(this.cinematicMode==='story' && !this.runtimeCompletionDispatched){
+    this.dispatchRuntimeCinematicCancel();
+   }
   });
 
   this.input.keyboard?.on('keydown-RIGHT',()=>this.advancePrologue());
@@ -2736,7 +1320,8 @@ class CinematicScene extends Phaser.Scene {
    .setInteractive({useHandCursor:true});
   this.lowerPanel.on('pointerup',()=>this.advancePrologue());
 
-  this.cinematicImage=this.add.image(0,0,'prologue_scene_01')
+  const firstImageKey=this.cinematicPages?.[0]?.image || this.prologuePages?.[0]?.image || 'prologue_scene_01';
+  this.cinematicImage=this.add.image(0,0,firstImageKey)
    .setOrigin(0)
    .setDepth(2);
 
@@ -2848,7 +1433,7 @@ class CinematicScene extends Phaser.Scene {
  }
 
  setProloguePage(index){
-  const page=this.prologuePages[index];
+  const page=this.cinematicPages[index];
   if(!page)return;
 
   this.pageIndex=index;
@@ -2867,7 +1452,7 @@ class CinematicScene extends Phaser.Scene {
  advancePrologue(){
   if(this.transitioning)return;
 
-  if(this.pageIndex<this.prologuePages.length-1){
+  if(this.pageIndex<this.cinematicPages.length-1){
    const nextIndex=this.pageIndex+1;
    cinematicSwapWithFade(this,()=>this.setProloguePage(nextIndex));
    return;
@@ -3125,6 +1710,18 @@ class CinematicScene extends Phaser.Scene {
   this.fullscreenButton?.disableInteractive();
   this.fullscreenIconLabel?.disableInteractive();
 
+  if(this.cinematicMode==='story'){
+   cinematicFadeOutAndRun(this,()=>{
+    if(this.runtimeReleaseTextureKeys.length){
+     if(this.cinematicImage?.active) this.cinematicImage.destroy();
+     releaseTextureKeys(this,this.runtimeReleaseTextureKeys);
+    }
+    this.dispatchRuntimeCinematicComplete();
+    this.scene.stop();
+   });
+   return;
+  }
+
   if(this.prologueMusic){
    this.registry.set('lastKnightBgmHandoff',this.prologueMusic);
    this.musicHandedOff=true;
@@ -3139,6 +1736,28 @@ class CinematicScene extends Phaser.Scene {
    releaseTextureKeys(this,PROLOGUE_PAGE_KEYS);
    this.scene.start('main');
   });
+ }
+
+ dispatchRuntimeCinematicComplete(){
+  if(this.runtimeCompletionDispatched)return;
+  this.runtimeCompletionDispatched=true;
+  const callback=this.runtimeOnComplete;
+  this.runtimeOnComplete=null;
+  this.runtimeOnCancel=null;
+  if(callback){
+   try{callback();}catch(error){console.error('[CinematicScene] story completion callback failed',error);}
+  }
+ }
+
+ dispatchRuntimeCinematicCancel(){
+  if(this.runtimeCompletionDispatched)return;
+  this.runtimeCompletionDispatched=true;
+  const callback=this.runtimeOnCancel;
+  this.runtimeOnComplete=null;
+  this.runtimeOnCancel=null;
+  if(callback){
+   try{callback();}catch(error){console.error('[CinematicScene] story cancel callback failed',error);}
+  }
  }
 }
 
@@ -3410,6 +2029,7 @@ class MainScene extends Phaser.Scene {
   this.devEnvironmentShadows=[];
   this.devEnvironmentColliders=[];
   this.devTools=null;
+  this.storyDirector=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -3669,6 +2289,11 @@ class MainScene extends Phaser.Scene {
   this.regionText.setText(WORLD_DESIGN.ZONES[0].name);
   this.updateWorldStreaming();
 
+  // StoryDirector v1 owns story state, one-shot flags and declarative triggers.
+  // STORY_EVENTS is intentionally empty in this build, so wiring the director
+  // changes no current gameplay until story beats are explicitly authored.
+  this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();
+
   // Development-only Scene Tuner. The DEV build exposes it by button and F2.
   this.devTools=new LastKnightDevTools(this);
   this.devTools.install();
@@ -3686,6 +2311,8 @@ class MainScene extends Phaser.Scene {
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
+   this.storyDirector?.destroy();
+   this.storyDirector=null;
    this.devTools?.destroy();
    this.devTools=null;
   });
@@ -3695,60 +2322,10 @@ class MainScene extends Phaser.Scene {
   this.syncOrientationPause();
  }
 
- setupBackgroundMusic(){
-  if(!this.sound || !this.cache.audio.exists('bgm_veil_of_the_past')) return;
-
-  const handedOff=this.registry.get('lastKnightBgmHandoff');
-  if(handedOff){
-   this.registry.remove('lastKnightBgmHandoff');
-   this.backgroundMusic=handedOff;
-  } else if(!this.backgroundMusic){
-   this.backgroundMusic=this.sound.add('bgm_veil_of_the_past',{loop:true,volume:0.50});
-  }
-
-  const startMusic=()=>{
-   const music=this.backgroundMusic;
-   if(!music || music.isPlaying) return;
-   // Do not resurrect normal BGM while the Broken Saint boss track owns the mix.
-   if(this.brokenSaintMusic?.isPlaying) return;
-   try{music.play();}catch(e){console.warn('Background music start failed',e);}
-  };
-
-  if(this.backgroundMusic?.isPlaying) return;
-  if(this.sound.locked){
-   this.sound.once('unlocked',startMusic);
-  } else {
-   startMusic();
-  }
- }
-
- stopBackgroundMusic(){
-  if(!this.backgroundMusic) return;
-  try{this.backgroundMusic.stop();}catch{}
-  try{this.backgroundMusic.destroy();}catch{}
-  this.backgroundMusic=null;
- }
-
- startBrokenSaintMusic(){
-  this.stopBrokenSaintMusic();
-  this.stopBackgroundMusic();
-  if(!this.sound || !this.cache.audio.exists('sfx_broken_saint_spawn')) return;
-  const startMusic=()=>{
-   if(this.brokenSaintMusic || !this.activeChampion || !this.activeChampion.active || this.activeChampion.championKind!=='brokenSaint') return;
-   const music=this.sound.add('sfx_broken_saint_spawn',{loop:true,volume:0.50});
-   this.brokenSaintMusic=music;
-   music.play();
-  };
-  if(this.sound.locked) this.sound.once('unlocked',startMusic);
-  else startMusic();
- }
-
- stopBrokenSaintMusic(){
-  if(!this.brokenSaintMusic) return;
-  try{this.brokenSaintMusic.stop();}catch{}
-  try{this.brokenSaintMusic.destroy();}catch{}
-  this.brokenSaintMusic=null;
- }
+ setupBackgroundMusic(){ return AudioManager.prototype.setupBackgroundMusic.call(this); }
+ stopBackgroundMusic(){ return AudioManager.prototype.stopBackgroundMusic.call(this); }
+ startBrokenSaintMusic(){ return AudioManager.prototype.startBrokenSaintMusic.call(this); }
+ stopBrokenSaintMusic(){ return AudioManager.prototype.stopBrokenSaintMusic.call(this); }
 
  isPortraitInputBlocked(){
   if(typeof window==='undefined' || !window.matchMedia) return false;
@@ -4124,359 +2701,19 @@ class MainScene extends Phaser.Scene {
 
 
 
- markNavigationDirty(){
-  this.navigationGridDirty=true;
- }
-
- ensureNavigationGrid(){
-  if(!this.navigationGrid || this.navigationGridDirty) this.rebuildNavigationGrid();
-  return this.navigationGrid;
- }
-
- rebuildNavigationGrid(){
-  const cellSize=this.navigationCellSize||56;
-  const cols=Math.ceil(STAGE0.WORLD_WIDTH/cellSize);
-  const rows=Math.ceil(STAGE0.WORLD_HEIGHT/cellSize);
-  const blocked=new Uint8Array(cols*rows);
-  const clearance=this.navigationClearance||20;
-
-  const blockers=this.ashLandmarkColliderGroup?.getChildren?.()||[];
-  for(const blocker of blockers){
-   if(!blocker?.active || !blocker.body || blocker.body.enable===false) continue;
-   const b=this.getAshBlockerBounds(blocker,clearance);
-   if(!b) continue;
-   const minCol=Phaser.Math.Clamp(Math.floor(b.left/cellSize),0,cols-1);
-   const maxCol=Phaser.Math.Clamp(Math.floor(b.right/cellSize),0,cols-1);
-   const minRow=Phaser.Math.Clamp(Math.floor(b.top/cellSize),0,rows-1);
-   const maxRow=Phaser.Math.Clamp(Math.floor(b.bottom/cellSize),0,rows-1);
-   for(let row=minRow;row<=maxRow;row++){
-    const cy=row*cellSize+cellSize*0.5;
-    for(let col=minCol;col<=maxCol;col++){
-     const cx=col*cellSize+cellSize*0.5;
-     if(cx>=b.left && cx<=b.right && cy>=b.top && cy<=b.bottom){
-      blocked[row*cols+col]=1;
-     }
-    }
-   }
-  }
-
-  this.navigationGrid={cellSize,cols,rows,blocked};
-  this.navigationGridDirty=false;
-  this.navigationGridVersion=(this.navigationGridVersion||0)+1;
-  for(const enemy of this.enemies||[]){
-   if(!enemy) continue;
-   enemy.navPath=null;
-   enemy.navPathIndex=0;
-   enemy.navGridVersion=0;
-   enemy.navNextRepathAt=0;
-  }
- }
-
- worldToNavCell(x,y){
-  const grid=this.ensureNavigationGrid();
-  return {
-   col:Phaser.Math.Clamp(Math.floor(x/grid.cellSize),0,grid.cols-1),
-   row:Phaser.Math.Clamp(Math.floor(y/grid.cellSize),0,grid.rows-1)
-  };
- }
-
- navCellToWorld(col,row){
-  const grid=this.ensureNavigationGrid();
-  return {
-   x:this.clampWorldX(col*grid.cellSize+grid.cellSize*0.5,20),
-   y:this.clampWorldY(row*grid.cellSize+grid.cellSize*0.5,20)
-  };
- }
-
- isNavCellWalkable(col,row){
-  const grid=this.ensureNavigationGrid();
-  if(col<0||row<0||col>=grid.cols||row>=grid.rows) return false;
-  return grid.blocked[row*grid.cols+col]===0;
- }
-
- findNearestWalkableNavCell(col,row,maxRadius=10){
-  const grid=this.ensureNavigationGrid();
-  col=Phaser.Math.Clamp(col,0,grid.cols-1);
-  row=Phaser.Math.Clamp(row,0,grid.rows-1);
-  if(this.isNavCellWalkable(col,row)) return {col,row};
-
-  for(let r=1;r<=maxRadius;r++){
-   for(let dx=-r;dx<=r;dx++){
-    for(const dy of [-r,r]){
-     const c=col+dx,rr=row+dy;
-     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
-    }
-   }
-   for(let dy=-r+1;dy<=r-1;dy++){
-    for(const dx of [-r,r]){
-     const c=col+dx,rr=row+dy;
-     if(this.isNavCellWalkable(c,rr)) return {col:c,row:rr};
-    }
-   }
-  }
-  return null;
- }
-
- isNavigationLineBlocked(x1,y1,x2,y2){
-  const grid=this.ensureNavigationGrid();
-  const dx=x2-x1,dy=y2-y1;
-  const distance=Math.hypot(dx,dy);
-  const steps=Math.max(1,Math.ceil(distance/(grid.cellSize*0.45)));
-  for(let i=1;i<=steps;i++){
-   const t=i/steps;
-   const col=Phaser.Math.Clamp(Math.floor((x1+dx*t)/grid.cellSize),0,grid.cols-1);
-   const row=Phaser.Math.Clamp(Math.floor((y1+dy*t)/grid.cellSize),0,grid.rows-1);
-   if(grid.blocked[row*grid.cols+col]) return true;
-  }
-  return false;
- }
-
- findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){
-  const grid=this.ensureNavigationGrid();
-  let start=this.worldToNavCell(startX,startY);
-  let goal=this.worldToNavCell(targetX,targetY);
-  start=this.findNearestWalkableNavCell(start.col,start.row,8);
-  goal=this.findNearestWalkableNavCell(goal.col,goal.row,10);
-  if(!start||!goal) return [];
-  if(start.col===goal.col && start.row===goal.row) return [];
-
-  const total=grid.cols*grid.rows;
-  const gScore=new Float32Array(total);
-  gScore.fill(Number.POSITIVE_INFINITY);
-  const parent=new Int32Array(total);
-  parent.fill(-1);
-  const closed=new Uint8Array(total);
-  const heap=[];
-  const startIndex=start.row*grid.cols+start.col;
-  const goalIndex=goal.row*grid.cols+goal.col;
-  const heuristic=(c,r)=>{
-   const dx=Math.abs(c-goal.col),dy=Math.abs(r-goal.row);
-   return Math.max(dx,dy)+(Math.SQRT2-1)*Math.min(dx,dy);
-  };
-  const heapPush=(node)=>{
-   heap.push(node);
-   let i=heap.length-1;
-   while(i>0){
-    const p=(i-1)>>1;
-    if(heap[p].f<=node.f) break;
-    heap[i]=heap[p];i=p;
-   }
-   heap[i]=node;
-  };
-  const heapPop=()=>{
-   if(!heap.length) return null;
-   const root=heap[0];
-   const tail=heap.pop();
-   if(heap.length){
-    let i=0;
-    while(true){
-     let child=i*2+1;
-     if(child>=heap.length) break;
-     if(child+1<heap.length && heap[child+1].f<heap[child].f) child++;
-     if(heap[child].f>=tail.f) break;
-     heap[i]=heap[child];i=child;
-    }
-    heap[i]=tail;
-   }
-   return root;
-  };
-
-  gScore[startIndex]=0;
-  heapPush({index:startIndex,col:start.col,row:start.row,f:heuristic(start.col,start.row)});
-  let visited=0;
-  const preferUp=((enemy?.navSeed||0)&1)===0;
-  const dirs=preferUp
-   ? [[1,0],[0,-1],[0,1],[-1,0],[1,-1],[1,1],[-1,-1],[-1,1]]
-   : [[1,0],[0,1],[0,-1],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
-
-  while(heap.length && visited<maxVisited){
-   const node=heapPop();
-   if(!node||closed[node.index]) continue;
-   closed[node.index]=1;
-   visited++;
-   if(node.index===goalIndex) break;
-
-   for(const [dx,dy] of dirs){
-    const nc=node.col+dx,nr=node.row+dy;
-    if(!this.isNavCellWalkable(nc,nr)) continue;
-    if(dx!==0 && dy!==0){
-     if(!this.isNavCellWalkable(node.col+dx,node.row) || !this.isNavCellWalkable(node.col,node.row+dy)) continue;
-    }
-    const ni=nr*grid.cols+nc;
-    if(closed[ni]) continue;
-    const ng=gScore[node.index]+(dx!==0&&dy!==0?Math.SQRT2:1);
-    if(ng>=gScore[ni]) continue;
-    gScore[ni]=ng;
-    parent[ni]=node.index;
-    heapPush({index:ni,col:nc,row:nr,f:ng+heuristic(nc,nr)});
-   }
-  }
-
-  if(parent[goalIndex]===-1) return [];
-  const cells=[];
-  let cursor=goalIndex;
-  while(cursor!==startIndex && cursor!==-1){
-   const row=Math.floor(cursor/grid.cols);
-   const col=cursor-row*grid.cols;
-   cells.push({col,row});
-   cursor=parent[cursor];
-  }
-  cells.reverse();
-  if(!cells.length) return [];
-
-  // Collapse the grid path into long clear segments. A* provides global route
-  // choice; the existing local steering still handles the final few pixels.
-  const raw=cells.map(c=>this.navCellToWorld(c.col,c.row));
-  const simplified=[];
-  let from={x:startX,y:startY};
-  let i=0;
-  const radius=(enemy?.hitRadius||14)+5;
-  while(i<raw.length){
-   let best=i;
-   for(let j=raw.length-1;j>i;j--){
-    if(!this.isAshPathBlocked(from.x,from.y,raw[j].x,raw[j].y,radius)){
-     best=j;
-     break;
-    }
-   }
-   simplified.push(raw[best]);
-   from=raw[best];
-   i=best+1;
-  }
-  return simplified;
- }
-
- updateEnemyStuckState(enemy,time,intendedSpeed){
-  if(!enemy) return;
-  if(!enemy.navStuckCheckAt){
-   enemy.navStuckCheckAt=time+650;
-   enemy.navLastX=enemy.x;
-   enemy.navLastY=enemy.y;
-   enemy.navStuckCount=0;
-   return;
-  }
-  if(time<enemy.navStuckCheckAt) return;
-
-  const moved=Phaser.Math.Distance.Between(enemy.x,enemy.y,enemy.navLastX??enemy.x,enemy.navLastY??enemy.y);
-  const locked=time<(enemy.attackAnimUntil||0) || time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0);
-  const farFromPlayer=this.player?.active && Phaser.Math.Distance.Between(enemy.x,enemy.y,this.player.x,this.player.y)>78;
-  if(intendedSpeed>20 && !locked && farFromPlayer && moved<8){
-   enemy.navStuckCount=(enemy.navStuckCount||0)+1;
-   enemy.navForceRepath=true;
-   enemy.navNextRepathAt=0;
-   enemy.obstacleSteerUntil=0;
-  } else {
-   enemy.navStuckCount=0;
-  }
-  enemy.navLastX=enemy.x;
-  enemy.navLastY=enemy.y;
-  enemy.navStuckCheckAt=time+650;
- }
-
- getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){
-  if(!enemy || !this.player?.active) return null;
-  this.ensureNavigationGrid();
-  const directBlocked=this.isNavigationLineBlocked(enemy.x,enemy.y,targetX,targetY);
-  if(!directBlocked){
-   enemy.navPath=null;
-   enemy.navPathIndex=0;
-   enemy.navForceRepath=false;
-   return null;
-  }
-
-  const targetMoved=Phaser.Math.Distance.Between(targetX,targetY,enemy.navTargetX??targetX,enemy.navTargetY??targetY)>(this.navigationCellSize||56)*1.5;
-  const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
-  const periodicRefresh=pathFinished && time>=(enemy.navNextRepathAt||0);
-  const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
-  if(needsPath && this.navigationPathfindBudget>0){
-   this.navigationPathfindBudget--;
-   enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
-   enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
-   enemy.navPathIndex=0;
-   enemy.navTargetX=targetX;
-   enemy.navTargetY=targetY;
-   enemy.navGridVersion=this.navigationGridVersion;
-   enemy.navForceRepath=false;
-   enemy.navNextRepathAt=time+900+(enemy.navSeed%420);
-  }
-
-  const path=enemy.navPath;
-  if(!path?.length) return null;
-  let index=Phaser.Math.Clamp(enemy.navPathIndex||0,0,path.length-1);
-  while(index<path.length-1 && Phaser.Math.Distance.Between(enemy.x,enemy.y,path[index].x,path[index].y)<(this.navigationCellSize||56)*0.48){
-   index++;
-  }
-  enemy.navPathIndex=index;
-  return path[index]||null;
- }
-
- applyEnemySoftSeparation(time){
-  if(this.devFlags?.noCollision) return;
-  const list=(this.enemies||[]).filter(e=>e?.active && e.hp>0 && e.body && e.body.enable!==false);
-  for(let i=0;i<list.length;i++){
-   const a=list[i];
-   for(let j=i+1;j<list.length;j++){
-    const b=list[j];
-    const dx=a.x-b.x,dy=a.y-b.y;
-    const minDist=(a.crowdRadius||a.hitRadius||14)+(b.crowdRadius||b.hitRadius||14)+5;
-    const d2=dx*dx+dy*dy;
-    if(d2>=minDist*minDist) continue;
-    const dist=Math.max(0.001,Math.sqrt(d2));
-    const overlap=minDist-dist;
-    const fallbackAngle=((i*31+j*17)%360)*Math.PI/180;
-    const nx=d2<0.0001?Math.cos(fallbackAngle):dx/dist;
-    const ny=d2<0.0001?Math.sin(fallbackAngle):dy/dist;
-    const frozenA=a.type==='champion'
-     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
-     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
-    const frozenB=b.type==='champion'
-     ? (this.devFlags?.championFrozen||this.devFlags?.championMovementFrozen)
-     : (this.devFlags?.enemyAiFrozen||this.devFlags?.enemyMovementFrozen);
-    const attackA=frozenA?0:(time<(a.attackAnimUntil||0)?0.28:1);
-    const attackB=frozenB?0:(time<(b.attackAnimUntil||0)?0.28:1);
-    const championA=a.type==='champion'?0.45:1;
-    const championB=b.type==='champion'?0.45:1;
-    const force=Math.min(46,overlap*3.4+5);
-    a.body.velocity.x+=nx*force*attackA*championA;
-    a.body.velocity.y+=ny*force*attackA*championA;
-    b.body.velocity.x-=nx*force*attackB*championB;
-    b.body.velocity.y-=ny*force*attackB*championB;
-   }
-  }
-
-  for(const e of list){
-   if(!e.body?.velocity) continue;
-   const base=Math.max(40,this.getEnemyMovementSpeed(e)||e.speed||80);
-   const maxSpeed=base*1.32+24;
-   const len=e.body.velocity.length();
-   if(len>maxSpeed && len>0) e.body.velocity.scale(maxSpeed/len);
-  }
- }
-
- findSafeNavSpawnPoint(x,y,{padding=26,minPlayerDistance=120,maxRadius=360}={}){
-  const grid=this.ensureNavigationGrid();
-  const start=this.worldToNavCell(x,y);
-  const maxCells=Math.max(1,Math.ceil(maxRadius/grid.cellSize));
-  const candidates=[];
-  for(let r=0;r<=maxCells;r++){
-   if(r===0){candidates.push(start);}
-   else{
-    for(let dx=-r;dx<=r;dx++){
-     candidates.push({col:start.col+dx,row:start.row-r},{col:start.col+dx,row:start.row+r});
-    }
-    for(let dy=-r+1;dy<=r-1;dy++){
-     candidates.push({col:start.col-r,row:start.row+dy},{col:start.col+r,row:start.row+dy});
-    }
-   }
-   for(const c of candidates.splice(0,candidates.length)){
-    if(!this.isNavCellWalkable(c.col,c.row)) continue;
-    const point=this.navCellToWorld(c.col,c.row);
-    if(Phaser.Math.Distance.Between(point.x,point.y,x,y)>maxRadius+grid.cellSize) continue;
-    if(this.isSafeEnemySpawnPoint(point.x,point.y,padding,minPlayerDistance)) return point;
-   }
-  }
-  return null;
- }
+ markNavigationDirty(){ return NavigationSystem.prototype.markNavigationDirty.call(this); }
+ ensureNavigationGrid(){ return NavigationSystem.prototype.ensureNavigationGrid.call(this); }
+ rebuildNavigationGrid(){ return NavigationSystem.prototype.rebuildNavigationGrid.call(this); }
+ worldToNavCell(x,y){ return NavigationSystem.prototype.worldToNavCell.call(this,x,y); }
+ navCellToWorld(col,row){ return NavigationSystem.prototype.navCellToWorld.call(this,col,row); }
+ isNavCellWalkable(col,row){ return NavigationSystem.prototype.isNavCellWalkable.call(this,col,row); }
+ findNearestWalkableNavCell(col,row,maxRadius=10){ return NavigationSystem.prototype.findNearestWalkableNavCell.call(this,col,row,maxRadius); }
+ isNavigationLineBlocked(x1,y1,x2,y2){ return NavigationSystem.prototype.isNavigationLineBlocked.call(this,x1,y1,x2,y2); }
+ findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){ return NavigationSystem.prototype.findNavigationPath.call(this,startX,startY,targetX,targetY,enemy,maxVisited); }
+ updateEnemyStuckState(enemy,time,intendedSpeed){ return NavigationSystem.prototype.updateEnemyStuckState.call(this,enemy,time,intendedSpeed); }
+ getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){ return NavigationSystem.prototype.getEnemyNavigationWaypoint.call(this,enemy,time,targetX,targetY,radius); }
+ applyEnemySoftSeparation(time){ return NavigationSystem.prototype.applyEnemySoftSeparation.call(this,time); }
+ findSafeNavSpawnPoint(x,y,options={}){ return NavigationSystem.prototype.findSafeNavSpawnPoint.call(this,x,y,options); }
 
  getAshPropPhysicsClass(prop,kind='grass'){
   if(kind==='landmark') return 'blocking';
@@ -6768,72 +5005,16 @@ createAshFieldsEnvironment(objects,zone){
   return Math.max(1,Math.round(damage));
  }
 
- playHeroSwordAttackSfx(){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_attack')) return;
-  this.sound.play('sfx_hero_sword_attack',{volume:0.42});
- }
-
- playHeroDeathSfx(){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_death')) return;
-  this.sound.play('sfx_hero_death',{volume:0.78});
- }
-
- playHeroHitSfx(){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_hit')) return;
-  this.sound.play('sfx_hero_hit',{volume:0.3528});
- }
-
- playSkillSfx(key,volume=0.42){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists(key)) return;
-  this.sound.play(key,{volume});
- }
-
- startBrokenSaintHolyWarningSfx(){
-  this.stopBrokenSaintHolyWarningSfx();
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_holy_warning')) return;
-  const sound=this.sound.add('sfx_broken_saint_holy_warning',{volume:1.00});
-  this.brokenSaintHolyWarningSound=sound;
-  sound.once('complete',()=>{
-   if(this.brokenSaintHolyWarningSound===sound) this.brokenSaintHolyWarningSound=null;
-   sound.destroy();
-  });
-  sound.play();
- }
-
- stopBrokenSaintHolyWarningSfx(){
-  const sound=this.brokenSaintHolyWarningSound;
-  if(!sound) return;
-  this.brokenSaintHolyWarningSound=null;
-  if(sound.isPlaying) sound.stop();
-  sound.destroy();
- }
-
- playBrokenSaintHolyBeamSfx(){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_holy_beam')) return;
-  this.sound.play('sfx_broken_saint_holy_beam',{volume:0.55});
- }
-
- playHeroSwordImpactSfx(){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_impact')) return;
-  this.sound.play('sfx_hero_sword_impact',{volume:0.45});
- }
-
- playSkeletonAttackSfx(time=this.time.now){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_skeleton_sword_attack')) return;
-  // One shared limiter for ordinary skeleton swings: simultaneous attackers do not
-  // produce a pile of identical transients, but slightly staggered attacks can still read.
-  if(time-(this.lastSkeletonAttackSfxAt||-9999)<110) return;
-  this.lastSkeletonAttackSfxAt=time;
-  this.sound.play('sfx_skeleton_sword_attack',{volume:0.24});
- }
-
- playMageCastSfx(time=this.time.now){
-  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_mage_cast')) return;
-  // Keep multiple mages readable without stacking the same transient at full volume.
-  if(time-(this.lastMageCastSfxAt||-9999)<90) return;
-  this.lastMageCastSfxAt=time;
-  this.sound.play('sfx_mage_cast',{volume:0.65});
- }
+ playHeroSwordAttackSfx(){ return AudioManager.prototype.playHeroSwordAttackSfx.call(this); }
+ playHeroDeathSfx(){ return AudioManager.prototype.playHeroDeathSfx.call(this); }
+ playHeroHitSfx(){ return AudioManager.prototype.playHeroHitSfx.call(this); }
+ playSkillSfx(key,volume=0.42){ return AudioManager.prototype.playSkillSfx.call(this,key,volume); }
+ startBrokenSaintHolyWarningSfx(){ return AudioManager.prototype.startBrokenSaintHolyWarningSfx.call(this); }
+ stopBrokenSaintHolyWarningSfx(){ return AudioManager.prototype.stopBrokenSaintHolyWarningSfx.call(this); }
+ playBrokenSaintHolyBeamSfx(){ return AudioManager.prototype.playBrokenSaintHolyBeamSfx.call(this); }
+ playHeroSwordImpactSfx(){ return AudioManager.prototype.playHeroSwordImpactSfx.call(this); }
+ playSkeletonAttackSfx(time=this.time.now){ return AudioManager.prototype.playSkeletonAttackSfx.call(this,time); }
+ playMageCastSfx(time=this.time.now){ return AudioManager.prototype.playMageCastSfx.call(this,time); }
 
  onSwordAttack(attackCounter){
   if(!this.championRelics.has('holyFragment') || attackCounter%5!==0) return;
@@ -7592,6 +5773,7 @@ createAshFieldsEnvironment(objects,zone){
   this.syncOrientationPause();
   this.updateLowHealthState();
   this.devTools?.update();
+  if(this.storyDirector?.update(time)) return;
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
 
   // Scene Clock pauses with gameplay overlays, unlike the global update timestamp.
