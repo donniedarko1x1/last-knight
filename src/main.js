@@ -2743,48 +2743,6 @@ class PreloadScene extends Phaser.Scene {
  }
 }
 
-const CINEMATIC_FADE={
- IN_MS:260,
- OUT_MS:220
-};
-
-// Shared transition helpers for every story screen that uses the cinematic frame.
-// Future dialogue/flashback scenes can call these instead of implementing their own fades.
-function cinematicFadeIn(scene,onComplete=null){
- if(!scene?.cameras?.main) return;
- scene.transitioning=true;
- scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
-  scene.transitioning=false;
-  if(onComplete) onComplete();
- });
-}
-
-function cinematicSwapWithFade(scene,swapContent,onComplete=null){
- if(!scene?.cameras?.main || scene.transitioning) return false;
- scene.transitioning=true;
- scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
-  if(swapContent) swapContent();
-  scene.cameras.main.fadeIn(CINEMATIC_FADE.IN_MS,0,0,0);
-  scene.time.delayedCall(CINEMATIC_FADE.IN_MS,()=>{
-   scene.transitioning=false;
-   if(onComplete) onComplete();
-  });
- });
- return true;
-}
-
-function cinematicFadeOutAndRun(scene,onBlack){
- if(!scene?.cameras?.main || scene.transitioning) return false;
- scene.transitioning=true;
- scene.cameras.main.fadeOut(CINEMATIC_FADE.OUT_MS,0,0,0);
- scene.time.delayedCall(CINEMATIC_FADE.OUT_MS,()=>{
-  if(onBlack) onBlack();
- });
- return true;
-}
-
 class CinematicScene extends Phaser.Scene {
  constructor(){
   super('CinematicScene');
@@ -2796,6 +2754,7 @@ class CinematicScene extends Phaser.Scene {
   this.fullscreenButton=null;
   this.fullscreenIcon=null;
   this.isCompactMobile=false;
+  this.cinematicImageAspect=2.75;
   this.prologuePages=[
    {
     image:'prologue_scene_01',
@@ -2811,7 +2770,7 @@ class CinematicScene extends Phaser.Scene {
    },
    {
     image:'prologue_scene_04',
-    text:'Последний рыцарь: "Вы за все ответите!"'
+    text:'Последний рыцарь: "Они за это ответят."'
    }
   ];
  }
@@ -2824,7 +2783,6 @@ class CinematicScene extends Phaser.Scene {
   this.setProloguePage(0);
   this.layout();
   this.startPrologueMusic();
-  cinematicFadeIn(this);
 
   this._cinematicResizeHandler=()=>this.layout();
   this.scale.on('resize',this._cinematicResizeHandler);
@@ -2986,8 +2944,7 @@ class CinematicScene extends Phaser.Scene {
   if(this.transitioning)return;
 
   if(this.pageIndex<this.prologuePages.length-1){
-   const nextIndex=this.pageIndex+1;
-   cinematicSwapWithFade(this,()=>this.setProloguePage(nextIndex));
+   this.setProloguePage(this.pageIndex+1);
    return;
   }
 
@@ -3103,36 +3060,49 @@ class CinematicScene extends Phaser.Scene {
   const {width:w,height:h}=lkLogicalSceneSize(this);
   this.isCompactMobile=(w<=760 || h<=460);
 
-  const borderThickness=Phaser.Math.Clamp(h*0.052,20,32);
-  const jointSize=borderThickness*1.90;
-  const marginX=Phaser.Math.Clamp(w*0.035,14,40);
-  const marginY=Phaser.Math.Clamp(h*0.030,12,28);
+  const frameMarginX=Math.round(w*0.10);
+  const frameMarginY=Math.round(h*0.10);
+  const left=frameMarginX;
+  const top=frameMarginY;
+  const right=w-frameMarginX;
+  const bottom=h-frameMarginY;
+  const frameW=Math.max(260,right-left);
+  const frameH=Math.max(220,bottom-top);
 
-  const availableW=Math.max(260,w-marginX*2);
-  const availableH=Math.max(220,h-marginY*2);
-  const cinematicAspect=16/9;
-  const totalFrameAspect=cinematicAspect*0.65;
+  const borderThickness=Phaser.Math.Clamp(Math.min(frameW,frameH)*0.030,18,28);
+  const jointSize=borderThickness*1.85;
+  const halfBorder=borderThickness*0.58;
 
-  let frameW=Math.min(availableW,availableH*totalFrameAspect);
-  let frameH=frameW/totalFrameAspect;
-  if(frameH>availableH){
-   frameH=availableH;
-   frameW=frameH*totalFrameAspect;
-  }
+  const innerLeft=left+halfBorder;
+  const innerRight=right-halfBorder;
+  const innerTop=top+halfBorder;
+  const innerBottom=bottom-halfBorder;
+  const innerWidth=Math.max(180,innerRight-innerLeft);
+  const innerHeight=Math.max(140,innerBottom-innerTop);
 
-  const left=(w-frameW)*0.5;
-  const top=(h-frameH)*0.5;
-  const right=left+frameW;
-  const bottom=top+frameH;
-  const dividerY=top+frameH*0.65;
+  const minTextHeight=Phaser.Math.Clamp(frameH*0.22,72,170);
+  const availableImageHeight=Math.max(80,innerHeight-minTextHeight);
+  const imageHeightByWidth=innerWidth/this.cinematicImageAspect;
+  const imageViewportHeight=Math.min(availableImageHeight,imageHeightByWidth);
+  const dividerY=innerTop+imageViewportHeight+halfBorder;
+  const clampedDividerY=Phaser.Math.Clamp(dividerY,top+frameH*0.48, bottom-minTextHeight);
+  const imageTop=top;
+  const imageBottom=clampedDividerY;
 
-  this.upperPanel.setPosition(left,top).setSize(frameW,dividerY-top).setDisplaySize(frameW,dividerY-top);
-  this.lowerPanel.setPosition(left,dividerY).setSize(frameW,bottom-dividerY).setDisplaySize(frameW,bottom-dividerY);
-  this.fitCinematicImage(left,top,frameW,dividerY-top);
+  this.upperPanel
+   .setPosition(left,imageTop)
+   .setSize(frameW,imageBottom-imageTop)
+   .setDisplaySize(frameW,imageBottom-imageTop);
+  this.lowerPanel
+   .setPosition(left,clampedDividerY)
+   .setSize(frameW,bottom-clampedDividerY)
+   .setDisplaySize(frameW,bottom-clampedDividerY);
+
+  this.fitCinematicImage(left,imageTop,frameW,imageBottom-imageTop);
 
   this.addStoneBar(left,top,right,top,borderThickness);
   this.addStoneBar(left,bottom,right,bottom,borderThickness);
-  this.addStoneBar(left,dividerY,right,dividerY,borderThickness);
+  this.addStoneBar(left,clampedDividerY,right,clampedDividerY,borderThickness);
   this.addStoneBar(left,top,left,bottom,borderThickness);
   this.addStoneBar(right,top,right,bottom,borderThickness);
 
@@ -3140,43 +3110,36 @@ class CinematicScene extends Phaser.Scene {
   this.addStoneJoint(right,top,jointSize);
   this.addStoneJoint(left,bottom,jointSize);
   this.addStoneJoint(right,bottom,jointSize);
-  this.addStoneJoint(left,dividerY,jointSize);
-  this.addStoneJoint(right,dividerY,jointSize);
+  this.addStoneJoint(left,clampedDividerY,jointSize);
+  this.addStoneJoint(right,clampedDividerY,jointSize);
 
-  const halfBorder=borderThickness*0.58;
-  const innerLeft=left+halfBorder;
-  const innerRight=right-halfBorder;
-  const lowerTop=dividerY+halfBorder;
-  const innerBottom=bottom-halfBorder;
-  const innerWidth=Math.max(120,innerRight-innerLeft);
+  const lowerTop=clampedDividerY+halfBorder;
   const lowerHeight=Math.max(90,innerBottom-lowerTop);
 
-  // Mobile: no arrow, just tap the whole lower text window.
   const showArrow=!this.isCompactMobile;
   this.nextArrowHit.setVisible(showArrow);
   this.nextArrowText.setVisible(showArrow);
   if(showArrow){
-   const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,28);
-   const arrowPadY=Phaser.Math.Clamp(lowerHeight*0.18,10,20);
-   const arrowHitW=Phaser.Math.Clamp(frameW*0.10,62,96);
-   const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.42,48,78);
+   const arrowPadX=Phaser.Math.Clamp(frameW*0.040,16,30);
+   const arrowHitW=Phaser.Math.Clamp(frameW*0.10,64,104);
+   const arrowHitH=Phaser.Math.Clamp(lowerHeight*0.46,52,84);
    const arrowX=innerRight-arrowPadX-arrowHitW*0.5;
-   const arrowY=innerBottom-arrowPadY-arrowHitH*0.5;
+   const arrowY=lowerTop+lowerHeight*0.5;
    this.nextArrowHit.setPosition(arrowX,arrowY).setSize(arrowHitW,arrowHitH).setDisplaySize(arrowHitW,arrowHitH);
-   this.nextArrowText.setPosition(arrowX,arrowY).setFontSize(Phaser.Math.Clamp(lowerHeight*0.32,34,54));
+   this.nextArrowText.setPosition(arrowX,arrowY).setFontSize(Phaser.Math.Clamp(lowerHeight*0.30,30,52));
   }
 
-  // Text always occupies the visual center of the lower frame.
-  const textPadX=Phaser.Math.Clamp(frameW*0.06,18,44);
-  const textPadY=Phaser.Math.Clamp(lowerHeight*0.13,8,18);
+  const textPadX=Phaser.Math.Clamp(frameW*0.06,20,52);
+  const textPadY=Phaser.Math.Clamp(lowerHeight*0.16,10,24);
+  const reservedArrowW=showArrow ? Phaser.Math.Clamp(frameW*0.12,72,120) : 0;
   const textX=innerLeft+textPadX;
   const textY=lowerTop+textPadY;
-  const textW=Math.max(140,innerWidth-textPadX*2);
+  const textW=Math.max(140,innerWidth-textPadX*2-reservedArrowW);
   const textH=Math.max(54,lowerHeight-textPadY*2);
   this.layoutDialogueText(textX,textY,textW,textH);
 
   if(this.fullscreenButton && this.fullscreenIconLabel){
-   const fsRadius=Phaser.Math.Clamp(borderThickness*1.0,22,28);
+   const fsRadius=Phaser.Math.Clamp(borderThickness*1.02,22,28);
    const fsMargin=Phaser.Math.Clamp(borderThickness*0.85,16,24);
    const fsX=w-fsMargin-fsRadius;
    const fsY=fsMargin+fsRadius;
@@ -3188,7 +3151,7 @@ class CinematicScene extends Phaser.Scene {
 
  continueToGame(){
   if(this.transitioning)return;
-
+  this.transitioning=true;
   this.nextArrowHit.disableInteractive();
   this.lowerPanel.disableInteractive();
   this.fullscreenButton?.disableInteractive();
@@ -3200,7 +3163,8 @@ class CinematicScene extends Phaser.Scene {
    this.prologueMusic=null;
   }
 
-  cinematicFadeOutAndRun(this,()=>this.scene.start('main'));
+  this.cameras.main.fadeOut(180,0,0,0);
+  this.time.delayedCall(190,()=>this.scene.start('main'));
  }
 }
 
