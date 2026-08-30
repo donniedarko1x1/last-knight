@@ -3111,14 +3111,57 @@ class CinematicScene extends Phaser.Scene {
   const {width:w,height:h}=lkLogicalSceneSize(this);
   this.isCompactMobile=(w<=760 || h<=460);
 
-  const frameMarginX=Math.round(w*0.10);
-  const frameMarginY=Math.round(h*0.10);
-  const left=frameMarginX;
-  const top=frameMarginY;
-  const right=w-frameMarginX;
-  const bottom=h-frameMarginY;
-  const frameW=Math.max(260,right-left);
-  const frameH=Math.max(220,bottom-top);
+  // Variant 1: 10% are safe margins, not mandatory frame size.
+  // The cinematic frame may become narrower than 80% width so the
+  // lower text block always remains visible on ultra-wide mobile screens.
+  const marginX=Math.round(w*0.10);
+  const marginY=Math.round(h*0.10);
+  const maxFrameW=Math.max(260,w-marginX*2);
+  const maxFrameH=Math.max(220,h-marginY*2);
+
+  const preferredTextShare=this.isCompactMobile?0.37:0.35;
+  const minTextBlockH=Phaser.Math.Clamp(maxFrameH*(this.isCompactMobile?0.24:0.22),88,170);
+
+  // Width limited by both available width and the need to preserve room
+  // for the fixed-ratio image plus the lower dialogue block.
+  let frameW=Math.min(maxFrameW,maxFrameH*this.cinematicImageAspect*(1-preferredTextShare));
+  frameW=Math.max(260,frameW);
+
+  let imageH=frameW/this.cinematicImageAspect;
+  let frameH=imageH/(1-preferredTextShare);
+  let lowerPanelH=frameH-imageH;
+
+  if(lowerPanelH<minTextBlockH){
+   lowerPanelH=minTextBlockH;
+   imageH=Math.min(frameW/this.cinematicImageAspect,maxFrameH-lowerPanelH);
+   frameH=imageH+lowerPanelH;
+   if(frameH>maxFrameH){
+    frameH=maxFrameH;
+    lowerPanelH=Math.max(minTextBlockH,frameH*(this.isCompactMobile?0.26:0.24));
+    imageH=frameH-lowerPanelH;
+    frameW=Math.min(frameW,imageH*this.cinematicImageAspect);
+   }
+  }
+
+  // Final safety clamp: if the frame is still too wide for the chosen height,
+  // shrink it and recompute the image height.
+  const maxFrameWFromHeight=Math.max(260,(maxFrameH-minTextBlockH)*this.cinematicImageAspect);
+  if(frameW>maxFrameWFromHeight){
+   frameW=maxFrameWFromHeight;
+   imageH=frameW/this.cinematicImageAspect;
+   lowerPanelH=Math.max(minTextBlockH,Math.min(maxFrameH-imageH, imageH*(preferredTextShare/(1-preferredTextShare))));
+   frameH=imageH+lowerPanelH;
+  }
+
+  frameW=Math.min(frameW,maxFrameW);
+  frameH=Math.min(frameH,maxFrameH);
+  imageH=Math.min(imageH,frameH-minTextBlockH);
+  lowerPanelH=frameH-imageH;
+
+  const left=Math.round((w-frameW)*0.5);
+  const top=Math.round((h-frameH)*0.5);
+  const right=left+frameW;
+  const bottom=top+frameH;
 
   const borderThickness=Phaser.Math.Clamp(Math.min(frameW,frameH)*0.030,16,28);
   const jointSize=borderThickness*1.85;
@@ -3129,30 +3172,23 @@ class CinematicScene extends Phaser.Scene {
   const innerTop=top+halfBorder;
   const innerBottom=bottom-halfBorder;
   const innerWidth=Math.max(180,innerRight-innerLeft);
-  const innerHeight=Math.max(140,innerBottom-innerTop);
 
-  // All cinematic illustrations use the same 2.75:1 source format.
-  // The upper viewport uses that exact ratio too, so images fill it 1:1
-  // with no stretch, letterboxing or device-dependent crop.
-  const imageViewportHeight=frameW/this.cinematicImageAspect;
-  const imageTop=top;
-  const imageBottom=top+imageViewportHeight;
-  const clampedDividerY=imageBottom;
+  const dividerY=top+imageH;
 
   this.upperPanel
-   .setPosition(left,imageTop)
-   .setSize(frameW,imageBottom-imageTop)
-   .setDisplaySize(frameW,imageBottom-imageTop);
+   .setPosition(left,top)
+   .setSize(frameW,imageH)
+   .setDisplaySize(frameW,imageH);
   this.lowerPanel
-   .setPosition(left,clampedDividerY)
-   .setSize(frameW,bottom-clampedDividerY)
-   .setDisplaySize(frameW,bottom-clampedDividerY);
+   .setPosition(left,dividerY)
+   .setSize(frameW,lowerPanelH)
+   .setDisplaySize(frameW,lowerPanelH);
 
-  this.fitCinematicImage(left,imageTop,frameW,imageBottom-imageTop);
+  this.fitCinematicImage(left,top,frameW,imageH);
 
   this.addStoneBar(left,top,right,top,borderThickness);
   this.addStoneBar(left,bottom,right,bottom,borderThickness);
-  this.addStoneBar(left,clampedDividerY,right,clampedDividerY,borderThickness);
+  this.addStoneBar(left,dividerY,right,dividerY,borderThickness);
   this.addStoneBar(left,top,left,bottom,borderThickness);
   this.addStoneBar(right,top,right,bottom,borderThickness);
 
@@ -3160,10 +3196,10 @@ class CinematicScene extends Phaser.Scene {
   this.addStoneJoint(right,top,jointSize);
   this.addStoneJoint(left,bottom,jointSize);
   this.addStoneJoint(right,bottom,jointSize);
-  this.addStoneJoint(left,clampedDividerY,jointSize);
-  this.addStoneJoint(right,clampedDividerY,jointSize);
+  this.addStoneJoint(left,dividerY,jointSize);
+  this.addStoneJoint(right,dividerY,jointSize);
 
-  const lowerTop=clampedDividerY+halfBorder;
+  const lowerTop=dividerY+halfBorder;
   const lowerHeight=Math.max(1,innerBottom-lowerTop);
 
   const showArrow=!this.isCompactMobile;
