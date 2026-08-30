@@ -129,6 +129,14 @@ for(const key of ashDecorativeProps) image(REGION_ASH,O,key,`/assets/environment
 const ashLandmarks=['ash_landmark_altar','ash_landmark_sword'];
 for(const key of ashLandmarks) image(REGION_ASH,R,key,`/assets/environment/ash_fields/landmarks_curated/${key}.png`);
 
+// Wounded human knights: three distinct characters, three breathing frames each.
+for(let knight=1;knight<=3;knight++){
+ for(let frame=0;frame<3;frame++){
+  const key=`ash_wounded_knight_${pad2(knight)}_${pad2(frame)}`;
+  image(REGION_ASH,R,key,`/assets/environment/ash_fields/wounded_knights/${key}.png`);
+ }
+}
+
 for(const [key,url] of Object.entries({
  sfx_broken_saint_holy_warning:'/assets/audio/broken_saint_holy_warning.ogg',
  sfx_broken_saint_holy_beam:'/assets/audio/broken_saint_holy_beam.ogg',

@@ -133,6 +133,9 @@ for(const dir of Object.keys(brokenSaintSourceDirs)){
 for(let i=0;i<8;i++) animKey(`ring_sweep_${pad2(i)}`);
 for(let i=0;i<6;i++) animKey(`hit_burst_${pad2(i)}`);
 for(let i=0;i<2;i++) animKey(`mage_projectile_${pad2(i)}`);
+for(let knight=1;knight<=3;knight++){
+ for(let frame=0;frame<3;frame++) animKey(`ash_wounded_knight_${pad2(knight)}_${pad2(frame)}`);
+}
 for(let i=0;i<4;i++){animKey(`broken_saint_holy_mark_${pad2(i)}`);animKey(`broken_saint_holy_impact_${pad2(i)}`);animKey(`broken_saint_reflect_shield_${pad2(i)}`);}
 for(let i=0;i<3;i++) animKey(`broken_saint_holy_beam_${pad2(i)}`);
 for(let i=0;i<2;i++) animKey(`broken_saint_reflect_spark_${pad2(i)}`);
@@ -164,7 +167,8 @@ for(const [label,needle] of [
  ['enemy/world collider','this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup);'],
  ['obstacle steering','setEnemySteeredVelocity(enemy,vx,vy,time){'],
  ['safe enemy spawn','findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){'],
- ['mage projectile obstacle collision','this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)']
+ ['mage projectile obstacle collision','this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)'],
+ ['wounded knight blockers','this.createAshWoundedKnights(objects);']
 ]){
  if(!main.includes(needle)) fail(`Missing world-physics contract: ${label}`);
 }

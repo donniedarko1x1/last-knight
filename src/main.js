@@ -1865,6 +1865,25 @@ class MainScene extends Phaser.Scene {
    }
   }
 
+  // Ash Fields wounded knights: 3-frame heavy breathing. The middle frame is
+  // played twice so the chest expansion/contraction reads clearly at gameplay scale.
+  for(let knight=1;knight<=3;knight++){
+   const index=String(knight).padStart(2,'0');
+   const key=`ash_wounded_knight_${index}_breathe`;
+   if(this.anims.exists(key)) continue;
+   this.anims.create({
+    key,
+    frames:[
+     {key:`ash_wounded_knight_${index}_00`,duration:300},
+     {key:`ash_wounded_knight_${index}_01`,duration:180},
+     {key:`ash_wounded_knight_${index}_02`,duration:300},
+     {key:`ash_wounded_knight_${index}_01`,duration:180}
+    ],
+    frameRate:4,
+    repeat:-1
+   });
+  }
+
   if(!this.anims.exists('ring_sweep')){
    this.anims.create({
     key:'ring_sweep',
@@ -3158,6 +3177,70 @@ updateDevEnvironmentLinks(object){
  this.markNavigationDirty?.();
 }
 
+createAshWoundedKnights(objects){
+ const placements=[
+  {type:1,x:620,y:1080,flipX:false,delay:0},
+  {type:2,x:1120,y:850,flipX:true,delay:210},
+  {type:3,x:1480,y:1180,flipX:false,delay:430},
+  {type:1,x:2700,y:800,flipX:true,delay:650},
+  {type:2,x:2860,y:1320,flipX:false,delay:880},
+  {type:3,x:3750,y:760,flipX:true,delay:1120}
+ ];
+
+ const heroSource=this.textures.get('hero_socket_walk_s_01').getSourceImage();
+ const heroDisplayHeight=(heroSource?.height||224)*HERO_SOCKET_VISUAL_SCALE;
+ const targetWoundedHeight=heroDisplayHeight*1.25;
+ // Breathing frames are aligned on a larger transparent canvas so the body
+ // stays anchored while only the chest visibly expands/contracts.
+ const woundedArtReferenceSize=440;
+ const woundedScale=targetWoundedHeight/woundedArtReferenceSize;
+ const woundedVisualSize=woundedArtReferenceSize*woundedScale;
+
+ placements.forEach((placement,index)=>{
+  const type=String(placement.type).padStart(2,'0');
+  const texture=`ash_wounded_knight_${type}_00`;
+  if(!this.textures.exists(texture)) return;
+
+  const knight=this.add.sprite(placement.x,placement.y,texture)
+   .setOrigin(280/540,403.2/540)
+   .setScale(woundedScale)
+   .setDepth(12)
+   .setFlipX(Boolean(placement.flipX));
+
+  objects.push(knight);
+  knight.play({
+   key:`ash_wounded_knight_${type}_breathe`,
+   startFrame:index%3,
+   delay:placement.delay||0,
+   repeat:-1
+  });
+
+  // The collider covers the body, not the nearby weapon/blood. It is static and
+  // joins the same blocker group used by player collision, enemy A* and projectiles.
+  const colliderW=Math.max(46,woundedVisualSize*(placement.type===1?0.62:0.70));
+  const colliderH=Math.max(24,woundedVisualSize*(placement.type===1?0.34:0.30));
+  const collider=this.createAshLandmarkBlocker(
+   objects,
+   knight.x,
+   knight.y+woundedVisualSize*0.08,
+   colliderW,
+   colliderH,
+   `ash_wounded_knight_${type}_${index}`
+  );
+  knight.devLinkedColliders=[collider];
+
+  this.registerDevEnvironmentObject(knight,{
+   id:`ash:wounded_knight:${index}`,
+   segment:'ash',
+   cluster:null,
+   kind:'wounded_knight',
+   key:texture,
+   landmark:false,
+   created:false
+  });
+ });
+}
+
 createAshFieldsEnvironment(objects,zone){
   const width=zone.end-zone.start;
 
@@ -3238,6 +3321,7 @@ createAshFieldsEnvironment(objects,zone){
  // Segment definitions remain above for travel/editor grouping, but scenery itself comes from
  // ASH_FIELDS_BAKED_LAYOUT so manually adjusted individual props are preserved exactly.
  this.createAshFieldsBakedLayout(objects);
+ this.createAshWoundedKnights(objects);
 }
 
 
