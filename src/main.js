@@ -2396,7 +2396,7 @@ class LastKnightDevTools {
  spawnEnemies(type,count){for(let i=0;i<count;i++)this.scene.spawnEnemy(type,this.spawnPosition(i,count));}
  spawnMixed(count){const types=['skeleton','skeleton','mage','shield'];for(let i=0;i<count;i++)this.scene.spawnEnemy(types[i%types.length],this.spawnPosition(i,count));}
  clearProjectiles(){for(const p of this.scene.projectiles||[])if(p?.active)p.destroy();this.scene.projectiles=[];}
- clearHazards(){for(const h of this.scene.championHazards||[]){h?.visual?.destroy?.();h?.beamVisual?.destroy?.();}this.scene.championHazards=[];}
+ clearHazards(){this.scene.clearChampionHazards?.();}
 
  destroyEnemyEntity(enemy){
   if(!enemy) return;
@@ -3256,83 +3256,6 @@ class CinematicScene extends Phaser.Scene {
 class MainScene extends Phaser.Scene {
  preload(){}
 
- preloadAshFieldsEnvironmentArt(){
-  for(const key of ASH_ENVIRONMENT_ART.ground){
-   this.load.image(
-    key,
-    `/assets/environment/ash_fields/ground_minimal/${key}.png`
-   );
-  }
-
-  for(const key of ASH_ENVIRONMENT_ART.props){
-   this.load.image(
-    key,
-    `/assets/environment/ash_fields/props_curated/${key}.png`
-   );
-  }
-  for(const key of ASH_ENVIRONMENT_ART.landmarks){
-   this.load.image(
-    key,
-    `/assets/environment/ash_fields/landmarks_curated/${key}.png`
-   );
-  }
- }
-
- preloadGameplayArt(){
-  this.load.image(
-   'xp_crystal',
-   '/assets/gameplay/pickups/xp_crystal.png'
-  );
-  this.load.image(
-   'health_heart',
-   '/assets/gameplay/pickups/health_heart.png'
-  );
-  for(let i=0;i<2;i++){
-   const frame=String(i).padStart(2,'0');
-   this.load.image(
-    `mage_projectile_${frame}`,
-    `/assets/gameplay/projectiles/mage_projectile_${frame}.png`
-   );
-  }
-
-  const brokenSaintVfx={
-   holy_mark:4,
-   holy_impact:4,
-   holy_beam:3,
-   reflect_shield:4,
-   reflect_spark:2
-  };
-  for(const [name,count] of Object.entries(brokenSaintVfx)){
-   for(let i=0;i<count;i++){
-    const frame=String(i).padStart(2,'0');
-    this.load.image(
-     `broken_saint_${name}_${frame}`,
-     `/assets/effects/broken_saint/broken_saint_${name}_${frame}.png`
-    );
-   }
-  }
- }
-
- preloadAttackRing(){
-  for(let i=0;i<8;i++){
-   const frame=String(i).padStart(2,'0');
-   this.load.image(
-    `ring_sweep_${frame}`,
-    `/assets/effects/ring_sweep_${frame}.png`
-   );
-  }
- }
-
- preloadHitBurst(){
-  for(let i=0;i<6;i++){
-   const frame=String(i).padStart(2,'0');
-   this.load.image(
-    `hit_burst_${frame}`,
-    `/assets/effects/hit_burst_${frame}.png`
-   );
-  }
- }
-
  createSpriteAnimations(){
   for(const dir of HERO_SOCKET_DIRS){
    const walkKey=`hero_socket_walk_${dir}`;
@@ -3384,9 +3307,6 @@ class MainScene extends Phaser.Scene {
 
   for(const dir of dirs){
    const defs=[
-    [`player_${dir}_idle`,4,6,-1],
-    [`player_${dir}_walk`,6,10,-1],
-    [`player_${dir}_attack`,6,12,0],
     [`skeleton_${dir}_idle`,4,6,-1],
     [`skeleton_${dir}_walk`,6,10,-1],
     [`skeleton_${dir}_attack`,6,12,0],
@@ -3395,10 +3315,7 @@ class MainScene extends Phaser.Scene {
     [`mage_${dir}_cast`,6,12,0],
     [`shield_${dir}_idle`,4,6,-1],
     [`shield_${dir}_walk`,6,10,-1],
-    [`shield_${dir}_attack`,6,12,0],
-    [`champion_${dir}_idle`,4,6,-1],
-    [`champion_${dir}_walk`,6,10,-1],
-    [`champion_${dir}_attack`,6,12,0]
+    [`shield_${dir}_attack`,6,12,0]
    ];
 
    for(const [key,count,frameRate,repeat] of defs){
@@ -3667,6 +3584,7 @@ class MainScene extends Phaser.Scene {
   this.heartbeatTimer=null;
   this.heartbeatSound=null;
   this.lastSkeletonAttackSfxAt=-9999;
+  this.lastMageCastSfxAt=-9999;
   this.heartbeatState=null;
 
   this.activeChampion=null;
@@ -3887,6 +3805,8 @@ class MainScene extends Phaser.Scene {
    this.gameplayPauseReasons?.clear();
    this.stopCriticalHeartbeat(true);
    try{this.physics.world.resume();}catch{}
+   this.stopBrokenSaintHolyWarningSfx();
+   this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
    this.devTools?.destroy();
@@ -3905,19 +3825,24 @@ class MainScene extends Phaser.Scene {
   if(handedOff){
    this.registry.remove('lastKnightBgmHandoff');
    this.backgroundMusic=handedOff;
-   if(!this.backgroundMusic.isPlaying && !this.sound.locked){
-    this.backgroundMusic.play();
-   }
-   return;
+  } else if(!this.backgroundMusic){
+   this.backgroundMusic=this.sound.add('bgm_veil_of_the_past',{loop:true,volume:0.50});
   }
 
-  this.backgroundMusic=this.sound.add('bgm_veil_of_the_past',{loop:true,volume:0.50});
   const startMusic=()=>{
-   if(!this.backgroundMusic || this.backgroundMusic.isPlaying) return;
-   this.backgroundMusic.play();
+   const music=this.backgroundMusic;
+   if(!music || music.isPlaying) return;
+   // Do not resurrect normal BGM while the Broken Saint boss track owns the mix.
+   if(this.brokenSaintMusic?.isPlaying) return;
+   try{music.play();}catch(e){console.warn('Background music start failed',e);}
   };
-  if(this.sound.locked) this.sound.once('unlocked',startMusic);
-  else startMusic();
+
+  if(this.backgroundMusic?.isPlaying) return;
+  if(this.sound.locked){
+   this.sound.once('unlocked',startMusic);
+  } else {
+   startMusic();
+  }
  }
 
  stopBackgroundMusic(){
@@ -5310,12 +5235,14 @@ createAshFieldsEnvironment(objects,zone){
   e.lastAuraTick=0;
 
   const isBrokenSaint=kind==='brokenSaint';
-  const initialTexture=isBrokenSaint ? 'broken_saint_down_walk_00' : 'champion_down_idle_00';
+  // Later champions do not have final art yet. Use the existing skeleton set as a
+  // deliberate temporary fallback instead of referencing removed champion_* frames.
+  const initialTexture=isBrokenSaint ? 'broken_saint_down_walk_00' : 'skeleton_down_idle_00';
   e.visual=this.add.sprite(e.x,e.y,initialTexture)
    .setOrigin(0.5,0.80).setScale(def.scale).setDepth(16).setTint(def.tint);
   e.dir='down';
   e.attackDir='down';
-  e.visualState=isBrokenSaint ? 'broken_saint_down_idle' : 'champion_down_idle';
+  e.visualState=isBrokenSaint ? 'broken_saint_down_idle' : 'skeleton_down_idle';
   e.visual.play(e.visualState);
   e.visualBaseScale=def.scale;
   this.createEnemyReadabilityShadow(e);
@@ -5342,6 +5269,32 @@ createAshFieldsEnvironment(objects,zone){
 
   this.showWaveBanner(def.name,'CHAMPION EVENT — ordinary pressure reduced by 30%',def.rewardColor);
   this.cameras.main.flash(240,70,48,25,false);
+ }
+
+ destroyChampionHazard(hazard){
+  if(!hazard) return;
+  for(const key of ['visual','beamVisual']){
+   const obj=hazard[key];
+   if(!obj) continue;
+   try{this.tweens?.killTweensOf?.(obj);}catch{}
+   try{obj.stop?.();}catch{}
+   try{obj.destroy?.();}catch{}
+   hazard[key]=null;
+  }
+  for(const key of ['timer','event','delayedCall']){
+   const event=hazard[key];
+   if(!event) continue;
+   try{event.remove?.(false);}catch{}
+   try{event.destroy?.();}catch{}
+   hazard[key]=null;
+  }
+ }
+
+ clearChampionHazards(){
+  for(const hazard of this.championHazards||[]){
+   this.destroyChampionHazard(hazard);
+  }
+  this.championHazards=[];
  }
 
  spawnChampionHazard(x,y,radius,delay,duration,damage,color=0xffd76a,kind='mark'){
@@ -6676,10 +6629,7 @@ createAshFieldsEnvironment(objects,zone){
   this.championHpBack.setVisible(false);
   this.championHpFill.setVisible(false);
 
-  for(const h of this.championHazards){
-   if(h.visual && h.visual.active) h.visual.destroy();
-  }
-  this.championHazards=[];
+  this.clearChampionHazards();
 
   this.cameras.main.flash(300,230,200,110,false);
 
@@ -6840,7 +6790,9 @@ createAshFieldsEnvironment(objects,zone){
  getEnemyVisualPrefix(enemyType){
   if(enemyType==='mage') return 'mage';
   if(enemyType==='shield') return 'shield';
-  if(enemyType==='champion') return 'champion';
+  // Unfinished non-Broken-Saint champions intentionally reuse skeleton animation
+  // keys until their dedicated art packs are added.
+  if(enemyType==='champion') return 'skeleton';
   return 'skeleton';
  }
 
@@ -7211,6 +7163,7 @@ createAshFieldsEnvironment(objects,zone){
   this.gameOverUiReady=false;
   this.deathSequenceActive=true;
   this.stopCriticalHeartbeat(false);
+  this.stopBrokenSaintHolyWarningSfx();
   this.playHeroDeathSfx();
   this.freezeCombatForDeath();
 
