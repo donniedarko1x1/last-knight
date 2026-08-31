@@ -12,6 +12,7 @@ class StoryEnemyAnomalySystem {
   this.currentWave=0;
   this.waveTarget=0;
   this.selectedOrdinals=new Set();
+  this.pendingReturns=0;
   this.installed=false;
  }
 
@@ -22,9 +23,12 @@ class StoryEnemyAnomalySystem {
 
  destroy(){
   this.selectedOrdinals.clear();
+  this.pendingReturns=0;
   this.installed=false;
   this.scene=null;
  }
+
+ hasPendingReturns(){return this.pendingReturns>0;}
 
  beginWave(wave,waveTarget){
   this.currentWave=Number(wave)||0;
@@ -54,19 +58,22 @@ class StoryEnemyAnomalySystem {
   const baseDistance=enemy.type==='mage'?238:(enemy.type==='shield'?142:152);
   const triggerDistance=baseDistance+(seed%31)-15;
   const armDelay=650+(seed%1450);
-  const hesitateMs=560+(seed%220);
-  const retreatMs=330+((seed*7)%170);
+  // Give the player enough time to notice the broken behaviour before the mob bolts.
+  const hesitateMs=5000;
+  const returnDelayMs=4200+((seed*11)%1800);
 
   enemy.storyAnomaly={
    wave:normalizedWave,
    spawnOrdinal:ordinal,
+   seed,
    phase:'waiting',
    armedAt:(this.scene?.time?.now||0)+armDelay,
    triggerDistance,
    hesitateMs,
-   retreatMs,
    hesitateUntil:0,
-   retreatUntil:0
+   fleeAngle:0,
+   fleeStartedAt:0,
+   returnDelayMs
   };
   return true;
  }
@@ -74,20 +81,68 @@ class StoryEnemyAnomalySystem {
  isEnemyAnomalyActive(enemy,time=this.scene?.time?.now||0){
   const state=enemy?.storyAnomaly;
   if(!state)return false;
-  return state.phase==='hesitate' || state.phase==='retreat' || time<(enemy.storyAnomalyFreezeUntil||0);
+  return state.phase==='hesitate' || state.phase==='flee' || time<(enemy.storyAnomalyFreezeUntil||0);
+ }
+
+ chooseFleeAngle(enemy){
+  const scene=this.scene;
+  const view=scene?.cameras?.main?.worldView;
+  if(!view)return Math.atan2(enemy.y-(scene?.player?.y||enemy.y),enemy.x-(scene?.player?.x||enemy.x));
+
+  const distances=[
+   {edge:'left',value:Math.abs(enemy.x-view.left),angle:Math.PI},
+   {edge:'right',value:Math.abs(view.right-enemy.x),angle:0},
+   {edge:'top',value:Math.abs(enemy.y-view.top),angle:-Math.PI/2},
+   {edge:'bottom',value:Math.abs(view.bottom-enemy.y),angle:Math.PI/2}
+  ];
+  distances.sort((a,b)=>a.value-b.value);
+  return distances[0].angle;
+ }
+
+ isOutsideFocusedView(enemy,margin=72){
+  const view=this.scene?.cameras?.main?.worldView;
+  if(!view)return false;
+  return enemy.x<view.left-margin || enemy.x>view.right+margin || enemy.y<view.top-margin || enemy.y>view.bottom+margin;
+ }
+
+ vanishAndScheduleReturn(enemy,state){
+  const scene=this.scene;
+  if(!scene || !enemy?.active || state.phase==='vanished')return false;
+
+  state.phase='vanished';
+  const enemyType=enemy.type||'skeleton';
+  this.pendingReturns++;
+
+  try{enemy.visual?.destroy?.();}catch{}
+  try{enemy.auraVisual?.destroy?.();}catch{}
+  try{enemy.reflectVisual?.destroy?.();}catch{}
+  try{scene.destroyEnemyReadabilityShadow?.(enemy);}catch{}
+  try{enemy.destroy?.();}catch{}
+  scene.enemies=(scene.enemies||[]).filter(item=>item && item!==enemy && item.active);
+
+  scene.time?.delayedCall?.(state.returnDelayMs||4200,()=>{
+   try{
+    if(!scene || scene.gameOver)return;
+    scene.spawnEnemy?.(enemyType,null,{skipStoryAnomaly:true});
+   }finally{
+    this.pendingReturns=Math.max(0,this.pendingReturns-1);
+   }
+  });
+  return true;
  }
 
  updateEnemy(enemy,time,distance){
   const state=enemy?.storyAnomaly;
-  if(!state || state.phase==='done')return null;
+  if(!state || state.phase==='done' || state.phase==='vanished')return null;
 
   if(state.phase==='waiting'){
+   const focusedEnemy=this.scene?.storyAnomalyCueState?.enemy;
+   if(focusedEnemy && focusedEnemy!==enemy)return null;
    if(time<state.armedAt || distance>state.triggerDistance)return null;
    if(time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0))return null;
 
    state.phase='hesitate';
    state.hesitateUntil=time+state.hesitateMs;
-   state.retreatUntil=state.hesitateUntil+state.retreatMs;
    enemy.storyAnomalyFreezeUntil=state.hesitateUntil;
    enemy.pendingMeleeHitAt=0;
    enemy.pendingMeleeDamage=0;
@@ -95,21 +150,24 @@ class StoryEnemyAnomalySystem {
    enemy.attackAnimUntil=0;
    enemy.lastAttack=Math.max(enemy.lastAttack||0,time);
    enemy.lastShot=Math.max(enemy.lastShot||0,time);
+   this.scene?.highlightStoryAnomaly?.(enemy,{durationMs:5000});
   }
 
   if(state.phase==='hesitate'){
    if(time<state.hesitateUntil)return {kind:'hesitate'};
-   state.phase='retreat';
+   state.phase='flee';
+   state.fleeAngle=this.chooseFleeAngle(enemy);
+   state.fleeStartedAt=time;
    enemy.storyAnomalyFreezeUntil=0;
+   if(enemy.body?.checkCollision)enemy.body.checkCollision.none=true;
   }
 
-  if(state.phase==='retreat'){
-   if(time<state.retreatUntil)return {kind:'retreat',speedFactor:0.62};
-   state.phase='done';
-   enemy.storyAnomalyFreezeUntil=0;
-   // Do not let the enemy immediately snap into an attack on the same frame.
-   enemy.lastAttack=Math.max(enemy.lastAttack||0,time);
-   enemy.lastShot=Math.max(enemy.lastShot||0,time);
+  if(state.phase==='flee'){
+   if(this.isOutsideFocusedView(enemy,72) || time-(state.fleeStartedAt||time)>1800){
+    this.vanishAndScheduleReturn(enemy,state);
+    return {kind:'vanished'};
+   }
+   return {kind:'flee',speedFactor:3.15,angle:state.fleeAngle};
   }
 
   return null;

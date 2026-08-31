@@ -6,6 +6,7 @@ const CAMERA_OUT_MS=300;
 const DIALOGUE_INPUT_LOCK_MS=220;
 const STORY_KNIGHT_ID='ash:wounded_knight:3';
 const STORY_EVENT_ID='ash_story_wounded_knight';
+const STORY_OBJECTIVE_ID='ash_find_wounded_knight';
 const STORY_FLAG='ash_story_wounded_knight_met';
 
 const STORY_DIALOGUE=Object.freeze([
@@ -196,6 +197,20 @@ class WoundedKnightInteractionSystem {
   this.updateObjectiveMarker(time,false);
  }
 
+
+ isStoryKnightObjectiveActive(entry){
+  if(!entry?.story)return true;
+  const objective=this.storyDirector?.getActiveObjective?.();
+  if(!objective)return false;
+  return String(objective.id||'')===STORY_OBJECTIVE_ID && String(objective.targetId||'')===entry.id;
+ }
+
+ canInteractWithEntry(entry){
+  if(!entry || this.isCompleted(entry))return false;
+  if(entry.story && !this.isStoryKnightObjectiveActive(entry))return false;
+  return Boolean(entry.sprite?.active && entry.sprite.visible);
+ }
+
  findNearestAvailableKnight(){
   const player=this.scene?.player;
   if(!player)return null;
@@ -203,7 +218,7 @@ class WoundedKnightInteractionSystem {
   let bestDistance=INTERACTION_DISTANCE;
   for(const entry of this.knights.values()){
    const sprite=entry.sprite;
-   if(!sprite?.active || !sprite.visible || this.isCompleted(entry))continue;
+   if(!this.canInteractWithEntry(entry))continue;
    const distance=Phaser.Math.Distance.Between(player.x,player.y,sprite.x,sprite.y);
    if(distance<=bestDistance){best=entry;bestDistance=distance;}
   }
@@ -216,9 +231,11 @@ class WoundedKnightInteractionSystem {
   if(!prompt)return;
   if(!this.nearest || !scene?.player){prompt.setVisible(false);return;}
   const touch=Boolean(scene.isTouchDevice);
+  const target=this.nearest.sprite;
+  const targetHeight=Math.max(60,target?.displayHeight||60);
   prompt.setText(touch?'Коснитесь, чтобы поговорить':'Нажмите E, чтобы поговорить');
   prompt.setFontSize(touch?16:15);
-  prompt.setPosition(scene.player.x,scene.player.y-64).setVisible(true);
+  prompt.setPosition(target.x,target.y-Math.max(58,targetHeight*0.62)).setVisible(true);
  }
 
  onKeyDown(event){
@@ -246,7 +263,7 @@ class WoundedKnightInteractionSystem {
  }
 
  startInteraction(entry,now=0){
-  if(!entry || this.active || this.isCompleted(entry) || this.storyDirector?.isBusy?.())return false;
+  if(!entry || this.active || this.storyDirector?.isBusy?.() || !this.canInteractWithEntry(entry))return false;
   const lines=this.getDialogue(entry);
   if(!Array.isArray(lines) || !lines.length)return false;
 
@@ -355,6 +372,7 @@ class WoundedKnightInteractionSystem {
 
   if(entry.story){
    this.storyDirector?.setFlag?.(STORY_FLAG,true);
+   this.storyDirector?.completeObjective?.(STORY_OBJECTIVE_ID);
   }
 
   const cam=scene.cameras.main;
@@ -375,7 +393,7 @@ class WoundedKnightInteractionSystem {
   const scene=this.scene;
   if(!scene || !this.edgeMarker || !this.storyWorldMarker)return;
   const entry=this.knights.get(STORY_KNIGHT_ID);
-  if(forceHide || !entry?.sprite?.active || this.isCompleted(entry)){
+  if(forceHide || !entry?.sprite?.active || this.isCompleted(entry) || !this.isStoryKnightObjectiveActive(entry)){
    this.edgeMarker.setVisible(false);
    this.storyWorldMarker.setVisible(false);
    return;
@@ -415,5 +433,5 @@ class WoundedKnightInteractionSystem {
  }
 }
 
-export {STORY_KNIGHT_ID,STORY_EVENT_ID,STORY_FLAG};
+export {STORY_KNIGHT_ID,STORY_EVENT_ID,STORY_OBJECTIVE_ID,STORY_FLAG};
 export default WoundedKnightInteractionSystem;

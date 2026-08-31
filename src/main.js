@@ -2479,7 +2479,7 @@ class MainScene extends Phaser.Scene {
   }
  }
 
- spawnEnemy(forcedType=null,forcedPosition=null){
+ spawnEnemy(forcedType=null,forcedPosition=null,{skipStoryAnomaly=false}={}){
   const rawSpawn=forcedPosition || this.getSpawnPointAroundCamera(52);
   const spawn=this.findSafeEnemySpawnPoint(rawSpawn.x,rawSpawn.y,{padding:28,minPlayerDistance:120,maxRadius:420});
 
@@ -2593,10 +2593,12 @@ class MainScene extends Phaser.Scene {
   this.configureEnemyCollision(e,4);
   this.enemyGroup.add(e);
   this.enemies.push(e);
-  this.storyEnemyAnomalies?.registerEnemy(e,{
-   wave:this.wave,
-   spawnOrdinal:this.spawned+1
-  });
+  if(!skipStoryAnomaly){
+   this.storyEnemyAnomalies?.registerEnemy(e,{
+    wave:this.wave,
+    spawnOrdinal:this.spawned+1
+   });
+  }
  }
 
  getChampionForWave(wave){
@@ -5537,6 +5539,124 @@ createAshFieldsEnvironment(objects,zone){
   return {name:wave===1?'THE OUTSKIRTS':'MIXED ASSAULT',subtitle:wave===1?'The dead are approaching':'Balanced enemy pressure',spawnInterval:baseInterval,mageEvery:5,shieldEvery:6,targetBonus:0};
  }
 
+
+ highlightStoryAnomaly(enemy,{durationMs=5000}={}){
+  if(!enemy?.active || !this.add || this.gameOver) return false;
+  if(this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active || this.levelChoiceOpen || this.championRewardOpen) return false;
+
+  if(!Array.isArray(this.storyAnomalyCueQueue)) this.storyAnomalyCueQueue=[];
+
+  if(this.storyAnomalyCueState){
+   if(this.storyAnomalyCueState.enemy===enemy) return false;
+   if(this.storyAnomalyCueQueue.length<4){
+    this.storyAnomalyCueQueue.push({enemy,durationMs});
+   }
+   return false;
+  }
+
+  const cam=this.cameras.main;
+  const focusMs=Phaser.Math.Clamp(Math.floor(durationMs)||5000,4800,5200);
+  const restoreZoom=cam.zoom;
+
+  const ring=this.add.circle(enemy.x,enemy.y+2,34,0xffe08a,0.12)
+   .setDepth(13)
+   .setStrokeStyle(3,0xfff1a8,0.94);
+  const label=lkAddText(this,enemy.x,enemy.y-68,'??????...',{
+   fontSize:'22px',
+   color:'#fff2b5',
+   stroke:'#171007',
+   strokeThickness:4
+  }).setOrigin(0.5).setDepth(221);
+
+  ring.setScale(0.86);
+  label.setAlpha(0);
+
+  this.tweens.add({targets:ring,scale:1.18,alpha:0.26,duration:360,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:170,ease:'Sine.easeOut'});
+
+  const focusZoom=Math.min(restoreZoom*1.08,restoreZoom+0.14);
+  this.storyAnomalyCueState={
+   enemy,ring,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
+   cameraSettledAt:this.time.now+320
+  };
+
+  // Cancel ordinary enemy windups. During the five-second anomaly beat they may
+  // keep moving slowly, but they cannot start or complete attacks.
+  for(const other of this.enemies||[]){
+   if(!other?.active || other.type==='champion')continue;
+   other.pendingMeleeHitAt=0;
+   other.pendingMeleeDamage=0;
+   other.pendingMeleeRange=0;
+   other.attackAnimUntil=0;
+   other.lastAttack=Math.max(other.lastAttack||0,this.time.now);
+   other.lastShot=Math.max(other.lastShot||0,this.time.now);
+  }
+
+  cam.stopFollow();
+  const focusX=((this.player?.x||enemy.x)+enemy.x)*0.5;
+  const focusY=((this.player?.y||enemy.y)+enemy.y)*0.5-18;
+  cam.pan(focusX,focusY,320,'Sine.easeOut',true);
+  cam.zoomTo(focusZoom,320,'Sine.easeOut',true);
+  return true;
+ }
+
+ isStoryAnomalyMomentActive(time=this.time?.now||0){
+  const state=this.storyAnomalyCueState;
+  return Boolean(state?.enemy?.active && time<state.endsAt);
+ }
+
+ updateStoryAnomalyCue(time=0){
+  const state=this.storyAnomalyCueState;
+  if(!state) return;
+  const enemy=state.enemy;
+  if(!enemy?.active || enemy.hp<=0 || time>=state.endsAt){
+   this.finishStoryAnomalyHighlight();
+   return;
+  }
+
+  const bob=Math.sin(time*0.01)*4;
+  state.ring?.setPosition(enemy.x,enemy.y+2);
+  state.label?.setPosition(enemy.x,enemy.y-68+bob);
+
+  // Once the opening pan settles, keep the camera composed between the hero and
+  // the confused enemy. This avoids invisible screen-edge walls while keeping
+  // both actors readable even if the player keeps moving.
+  if(time>=state.cameraSettledAt && this.player?.active){
+   const cam=this.cameras.main;
+   cam.centerOn((this.player.x+enemy.x)*0.5,(this.player.y+enemy.y)*0.5-18);
+  }
+ }
+
+ finishStoryAnomalyHighlight(){
+  const state=this.storyAnomalyCueState;
+  if(!state) return;
+
+  this.storyAnomalyCueState=null;
+
+  for(const object of [state.ring,state.label]){
+   try{object?.destroy();}catch{}
+  }
+
+  const cam=this.cameras.main;
+  const restoreZoom=state.restoreZoom||cam.zoom;
+  cam.zoomTo(restoreZoom,260,'Sine.easeInOut',true);
+  cam.pan(this.player.x,this.player.y,260,'Sine.easeInOut',true);
+  this.time.delayedCall(275,()=>{
+   if(this.gameOver || this.storyAnomalyCueState || this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active) return;
+   this.handleViewportResize?.();
+   cam.startFollow(this.player,true,1,1);
+   cam.centerOn(this.player.x,this.player.y);
+  });
+
+  if(this.storyAnomalyCueQueue?.length){
+   const next=this.storyAnomalyCueQueue.shift();
+   this.time.delayedCall(360,()=>{
+    if(!next?.enemy?.active || this.gameOver || this.storyAnomalyCueState) return;
+    this.highlightStoryAnomaly(next.enemy,{durationMs:next.durationMs});
+   });
+  }
+ }
+
  showWaveBanner(title,subtitle,color='#fff06a'){
   const hudScene=this.scene.get('HUDScene');
   if(hudScene && typeof hudScene.showEventBanner==='function'){
@@ -5936,6 +6056,7 @@ createAshFieldsEnvironment(objects,zone){
   this.updateLowHealthState();
   this.devTools?.update();
   this.woundedKnightInteractions?.update(time);
+  this.updateStoryAnomalyCue(time);
   if(this.storyDirector?.update(time)) return;
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
 
@@ -5985,6 +6106,11 @@ createAshFieldsEnvironment(objects,zone){
     vx=vx/moveMagnitude*s;
     vy=vy/moveMagnitude*s;
    }
+  }
+
+  if(this.isStoryAnomalyMomentActive(time)){
+   vx*=0.55;
+   vy*=0.55;
   }
 
   this.player.body.setVelocity(vx,vy);
@@ -6045,6 +6171,7 @@ createAshFieldsEnvironment(objects,zone){
    if(
     this.spawned>=this.waveTarget &&
     this.enemies.length===0 &&
+    !this.storyEnemyAnomalies?.hasPendingReturns?.() &&
     !this.activeChampion
    ){
     if(this.postWaveChampionKind){
@@ -6086,6 +6213,9 @@ createAshFieldsEnvironment(objects,zone){
     .slice(0,4)
   );
 
+  const storyMomentActive=this.isStoryAnomalyMomentActive(time);
+  const focusedStoryEnemy=this.storyAnomalyCueState?.enemy||null;
+
   for(const e of this.enemies){
    if(!e.active) continue;
    if(e.hp<=0){
@@ -6102,7 +6232,10 @@ createAshFieldsEnvironment(objects,zone){
     e.x,e.y,this.player.x,this.player.y
    );
 
-   const pursuitSpeed=this.getEnemyMovementSpeed(e);
+   let pursuitSpeed=this.getEnemyMovementSpeed(e);
+   if(storyMomentActive && e!==focusedStoryEnemy && e.type!=='champion'){
+    pursuitSpeed*=0.28;
+   }
    const devFreezeAI=e.type==='champion' ? this.devFlags?.championFrozen : this.devFlags?.enemyAiFrozen;
    const devFreezeMove=e.type==='champion' ? this.devFlags?.championMovementFrozen : this.devFlags?.enemyMovementFrozen;
    const storyAnomaly=!devFreezeAI
@@ -6110,16 +6243,24 @@ createAshFieldsEnvironment(objects,zone){
     : null;
 
    if(storyAnomaly){
+    if(storyAnomaly.kind==='vanished') continue;
     e.pendingMeleeHitAt=0;
     e.pendingMeleeDamage=0;
     e.pendingMeleeRange=0;
     e.attackAnimUntil=0;
-    if(storyAnomaly.kind==='retreat'){
-     const retreatSpeed=Math.max(36,pursuitSpeed*(storyAnomaly.speedFactor||0.62));
-     e.body.setVelocity(-Math.cos(a)*retreatSpeed,-Math.sin(a)*retreatSpeed);
+    if(storyAnomaly.kind==='flee'){
+     const fleeSpeed=Math.max(190,pursuitSpeed*(storyAnomaly.speedFactor||3.15));
+     e.body.setVelocity(Math.cos(storyAnomaly.angle||0)*fleeSpeed,Math.sin(storyAnomaly.angle||0)*fleeSpeed);
     } else {
      e.body.setVelocity(0,0);
     }
+   }
+
+   if(storyMomentActive && e!==focusedStoryEnemy && e.type!=='champion'){
+    e.pendingMeleeHitAt=0;
+    e.pendingMeleeDamage=0;
+    e.pendingMeleeRange=0;
+    e.attackAnimUntil=0;
    }
 
    if(devFreezeAI){
@@ -6127,7 +6268,7 @@ createAshFieldsEnvironment(objects,zone){
     e.pendingMeleeHitAt=0;e.pendingMeleeDamage=0;e.pendingMeleeRange=0;
    }
 
-   if(!devFreezeAI && !storyAnomaly && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
+   if(!devFreezeAI && !storyAnomaly && !storyMomentActive && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
     const pendingDamage=e.pendingMeleeDamage||e.attackDamage||8;
     const pendingRange=e.pendingMeleeRange||70;
     e.pendingMeleeHitAt=0;
@@ -6162,7 +6303,7 @@ createAshFieldsEnvironment(objects,zone){
       projectile=>projectile.active && projectile.owner===e
      ).length;
 
-     if(!this.devFlags?.enemyAttacksDisabled && time-e.lastShot>1700 && activeMageShots<2){
+     if(!storyMomentActive && !this.devFlags?.enemyAttacksDisabled && time-e.lastShot>1700 && activeMageShots<2){
       e.lastShot=time;
       const castWindup=320;
       e.attackAnimUntil=time+620;
@@ -6180,7 +6321,7 @@ createAshFieldsEnvironment(objects,zone){
       // The projectile is released after a visible cast window. A small lead makes
       // lateral movement matter without turning the shot into perfect aim-bot tracking.
       this.time.delayedCall(castWindup,()=>{
-       if(!e || !e.active || e.hp<=0 || this.gameOver || this.devFlags?.enemyAttacksDisabled || this.devFlags?.enemyAiFrozen) return;
+       if(!e || !e.active || e.hp<=0 || this.gameOver || this.devFlags?.enemyAttacksDisabled || this.devFlags?.enemyAiFrozen || this.isStoryAnomalyMomentActive(this.time.now)) return;
        if(this.storyEnemyAnomalies?.isEnemyAnomalyActive(e,this.time.now)) return;
        if(this.time.now<(e.staggerUntil||0) || this.time.now<(e.skillLiftUntil||0)) return;
 
@@ -6247,7 +6388,7 @@ createAshFieldsEnvironment(objects,zone){
      const attackDamage=e.attackDamage || 5;
 
      const attackCooldown=e.type==='shield' ? 1300 : 1100;
-     if(!this.devFlags?.enemyAttacksDisabled && hasMeleeSlot && !e.pendingMeleeHitAt && distance<=attackRange && time-e.lastAttack>attackCooldown){
+     if(!storyMomentActive && !this.devFlags?.enemyAttacksDisabled && hasMeleeSlot && !e.pendingMeleeHitAt && distance<=attackRange && time-e.lastAttack>attackCooldown){
       e.lastAttack=time;
       if(e.type==='skeleton') this.playSkeletonAttackSfx(time);
       const windup=e.type==='shield' ? 480 : 350;
@@ -6315,17 +6456,24 @@ createAshFieldsEnvironment(objects,zone){
     e.visual.setRotation(liftRotation);
     e.visual.setPosition(e.x,e.y+liftOffset);
     const isBrokenSaint=e.type==='champion' && e.championKind==='brokenSaint';
+    const anomalyFlee=e.storyAnomaly?.phase==='flee';
     e.dir=isBrokenSaint
      ? this.getEightDirectionFromVector(
        this.player.x-e.x,
        this.player.y-e.y,
        e.dir||'down'
       )
-     : this.getDirectionFromVector(
-       this.player.x-e.x,
-       this.player.y-e.y,
-       e.dir||'down'
-      );
+     : anomalyFlee
+      ? this.getDirectionFromVector(
+        Math.cos(e.storyAnomaly.fleeAngle||0),
+        Math.sin(e.storyAnomaly.fleeAngle||0),
+        e.dir||'down'
+       )
+      : this.getDirectionFromVector(
+        this.player.x-e.x,
+        this.player.y-e.y,
+        e.dir||'down'
+       );
 
     const prefix=isBrokenSaint ? 'broken_saint' : this.getEnemyVisualPrefix(e.type);
     let action='idle';
