@@ -316,14 +316,9 @@ class NavigationSystem {
   const targetDx=targetX-enemy.x;
   const targetDy=targetY-enemy.y;
   const targetDistanceSq=targetDx*targetDx+targetDy*targetDy;
-<<<<<<< HEAD
-  const probeInterval=targetDistanceSq>700*700?260:(targetDistanceSq>340*340?160:90);
-  const probeJitter=enemy.navSeed%31;
-=======
   const rescueMode=Boolean(enemy.navRescueActive && time<(enemy.navRescueUntil||0));
   const probeInterval=rescueMode?35:(targetDistanceSq>700*700?260:(targetDistanceSq>340*340?160:90));
   const probeJitter=rescueMode?(enemy.navSeed%9):(enemy.navSeed%31);
->>>>>>> c550486 (new changes)
   const mustProbe=enemy.navForceRepath || enemy.navGridVersion!==this.navigationGridVersion || !Number.isFinite(enemy.navProbeAt) || time>=enemy.navProbeAt || probeTargetMovedSq>(cellSize*0.7)*(cellSize*0.7);
   let directBlocked=Boolean(enemy.navProbeBlocked);
   if(mustProbe){
@@ -343,42 +338,28 @@ class NavigationSystem {
 
   const targetMoveDx=targetX-(enemy.navTargetX??targetX);
   const targetMoveDy=targetY-(enemy.navTargetY??targetY);
-<<<<<<< HEAD
-  const targetMoved=(targetMoveDx*targetMoveDx+targetMoveDy*targetMoveDy)>(cellSize*1.5)*(cellSize*1.5);
-=======
   const targetMoveThreshold=rescueMode?cellSize*0.45:cellSize*1.5;
   const targetMoved=(targetMoveDx*targetMoveDx+targetMoveDy*targetMoveDy)>targetMoveThreshold*targetMoveThreshold;
->>>>>>> c550486 (new changes)
   const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
   const periodicRefresh=rescueMode
    ? time>=(enemy.navNextRepathAt||0)
    : (pathFinished && time>=(enemy.navNextRepathAt||0));
   const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
-<<<<<<< HEAD
-  if(needsPath && this.navigationPathfindBudget>0){
-   this.navigationPathfindBudget--;
-   enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
-=======
   const normalBudget=(this.navigationPathfindBudget||0)>0;
   const rescueBudget=rescueMode && (this.navigationRescuePathfindBudget||0)>0;
   if(needsPath && (normalBudget || rescueBudget)){
    if(rescueBudget)this.navigationRescuePathfindBudget--;else this.navigationPathfindBudget--;
    enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy,rescueMode?4200:3200);
->>>>>>> c550486 (new changes)
    enemy.navPathIndex=0;
    enemy.navTargetX=targetX;
    enemy.navTargetY=targetY;
    enemy.navGridVersion=this.navigationGridVersion;
    enemy.navForceRepath=false;
-<<<<<<< HEAD
-   enemy.navNextRepathAt=time+1050+(enemy.navSeed%520);
-=======
    enemy.navNextRepathAt=time+(rescueMode?320+(enemy.navSeed%120):1050+(enemy.navSeed%520));
    if(rescueMode)this.devTools?.recordTraceEvent?.('enemy_rescue_repath',{
     enemyType:enemy.type,navSeed:enemy.navSeed,wave:this.wave||0,pathLength:enemy.navPath?.length||0,
     x:Math.round(enemy.x),y:Math.round(enemy.y)
    },{sample:true});
->>>>>>> c550486 (new changes)
   }
 
   const path=enemy.navPath;

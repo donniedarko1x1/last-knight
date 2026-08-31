@@ -129,7 +129,8 @@ const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
 const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
 const ASH_CHAMPION_SMOKE_TEXTURE_PREFIX='ash_champion_smoke_';
 const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
-const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.70;
+const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.55;
+const BROKEN_SAINT_LIFT_POST_SLOW_MS=3000;
 const BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600;
 const BROKEN_SAINT_MARK_DURATION_MS=5000;
 const BROKEN_SAINT_RELIC_IDS=Object.freeze({
@@ -3062,6 +3063,7 @@ class MainScene extends Phaser.Scene {
   this.brokenSaintDefeatFx=[];
   this.bsPenitenceCharges=0;
   this.liftCommitUntil=0;
+  this.liftSlowUntil=0;
   this.liftPostMarkWindowStartsAt=0;
   this.liftPostMarkWindowUntil=0;
   this.liftPostMarkConsumed=false;
@@ -3205,6 +3207,7 @@ class MainScene extends Phaser.Scene {
   this.brokenSaintDefeatFx=[];
   this.bsPenitenceCharges=0;
   this.liftCommitUntil=0;
+  this.liftSlowUntil=0;
   this.liftPostMarkWindowStartsAt=0;
   this.liftPostMarkWindowUntil=0;
   this.liftPostMarkConsumed=false;
@@ -6427,8 +6430,12 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(longestLiftMs>0){
-   this.liftCommitUntil=Math.max(this.liftCommitUntil||0,castAt+longestLiftMs);
-   this.liftPostMarkWindowStartsAt=castAt+longestLiftMs;
+   const landingAt=castAt+longestLiftMs;
+   // Defensive commitment ends on landing; the movement debuff is deliberately
+   // harsher and lingers for another three seconds as the price of strong CC.
+   this.liftCommitUntil=Math.max(this.liftCommitUntil||0,landingAt);
+   this.liftSlowUntil=Math.max(this.liftSlowUntil||0,landingAt+BROKEN_SAINT_LIFT_POST_SLOW_MS);
+   this.liftPostMarkWindowStartsAt=landingAt;
    this.liftPostMarkWindowUntil=this.liftPostMarkWindowStartsAt+BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS;
    this.liftPostMarkConsumed=false;
    this.time.delayedCall(longestLiftMs,()=>{
@@ -8486,10 +8493,9 @@ createAshFieldsEnvironment(objects,zone){
   } else {
    this.playerSlowFactor=1;
   }
-  // Lift is control with commitment: if at least one target was actually
-  // launched, the hero loses 30% movement speed until the last launched target
-  // reaches its landing time. A missed Lift has no movement penalty.
-  if(time<(this.liftCommitUntil||0)) s*=BROKEN_SAINT_LIFT_SLOW_FACTOR;
+  // Successful Lift slows the hero by 45% while targets are airborne and for
+  // three more seconds after the last launched target lands. Missed Lift = no debuff.
+  if(time<(this.liftSlowUntil||0)) s*=BROKEN_SAINT_LIFT_SLOW_FACTOR;
   if(time<(this.playerSpeedBoostUntil||0)){
    s*=this.playerSpeedBoostFactor||1.35;
   } else {

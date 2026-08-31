@@ -35,11 +35,15 @@ function register(key,url,{required=true}={}){
 function pad2(n){return String(n).padStart(2,'0');}
 
 // 1) JS syntax.
-for(const file of ['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/storyEvents.js']){
+const syntaxFiles=['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/storyEvents.js'];
+for(const file of syntaxFiles){
+ const source=fs.readFileSync(path.join(root,file),'utf8');
+ if(/^(?:<<<<<<<|=======|>>>>>>>)/m.test(source)) fail(`Unresolved Git conflict marker: ${file}`);
  const result=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8'});
  if(result.status!==0) fail(`Syntax check failed: ${file}\n${result.stderr||result.stdout}`);
  else pass(`Syntax: ${file}`);
 }
+if(!errors.some(e=>e.startsWith('Unresolved Git conflict marker:'))) pass('No unresolved Git conflict markers in runtime source');
 
 const mainPath=path.join(root,'src/main.js');
 const main=fs.readFileSync(mainPath,'utf8');
@@ -197,8 +201,10 @@ if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) 
 // 8c) Broken Saint reward / build-strategy v1 contracts.
 const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
 for(const [label,source,needle] of [
- ['Lift commitment slowdown',main,'const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.70;'],
- ['Lift slowdown only after a real launch',main,'if(longestLiftMs>0){\n   this.liftCommitUntil='],
+ ['Lift commitment slowdown',main,'const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.55;'],
+ ['Lift post-landing slow',main,'const BROKEN_SAINT_LIFT_POST_SLOW_MS=3000;'],
+ ['Lift slowdown only after a real launch',main,'if(longestLiftMs>0){\n   const landingAt=castAt+longestLiftMs;'],
+ ['Lift slow uses separate timer',main,'if(time<(this.liftSlowUntil||0)) s*=BROKEN_SAINT_LIFT_SLOW_FACTOR;'],
  ['Spin remains stationary',main,'if(time<(this.spinCommitUntil||0) && time>=(this.playerForcedUntil||0)){'],
  ['Pilgrim Path evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath'],
  ['Verdict evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.verdict'],
@@ -255,7 +261,8 @@ for(const [label,source,needle] of [
  ['Ash altar marker uses stable target',main,'this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});'],
  ['Ash altar marker point comes from story data',main,'const point=ASH_ALTAR_CHAMPION_STORY.markerPoint;'],
  ['Ash altar objective carries marker point',main,'markerPoint:ASH_ALTAR_CHAMPION_STORY.markerPoint'],
- ['story marker ignores sprite visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
+ ['story marker ignores sprite visibility',objectiveMarkerSource,'Logical target point exists independently of sprite streaming/visibility.'],
+ ['edge marker frame uses camera world view',objectiveMarkerSource,'const frame=this.getFrame(view);'],
  ['wounded dialogue gets settled vignette',woundedInteractionSource,'scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});'],
  ['settled-camera vignette factory',main,'createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){'],
  ['skeleton vignette waits for camera lock',main,'state.cameraLocked=true;\n    this.createSettledStoryVignette(state,cam,{fadeMs:280});'],
@@ -379,7 +386,8 @@ for(const [label,source,needle] of [
  ['marker direction from player to target',objectiveMarkerSource,'const dx=targetX-player.x;'],
  ['marker direction from player to target Y',objectiveMarkerSource,'const dy=targetY-player.y;'],
  ['marker logical target cache',objectiveMarkerSource,'this.lastTargetPoint={x,y};'],
- ['marker ignores render visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
+ ['marker ignores render visibility',objectiveMarkerSource,'Logical target point exists independently of sprite streaming/visibility.'],
+ ['marker edge ray is fully world-space',objectiveMarkerSource,'const ox=Phaser.Math.Clamp(player.x,frame.left+0.001,frame.right-0.001);'],
  ['wounded objective logical marker anchor',woundedInteractionSource,'resolveStoryMarkerAnchor(targetId=STORY_KNIGHT_ID,objective=null){'],
  ['wounded marker never requires streamed knight',woundedInteractionSource,'Never consult this.knights / sprite.active / sprite.visible here.'],
  ['wounded objective marker point in story data',storyEventsSource,'markerPoint:Object.freeze({x:2700,y:800})'],
@@ -444,7 +452,8 @@ for(const [label,source,needle] of [
  ['release beat before flee',storyEnemyAnomalySource,"state.phase='release';"],
  ['flee phase',storyEnemyAnomalySource,"state.phase='flee';"],
  ['five-second hesitation',storyEnemyAnomalySource,'const hesitateMs=5000;'],
- ['offscreen return scheduling',storyEnemyAnomalySource,'this.pendingReturns++;'],
+ ['escaped anomaly is permanently defeated',storyEnemyAnomalySource,'vanishAsDefeated(enemy,state){'],
+ ['escaped anomaly schedules no replacement',storyEnemyAnomalySource,'hasPendingReturns(){return false;}'],
  ['MainScene anomaly import',main,"import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';"],
  ['MainScene anomaly install',main,'this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();'],
  ['wave plan hook',main,'this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);'],

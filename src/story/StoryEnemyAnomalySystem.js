@@ -13,7 +13,6 @@ class StoryEnemyAnomalySystem {
   this.currentWave=0;
   this.waveTarget=0;
   this.selectedOrdinals=new Set();
-  this.pendingReturns=0;
   this.installed=false;
  }
 
@@ -24,12 +23,11 @@ class StoryEnemyAnomalySystem {
 
  destroy(){
   this.selectedOrdinals.clear();
-  this.pendingReturns=0;
   this.installed=false;
   this.scene=null;
  }
 
- hasPendingReturns(){return this.pendingReturns>0;}
+ hasPendingReturns(){return false;}
 
  beginWave(wave,waveTarget){
   this.currentWave=Number(wave)||0;
@@ -61,7 +59,6 @@ class StoryEnemyAnomalySystem {
   const armDelay=650+(seed%1450);
   // Give the player enough time to notice the broken behaviour before the mob bolts.
   const hesitateMs=5000;
-  const returnDelayMs=4200+((seed*11)%1800);
 
   enemy.storyAnomaly={
    wave:normalizedWave,
@@ -74,8 +71,7 @@ class StoryEnemyAnomalySystem {
    hesitateUntil:0,
    releaseUntil:0,
    fleeAngle:0,
-   fleeStartedAt:0,
-   returnDelayMs
+   fleeStartedAt:0
   };
   return true;
  }
@@ -107,35 +103,26 @@ class StoryEnemyAnomalySystem {
   return enemy.x<view.left-margin || enemy.x>view.right+margin || enemy.y<view.top-margin || enemy.y>view.bottom+margin;
  }
 
- vanishAndScheduleReturn(enemy,state){
+ vanishAsDefeated(enemy,state){
   const scene=this.scene;
-  if(!scene || !enemy?.active || state.phase==='vanished')return false;
+  if(!scene || !enemy?.active || state.phase==='escaped')return false;
 
-  state.phase='vanished';
-  const enemyType=enemy.type||'skeleton';
-  this.pendingReturns++;
-
+  // Escaping the battlefield is permanent. No replacement is spawned; wave
+  // progression treats this mob as defeated once it leaves the focused view.
+  state.phase='escaped';
+  enemy.hp=0;
   try{enemy.visual?.destroy?.();}catch{}
   try{enemy.auraVisual?.destroy?.();}catch{}
   try{enemy.reflectVisual?.destroy?.();}catch{}
   try{scene.destroyEnemyReadabilityShadow?.(enemy);}catch{}
   try{enemy.destroy?.();}catch{}
   scene.enemies=(scene.enemies||[]).filter(item=>item && item!==enemy && item.active);
-
-  scene.time?.delayedCall?.(state.returnDelayMs||4200,()=>{
-   try{
-    if(!scene || scene.gameOver)return;
-    scene.spawnEnemy?.(enemyType,null,{skipStoryAnomaly:true});
-   }finally{
-    this.pendingReturns=Math.max(0,this.pendingReturns-1);
-   }
-  });
   return true;
  }
 
  updateEnemy(enemy,time,distance){
   const state=enemy?.storyAnomaly;
-  if(!state || state.phase==='done' || state.phase==='vanished')return null;
+  if(!state || state.phase==='done' || state.phase==='escaped')return null;
 
   if(state.phase==='waiting'){
    const focusedEnemy=this.scene?.storyAnomalyCueState?.enemy;
@@ -176,7 +163,7 @@ class StoryEnemyAnomalySystem {
 
   if(state.phase==='flee'){
    if(this.isOutsideFocusedView(enemy,72) || time-(state.fleeStartedAt||time)>1800){
-    this.vanishAndScheduleReturn(enemy,state);
+    this.vanishAsDefeated(enemy,state);
     return {kind:'vanished'};
    }
    return {kind:'flee',speedFactor:3.15,angle:state.fleeAngle};
