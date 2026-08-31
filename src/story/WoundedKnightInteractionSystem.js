@@ -313,8 +313,11 @@ class WoundedKnightInteractionSystem {
   if(this.active)this.advanceDialogue(now);
  }
 
- onMobileWorldInteract(){
+ onMobileWorldInteract(pointer){
   if(!this.scene?.isTouchDevice)return;
+  // Defense in depth: even if another system accidentally emits the world
+  // interaction event in the future, left-half touches are rejected here too.
+  if(!this.scene?.isMobileInteractionPointerAllowed?.(pointer))return;
   const now=this.scene.game?.loop?.time||0;
   if(this.active){
    this.advanceDialogue(now);

@@ -3899,6 +3899,36 @@ createAshFieldsEnvironment(objects,zone){
   if(this.gameOverText) this.gameOverText.setPosition(cx,cy);
  }
 
+ isMobileInteractionPointerAllowed(pointer){
+  if(!this.isTouchDevice) return true;
+
+  // Permanent mobile input contract: the LEFT visual half of the physical
+  // canvas belongs exclusively to movement. Use DOM client coordinates here
+  // instead of Phaser world/UI coordinates so HiDPI render scale, camera zoom
+  // and HUD camera transforms can never move the split line.
+  const nativeEvent=pointer?.event;
+  const touch=nativeEvent?.changedTouches?.[0] || nativeEvent?.touches?.[0] || null;
+  const clientX=Number(touch?.clientX ?? nativeEvent?.clientX);
+  const canvas=this.game?.canvas;
+  if(canvas?.getBoundingClientRect && Number.isFinite(clientX)){
+   const rect=canvas.getBoundingClientRect();
+   if(rect?.width>0){
+    return clientX >= rect.left + rect.width*0.5;
+   }
+  }
+
+  // Fallback for synthetic Phaser pointers/tests without a native DOM event.
+  const px=Number(pointer?.x);
+  const width=Math.max(1,Number(this.scale?.width)||1);
+  return Number.isFinite(px) && px >= width*0.5;
+ }
+
+ emitMobileWorldInteraction(pointer){
+  if(!this.isTouchDevice || !this.isMobileInteractionPointerAllowed(pointer))return false;
+  this.events?.emit?.('mobile-world-interact',pointer);
+  return true;
+ }
+
  createMobileControls(){
   if(!this.isTouchDevice) return;
   const base=this.add.circle(0,0,74,0x0a0f0b,0.20).setStrokeStyle(3,0xffffff,0.24).setScrollFactor(0).setDepth(500);
@@ -7555,14 +7585,16 @@ class HUDScene extends Phaser.Scene {
   const logical=lkLogicalSceneSize(this),w=logical.width;
   const pp=lkUiPointer(this,pointer);
 
-  // Mobile input contract:
-  //   LEFT HALF  = movement only.
-  //   RIGHT HALF = world interaction / dialogue advance, unless the finger hit
-  //                an actual HUD control (skill/fullscreen/etc.).
-  if(pp.x>w*0.5){
+  // Permanent mobile input contract:
+  //   LEFT VISUAL HALF  = movement only, forever.
+  //   RIGHT VISUAL HALF = world interaction / dialogue advance, unless the
+  //                       finger hit an actual HUD control.
+  // Classification is delegated to MainScene and uses DOM/canvas coordinates,
+  // deliberately bypassing HiDPI/HUD camera transforms.
+  if(this.mainScene?.isMobileInteractionPointerAllowed?.(pointer)){
    const hitHudControl=Array.isArray(gameObjects) && gameObjects.some(obj=>Boolean(obj?.input && obj.input.enabled!==false));
    if(!hitHudControl){
-    this.mainScene?.events?.emit?.('mobile-world-interact',pointer);
+    this.mainScene?.emitMobileWorldInteraction?.(pointer);
    }
    return;
   }
