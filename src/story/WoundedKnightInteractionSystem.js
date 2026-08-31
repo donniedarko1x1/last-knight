@@ -110,6 +110,7 @@ class WoundedKnightInteractionSystem {
   this.cameraRestore=null;
   this.activeStoryTargetId=null;
   this.objectiveMarker=null;
+  this.storyMarkerAnchor=null;
   this.dialogueVignetteState=null;
 
   this._onKeyDown=this.onKeyDown.bind(this);
@@ -197,6 +198,7 @@ class WoundedKnightInteractionSystem {
   this.dialogueVignetteState=null;
   this.objectiveMarker?.destroy();
   this.objectiveMarker=null;
+  this.storyMarkerAnchor=null;
   this.knights.clear();
   this.active=null;
   this.nearest=null;
@@ -204,6 +206,33 @@ class WoundedKnightInteractionSystem {
   this.installed=false;
   this.scene=null;
   this.storyDirector=null;
+ }
+
+ resolveStoryMarkerAnchor(targetId=STORY_KNIGHT_ID,objective=null){
+  const id=String(targetId||'');
+  if(!id)return null;
+
+  // The StoryDirector objective/world story spec is authoritative. A rendered
+  // knight may not exist yet because of streaming, and runtime culling may hide
+  // it. Neither state is allowed to affect navigation.
+  const point=objective?.markerPoint || (id===STORY_KNIGHT_ID?ASH_WOUNDED_KNIGHT_STORY.markerPoint:null);
+  const x=Number(point?.x),y=Number(point?.y);
+  if(Number.isFinite(x) && Number.isFinite(y)){
+   if(!this.storyMarkerAnchor || this.storyMarkerAnchor.id!==id){
+    this.storyMarkerAnchor={id,x,y,active:true};
+   }else{
+    this.storyMarkerAnchor.x=x;
+    this.storyMarkerAnchor.y=y;
+    this.storyMarkerAnchor.active=true;
+   }
+   return this.storyMarkerAnchor;
+  }
+
+  // Legacy/non-story fallback only: if an objective has no declared point,
+  // derive it from an already registered entity. Story objectives should not
+  // rely on this path.
+  const entry=this.knights.get(id);
+  return this.syncKnightMarkerAnchor(entry);
  }
 
  registerKnight(sprite,{id,index=0,story=false}={}){
@@ -223,7 +252,7 @@ class WoundedKnightInteractionSystem {
   // registration. Resolve it as soon as the entity becomes available.
   const objective=this.storyDirector?.getActiveObjective?.();
   if(entry.story && objective?.id===STORY_OBJECTIVE_ID && objective.targetId===entry.id){
-   this.activateStoryTarget(entry.id);
+   this.activateStoryTarget(entry.id,objective);
   }
   return entry;
  }
@@ -271,7 +300,7 @@ class WoundedKnightInteractionSystem {
 
  onObjectiveActivated(objective){
   if(!objective || objective.id!==STORY_OBJECTIVE_ID || objective.targetId!==STORY_KNIGHT_ID)return;
-  this.activateStoryTarget(objective.targetId);
+  this.activateStoryTarget(objective.targetId,objective);
  }
 
  onObjectiveCompleted(objective){
@@ -284,14 +313,15 @@ class WoundedKnightInteractionSystem {
   this.deactivateStoryTarget();
  }
 
- activateStoryTarget(targetId){
+ activateStoryTarget(targetId,objective=this.storyDirector?.getActiveObjective?.()){
   const id=String(targetId||'');
   if(!id)return false;
   this.activeStoryTargetId=id;
-  const entry=this.knights.get(id);
-  const anchor=this.syncKnightMarkerAnchor(entry);
+  const anchor=this.resolveStoryMarkerAnchor(id,objective);
   this.objectiveMarker?.setTarget(anchor||null);
-  return Boolean(entry);
+  // Marker activation is a story-data operation. The NPC can still be absent
+  // from the render/streaming layer at this moment and navigation must work.
+  return Boolean(anchor);
  }
 
  deactivateStoryTarget(){
@@ -460,8 +490,6 @@ class WoundedKnightInteractionSystem {
   cam.pan(focusX,focusY,CAMERA_IN_MS,'Sine.easeOut',true);
   cam.zoomTo(targetZoom,CAMERA_IN_MS,'Sine.easeOut',true);
 
-<<<<<<< HEAD
-=======
   // Use the same soft story vignette language as anomaly/champion beats, but
   // only after the dialogue camera has settled. This applies to every lying
   // wounded knight, not just the main story NPC.
@@ -475,7 +503,6 @@ class WoundedKnightInteractionSystem {
    scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});
   });
 
->>>>>>> c550486 (new changes)
   this.showDialogueLine();
  }
 
@@ -522,15 +549,6 @@ class WoundedKnightInteractionSystem {
   if(actor && this.dialogueText){
    const cam=scene.cameras.main;
    const view=cam.worldView;
-<<<<<<< HEAD
-   // Dialogue is a world object, but it should read like UI. Compensate only
-   // zoom-in so camera focus never inflates the panel over the characters.
-   const dialogueScale=1/Math.max(1,cam.zoom||1);
-   this.dialogueText.setScale(dialogueScale);
-   const wrapWidth=scene.isTouchDevice
-    ? Math.min(300,Math.max(220,view.width*0.30))
-    : Math.min(390,Math.max(300,view.width*0.34));
-=======
    // Dialogue is a world object, but it reads like UI. Compensate for both
    // camera zoom and the HiDPI backing scale so 1.00x..1.75x never changes the
    // perceived CSS size of the speech panel.
@@ -540,7 +558,6 @@ class WoundedKnightInteractionSystem {
    const wrapWidth=scene.isTouchDevice
     ? Math.min(300,Math.max(220,cssW*0.34))
     : Math.min(390,Math.max(300,cssW*0.30));
->>>>>>> c550486 (new changes)
    this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
 
    // Measure after wrapping. The text uses origin (0.5, 1), therefore each
@@ -663,16 +680,21 @@ class WoundedKnightInteractionSystem {
 
  updateObjectiveMarker(time=0,forceHide=false){
   if(!this.objectiveMarker)return;
-  const entry=this.activeStoryTargetId?this.knights.get(this.activeStoryTargetId):null;
-  const objectiveActive=this.storyDirector?.isObjectiveActive?.(STORY_OBJECTIVE_ID);
-  if(!objectiveActive || !entry || this.isCompleted(entry)){
+  const objective=this.storyDirector?.getActiveObjective?.();
+  const objectiveActive=Boolean(objective?.id===STORY_OBJECTIVE_ID && objective?.targetId===this.activeStoryTargetId);
+  if(!objectiveActive || this.storyDirector?.hasCompletedObjective?.(STORY_OBJECTIVE_ID)){
    this.objectiveMarker.hide();
    return;
   }
-  // Marker navigation follows a persistent logical anchor. Runtime environment
-  // culling may hide the knight sprite when it is far away, but can no longer
-  // hide or invalidate the objective compass itself.
-  const anchor=this.syncKnightMarkerAnchor(entry);
+
+  // Never consult this.knights / sprite.active / sprite.visible here. The point
+  // comes from story data and therefore exists from objective activation even
+  // if streaming has not created the NPC yet.
+  const anchor=this.resolveStoryMarkerAnchor(this.activeStoryTargetId,objective);
+  if(!anchor){
+   this.objectiveMarker.hide();
+   return;
+  }
   if(this.objectiveMarker.target!==anchor)this.objectiveMarker.setTarget(anchor);
   this.objectiveMarker.update(time,{forceHide});
  }

@@ -94,6 +94,15 @@ class StoryDirector {
  activateObjective(objective={}){
   if(!objective || !objective.id || !objective.targetId)return false;
   const normalized={...objective,id:String(objective.id),targetId:String(objective.targetId)};
+  // Story objectives may own a permanent logical navigation point. Normalize a
+  // copy here so UI navigation never needs the streamed/rendered target entity.
+  const markerX=Number(objective?.markerPoint?.x);
+  const markerY=Number(objective?.markerPoint?.y);
+  if(Number.isFinite(markerX) && Number.isFinite(markerY)){
+   normalized.markerPoint={x:markerX,y:markerY};
+  }else{
+   delete normalized.markerPoint;
+  }
   if(this.hasCompletedObjective(normalized.id))return false;
   if(this.activeObjective?.id===normalized.id){
    this.activeObjective={...this.activeObjective,...normalized};

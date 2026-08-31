@@ -32,7 +32,10 @@ const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({
  dialogueEventId:'ash_story_wounded_knight',
  metFlag:'ash_story_wounded_knight_met',
  waveClearedFlag:'ash_story_wave_3_cleared',
- label:'Поговорить с раненым рыцарем'
+ label:'Поговорить с раненым рыцарем',
+ // Logical world anchor owned by story data, not by the streamed/rendered NPC.
+ // The marker must exist even while the knight sprite is culled or not created.
+ markerPoint:Object.freeze({x:2700,y:800})
 });
 
 
@@ -49,7 +52,9 @@ const ASH_ALTAR_CHAMPION_STORY=Object.freeze({
  fightStartedFlag:'ash_story_first_champion_fight_started',
  championKind:'brokenSaint',
  label:'Добраться до алтаря',
- approachRadius:285
+ approachRadius:285,
+ // Same rule as story NPCs: objective navigation owns a permanent world point.
+ markerPoint:Object.freeze({x:3030,y:470})
 });
 
 const STORY_EVENTS=Object.freeze([
@@ -68,7 +73,8 @@ const STORY_EVENTS=Object.freeze([
     id:ASH_WOUNDED_KNIGHT_STORY.objectiveId,
     kind:'talk',
     targetId:ASH_WOUNDED_KNIGHT_STORY.characterId,
-    label:ASH_WOUNDED_KNIGHT_STORY.label
+    label:ASH_WOUNDED_KNIGHT_STORY.label,
+    markerPoint:ASH_WOUNDED_KNIGHT_STORY.markerPoint
    })
   })
  })

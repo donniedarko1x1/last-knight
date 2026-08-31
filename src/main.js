@@ -68,8 +68,6 @@ const LK_QUALITY_RESPONSE_TTL_MS = 1000*60*60*24*30;
 let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
 const LK_TEXT_RESOLUTION = 2;
 
-<<<<<<< HEAD
-=======
 function lkReadQualityMode(){
  try{return localStorage.getItem(LK_QUALITY_MODE_STORAGE_KEY)==='manual'?'manual':'auto';}catch{return 'auto';}
 }
@@ -96,7 +94,6 @@ function lkWriteQualityResponseMap(map){
  try{localStorage.setItem(LK_QUALITY_RESPONSE_STORAGE_KEY,JSON.stringify(map||{}));}catch{}
 }
 
->>>>>>> c550486 (new changes)
 const STORY_ANOMALY_THOUGHTS=Object.freeze([
  'Он выжил...',
  'Этого не может быть...',
@@ -132,8 +129,6 @@ const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
 const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
 const ASH_CHAMPION_SMOKE_TEXTURE_PREFIX='ash_champion_smoke_';
 const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
-<<<<<<< HEAD
-=======
 const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.70;
 const BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600;
 const BROKEN_SAINT_MARK_DURATION_MS=5000;
@@ -162,7 +157,6 @@ const BROKEN_SAINT_ESSENCE_ICON_KEYS=Object.freeze({
  [BROKEN_SAINT_ESSENCE_IDS.will]:'broken_saint_essence_will',
  [BROKEN_SAINT_ESSENCE_IDS.discipline]:'broken_saint_essence_discipline'
 });
->>>>>>> c550486 (new changes)
 
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
@@ -646,10 +640,7 @@ class LastKnightDevTools {
   this.traceLastEventSignatures=new Map();
   this.renderBenchmark=null;
   this.renderBenchmarkResults=[];
-<<<<<<< HEAD
-=======
   this.adaptiveQuality=this.createAdaptiveQualityState();
->>>>>>> c550486 (new changes)
   this.traceBrowserHandlers=null;
   this.traceGameHandlers=null;
   this.traceScaleResizeHandler=null;
@@ -694,10 +685,7 @@ class LastKnightDevTools {
   this.refreshSelectedPanel();
   this.refreshStateButtons();
   this.refreshTraceUi();
-<<<<<<< HEAD
-=======
   this.refreshAdaptiveQualityUi(true);
->>>>>>> c550486 (new changes)
   this.uiEditor.refreshPanel();
   window.__LK_DEV=this;
  }
@@ -837,16 +825,10 @@ class LastKnightDevTools {
     </div></details>
 
     <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
-<<<<<<< HEAD
-     <div class="lkdev-label">Live render scale. Changes the WebGL backing resolution without restarting the run.</div>
-     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
-     <div class="lkdev-row"><button data-action="renderScale" data-value="dpr">AUTO DPR (max 1.75×)</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
-=======
      <div class="lkdev-label">Live render scale. Manual presets lock quality; AUTO measures sustained frame pressure and only changes scale at safe gameplay moments.</div>
      <div class="lkdev-row"><button data-action="qualityAuto" class="good">AUTO QUALITY</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
      <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
      <div id="lkdev-quality-info" class="lkdev-info">Adaptive quality…</div>
->>>>>>> c550486 (new changes)
      <div id="lkdev-render-info" class="lkdev-info">Render diagnostics…</div>
      <div id="lkdev-render-benchmark" class="lkdev-info">Benchmark idle · 10s per scale</div>
     </div></details>
@@ -986,10 +968,7 @@ class LastKnightDevTools {
    case 'uiCopyLayout':this.uiEditor.copyExport();break;
    case 'uiDownload':this.uiEditor.downloadExport();break;
    case 'renderScale':this.setRenderScale(value);break;
-<<<<<<< HEAD
-=======
    case 'qualityAuto':this.setAdaptiveQualityMode('auto',{restartProbe:true});break;
->>>>>>> c550486 (new changes)
    case 'renderBenchmark':this.startRenderBenchmark();break;
    case 'zoom':this.setCameraZoom(Number(value));break;
    case 'fitAsh':this.fitAshFields();break;
@@ -1522,13 +1501,9 @@ median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
 
  setRenderScale(value){
   const before=LK_RENDER_SCALE;
-<<<<<<< HEAD
-  const applied=lkApplyRenderScale(this.scene.game,value);
-=======
   this.setAdaptiveQualityMode('manual');
   const applied=lkApplyRenderScale(this.scene.game,value);
   this.logAdaptiveQualityEvent('quality_manual_scale',{requested:String(value),before,after:applied,profile:lkProfileName(applied)});
->>>>>>> c550486 (new changes)
   this.recordTraceEvent('render_scale_changed',{requested:String(value),before,after:applied},{sample:true});
   this.refreshStateButtons();this.updateRenderInfo(true);this.updateInfo(true);
   return applied;
@@ -1600,10 +1575,7 @@ median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
   b.index++;
   if(b.index>=b.scales.length){
    b.active=false;
-<<<<<<< HEAD
-=======
    this.learnAdaptiveQualityFromBenchmark(this.renderBenchmarkResults);
->>>>>>> c550486 (new changes)
    lkApplyRenderScale(this.scene.game,b.originalScale,{remember:false});
    this.recordTraceEvent('render_benchmark_finished',{results:this.renderBenchmarkResults,restoredScale:b.originalScale},{sample:true});
    this.refreshStateButtons();this.updateRenderInfo(true);this.refreshRenderBenchmarkUi();
@@ -1844,10 +1816,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
     sceneTimePaused:Boolean(s.time?.paused),physicsPaused:Boolean(s.physics?.world?.isPaused)
    },
    render:this.getTraceRenderState(),
-<<<<<<< HEAD
-=======
    quality:this.getAdaptiveQualitySnapshot(),
->>>>>>> c550486 (new changes)
    camera:this.getTraceCameraState(),
    player:{
     x:player?Math.round(player.x*10)/10:null,y:player?Math.round(player.y*10)/10:null,
@@ -1907,13 +1876,8 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
  getTraceMetadata(){
   const game=this.scene?.game;
   return {
-<<<<<<< HEAD
-   schema:'last-knight-performance-trace-v2',
-   build:'v10.6-performance-diagnostics',
-=======
    schema:'last-knight-performance-trace-v3',
    build:'v10.8-adaptive-quality',
->>>>>>> c550486 (new changes)
    createdAt:new Date().toISOString(),
    userAgent:navigator.userAgent||null,
    platform:navigator.platform||null,
@@ -1976,11 +1940,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
     stoppedAt:trace.stoppedWall?new Date(trace.stoppedWall).toISOString():null,
     active:Boolean(trace.active),durationMs:Math.round((trace.active?performance.now()-trace.startedPerf:(trace.stoppedWall-trace.startedWall))*10)/10,
     sampleIntervalMs:this.traceSampleIntervalMs,droppedSamples:trace.droppedSamples||0,droppedEvents:trace.droppedEvents||0,
-<<<<<<< HEAD
-    benchmarks:trace.benchmarks||[]
-=======
     benchmarks:trace.benchmarks||[],qualityHistory:[...(this.adaptiveQuality?.history||[])]
->>>>>>> c550486 (new changes)
    },
    finalState:this.buildTraceSnapshot(performance.now()),
    events:trace.events,
@@ -2079,11 +2039,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   this.traceBrowserHandlers=null;this.traceGameHandlers=null;
  }
 
-<<<<<<< HEAD
- refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
-=======
  refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='qualityAuto')on=this.adaptiveQuality?.mode==='auto';if(a==='renderScale'){const target=Number(v);on=Number.isFinite(target)&&Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
->>>>>>> c550486 (new changes)
 
  getCurrentSegment(){const x=this.scene.player?.x||0;return ASH_FIELDS_SEGMENTS.find(seg=>x>=seg.start&&x<seg.end)?.id||'-';}
  updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
@@ -2139,14 +2095,9 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   const now=performance.now(),wallGap=Math.max(0,now-this.lastUpdateReal),dt=Math.min(50,wallGap);this.lastUpdateReal=now;
   this.recordTraceFrame(delta,wallGap);
   this.updateRenderBenchmark(now,wallGap);
-<<<<<<< HEAD
-  this.samplePerformanceTrace(false);
-  if(this.open)this.refreshRenderBenchmarkUi();
-=======
   this.updateAdaptiveQuality(now,wallGap);
   this.samplePerformanceTrace(false);
   if(this.open){this.refreshRenderBenchmarkUi();this.refreshAdaptiveQualityUi(false);}
->>>>>>> c550486 (new changes)
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
 
@@ -4011,14 +3962,9 @@ class MainScene extends Phaser.Scene {
   const previousAngle=Number.isFinite(enemy.cachedSteerAngle)?enemy.cachedSteerAngle:null;
   const inputAngleDelta=previousAngle===null?Math.PI:Math.abs(Phaser.Math.Angle.Wrap(inputAngle-(enemy.cachedInputAngle??inputAngle)));
   const closeToPlayer=(toPlayerX*toPlayerX+toPlayerY*toPlayerY)<360*360;
-<<<<<<< HEAD
-  const probeInterval=closeToPlayer?50:90;
-  const canReuse=previousAngle!==null && !enemy.navForceRepath && time<(enemy.localSteerProbeAt||0) && inputAngleDelta<0.26;
-=======
   const rescueNavigation=Boolean(enemy.navRescueActive && time<(enemy.navRescueUntil||0));
   const probeInterval=rescueNavigation?24:(closeToPlayer?50:90);
   const canReuse=previousAngle!==null && !enemy.navForceRepath && time<(enemy.localSteerProbeAt||0) && inputAngleDelta<(rescueNavigation?0.14:0.26);
->>>>>>> c550486 (new changes)
   if(canReuse){
    enemy.body.setVelocity(Math.cos(previousAngle)*speed,Math.sin(previousAngle)*speed);
    return;
@@ -6035,11 +5981,7 @@ createAshFieldsEnvironment(objects,zone){
  }
 
  handleSkillInput(index){
-<<<<<<< HEAD
-  if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen) return;
-=======
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen || this.brokenSaintDefeatSequenceActive) return;
->>>>>>> c550486 (new changes)
   // The five-second anomaly focus is a deliberate non-combat story beat.
   if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;
   if(this.time.now<(this.skillLockUntil||0)) return;
@@ -7268,11 +7210,7 @@ createAshFieldsEnvironment(objects,zone){
 
  getAshStoryLandmarkTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){
   const actual=(this.devEnvironmentObjects||[]).find(object=>
-<<<<<<< HEAD
-   object?.active && !object.devDeleted && object.visible!==false && object.devEnvMeta?.key===key
-=======
    object?.active && !object.devDeleted && object.devEnvMeta?.key===key
->>>>>>> c550486 (new changes)
   );
   if(actual)return actual;
 
@@ -7301,15 +7239,19 @@ createAshFieldsEnvironment(objects,zone){
  }
 
  getAshStoryMarkerTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){
-  const source=this.getAshStoryLandmarkTarget(key);
-  if(!source)return null;
+  // Objective navigation is intentionally independent from environment
+  // streaming/culling. The altar sprite can be absent or invisible; the story
+  // world anchor exists from boot and remains valid until the objective ends.
+  const point=ASH_ALTAR_CHAMPION_STORY.markerPoint;
+  const x=Number(point?.x),y=Number(point?.y);
+  if(!Number.isFinite(x) || !Number.isFinite(y))return null;
   if(!this.ashAltarMarkerTarget || this.ashAltarMarkerTarget.key!==key){
-   this.ashAltarMarkerTarget={key,x:0,y:0,active:true,visible:true};
+   this.ashAltarMarkerTarget={key,x,y,active:true};
+  }else{
+   this.ashAltarMarkerTarget.x=x;
+   this.ashAltarMarkerTarget.y=y;
+   this.ashAltarMarkerTarget.active=true;
   }
-  this.ashAltarMarkerTarget.x=Number(source.x)||0;
-  this.ashAltarMarkerTarget.y=Number(source.y)||0;
-  this.ashAltarMarkerTarget.active=true;
-  this.ashAltarMarkerTarget.visible=true;
   return this.ashAltarMarkerTarget;
  }
 
@@ -7331,7 +7273,8 @@ createAshFieldsEnvironment(objects,zone){
     id:ASH_ALTAR_CHAMPION_STORY.objectiveId,
     kind:'reach',
     targetId:ASH_ALTAR_CHAMPION_STORY.targetId,
-    label:ASH_ALTAR_CHAMPION_STORY.label
+    label:ASH_ALTAR_CHAMPION_STORY.label,
+    markerPoint:ASH_ALTAR_CHAMPION_STORY.markerPoint
    });
   }
   this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});
@@ -7698,12 +7641,8 @@ createAshFieldsEnvironment(objects,zone){
    .setDisplaySize(view.width,view.height)
    .setAlpha(0);
   state.vignette=vignette;
-<<<<<<< HEAD
-  this.devTools?.recordTraceEvent?.('story_vignette_created',{kind:state.enemy?'anomaly':'champion',cameraZoom:cam.zoom,centerX:Math.round(cam.worldView.centerX),centerY:Math.round(cam.worldView.centerY),cameraLocked:Boolean(state.cameraLocked)},{sample:true});
-=======
   const vignetteKind=state.kind||(state.enemy?'anomaly':'champion');
   this.devTools?.recordTraceEvent?.('story_vignette_created',{kind:vignetteKind,cameraZoom:cam.zoom,centerX:Math.round(cam.worldView.centerX),centerY:Math.round(cam.worldView.centerY),cameraLocked:Boolean(state.cameraLocked)},{sample:true});
->>>>>>> c550486 (new changes)
   state.vignetteKeyX=null;
   state.vignetteKeyY=null;
   state.vignetteKeyW=null;
@@ -7883,12 +7822,8 @@ createAshFieldsEnvironment(objects,zone){
   // first so the mask is generated against the final, stable worldView.
   const outline=this.createStoryAnomalyOutline(enemy);
 
-<<<<<<< HEAD
-  const label=lkAddText(this,enemy.x,enemy.y-68,this.getStoryAnomalyThought(enemy),{
-=======
   const anomalyUiScale=lkWorldUiScale(this,cam);
   const label=lkAddText(this,enemy.x,enemy.y-68*anomalyUiScale,this.getStoryAnomalyThought(enemy),{
->>>>>>> c550486 (new changes)
    fontSize:'22px',
    color:'#fff2b5',
    stroke:'#171007',
@@ -7973,14 +7908,10 @@ createAshFieldsEnvironment(objects,zone){
   const bob=Math.sin(time*0.01)*4;
   const cam=this.cameras.main;
   this.syncStoryAnomalyOutline(state);
-<<<<<<< HEAD
-  state.label?.setPosition(enemy.x,enemy.y-68+bob);
-=======
   if(state.label?.active){
    const uiScale=lkWorldUiScale(this,cam);
    state.label.setScale(uiScale).setPosition(enemy.x,enemy.y-(68-bob)*uiScale);
   }
->>>>>>> c550486 (new changes)
 
   // Once the opening pan/zoom is over, snap to the exact final composition.
   // Only then may the vignette exist; rebuilding it during camera motion caused
@@ -8588,15 +8519,12 @@ createAshFieldsEnvironment(objects,zone){
    // Story focus beats are a hard cinematic freeze: the hero can observe, but not move.
    vx=0;
    vy=0;
-<<<<<<< HEAD
-=======
   }
   // Spin is committed DPS: player input cannot move the hero during the channel,
   // while enemy knockback/forced motion can still displace him.
   if(time<(this.spinCommitUntil||0) && time>=(this.playerForcedUntil||0)){
    vx=0;
    vy=0;
->>>>>>> c550486 (new changes)
   }
 
   this.player.body.setVelocity(vx,vy);
@@ -8727,10 +8655,7 @@ createAshFieldsEnvironment(objects,zone){
   // Spread A* work across frames. Direct line-of-sight chasers spend no budget;
   // only enemies whose route is actually blocked request a path.
   this.navigationPathfindBudget=1;
-<<<<<<< HEAD
-=======
   this.navigationRescuePathfindBudget=1;
->>>>>>> c550486 (new changes)
 
   traceSectionAt=this.beginSubsystemTrace();
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed

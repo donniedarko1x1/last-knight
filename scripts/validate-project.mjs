@@ -194,8 +194,6 @@ for(const [label,needle] of [
 }
 if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) pass('Broken Saint local smoke + 3s reveal hold + altar release phase contracts present');
 
-<<<<<<< HEAD
-=======
 // 8c) Broken Saint reward / build-strategy v1 contracts.
 const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
 for(const [label,source,needle] of [
@@ -228,7 +226,6 @@ for(const [label,source,needle] of [
 }
 if(!errors.some(e=>e.startsWith('Missing Broken Saint reward contract:'))) pass('Broken Saint build rewards + reverse-smoke death + mobile reward UI contracts present');
 
->>>>>>> c550486 (new changes)
 // 9) World Navigation v2 contracts. Architecture Refactor v1 moves the
 // global A*/grid implementation into src/world/NavigationSystem.js while the
 // MainScene keeps thin compatibility delegates and local steering.
@@ -256,12 +253,10 @@ if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.star
 for(const [label,source,needle] of [
  ['stable Ash altar marker proxy',main,'getAshStoryMarkerTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){'],
  ['Ash altar marker uses stable target',main,'this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});'],
-<<<<<<< HEAD
-=======
- ['Ash altar lookup survives culling',main,'object?.active && !object.devDeleted && object.devEnvMeta?.key===key'],
+ ['Ash altar marker point comes from story data',main,'const point=ASH_ALTAR_CHAMPION_STORY.markerPoint;'],
+ ['Ash altar objective carries marker point',main,'markerPoint:ASH_ALTAR_CHAMPION_STORY.markerPoint'],
  ['story marker ignores sprite visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
  ['wounded dialogue gets settled vignette',woundedInteractionSource,'scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});'],
->>>>>>> c550486 (new changes)
  ['settled-camera vignette factory',main,'createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){'],
  ['skeleton vignette waits for camera lock',main,'state.cameraLocked=true;\n    this.createSettledStoryVignette(state,cam,{fadeMs:280});'],
  ['champion vignette waits for camera lock',main,'this.createSettledStoryVignette(state,cam,{fadeMs:300});']
@@ -275,11 +270,7 @@ for(const [label,source,needle] of [
  ['dialogue actor avoidance',woundedInteractionSource,'dialogueOverlapArea(a,b){'],
  ['dialogue candidate layout',woundedInteractionSource,'const candidates=['],
  ['dialogue safe viewport',woundedInteractionSource,'const safe=scene.isTouchDevice'],
-<<<<<<< HEAD
- ['dialogue zoom compensation',woundedInteractionSource,'const dialogueScale=1/Math.max(1,cam.zoom||1);'],
-=======
  ['dialogue CSS/backing compensation',woundedInteractionSource,'const dialogueScale=worldUiScale(scene);'],
->>>>>>> c550486 (new changes)
  ['dialogue camera context',woundedInteractionSource,'cam.zoom*1.18'],
  ['single A* route budget per frame',main,'this.navigationPathfindBudget=1;'],
  ['sleeping DEV overlays',main,'hasActiveOverlay(){'],
@@ -332,6 +323,7 @@ for(const [label,source,needle] of [
  ['dialogue event bridge',storyDirectorSource,"this.scene?.events?.emit?.('story-dialogue-start'"],
  ['generic active objective state',storyDirectorSource,'activeObjective=null'],
  ['objective activation API',storyDirectorSource,'activateObjective(objective={})'],
+ ['objective logical marker point normalization',storyDirectorSource,'normalized.markerPoint={x:markerX,y:markerY};'],
  ['objective completion API',storyDirectorSource,'completeObjective(id=this.activeObjective?.id)'],
  ['declarative objective action',storyDirectorSource,"OBJECTIVE:'objective'"],
  ['MainScene StoryDirector import',main,"import StoryDirector from './story/StoryDirector.js';"],
@@ -365,10 +357,11 @@ try{
  if(smoke.getState()!==STORY_STATE.NORMAL) throw new Error('director did not return to NORMAL');
  if(paused) throw new Error('story pause remained active after callback event');
  if(smoke.update(1200)) throw new Error('one-shot event triggered twice');
- const objective={id:'validator_objective',targetId:'validator_target',kind:'talk'};
+ const objective={id:'validator_objective',targetId:'validator_target',kind:'talk',markerPoint:{x:123,y:456}};
  if(!smoke.activateObjective(objective)) throw new Error('objective did not activate');
  if(!smoke.isObjectiveActive('validator_objective')) throw new Error('active objective was not reported');
  if(smoke.getActiveObjective()?.targetId!=='validator_target') throw new Error('objective target was not stored');
+ if(smoke.getActiveObjective()?.markerPoint?.x!==123 || smoke.getActiveObjective()?.markerPoint?.y!==456) throw new Error('objective markerPoint was not stored');
  if(!smoke.completeObjective('validator_objective')) throw new Error('objective did not complete');
  if(smoke.isObjectiveActive('validator_objective')) throw new Error('objective remained active after completion');
  if(!smoke.hasCompletedObjective('validator_objective')) throw new Error('objective completion was not recorded');
@@ -387,7 +380,10 @@ for(const [label,source,needle] of [
  ['marker direction from player to target Y',objectiveMarkerSource,'const dy=targetY-player.y;'],
  ['marker logical target cache',objectiveMarkerSource,'this.lastTargetPoint={x,y};'],
  ['marker ignores render visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
- ['wounded knight stable marker anchor',woundedInteractionSource,'markerAnchor:previous?.markerAnchor'],
+ ['wounded objective logical marker anchor',woundedInteractionSource,'resolveStoryMarkerAnchor(targetId=STORY_KNIGHT_ID,objective=null){'],
+ ['wounded marker never requires streamed knight',woundedInteractionSource,'Never consult this.knights / sprite.active / sprite.visible here.'],
+ ['wounded objective marker point in story data',storyEventsSource,'markerPoint:Object.freeze({x:2700,y:800})'],
+ ['altar objective marker point in story data',storyEventsSource,'markerPoint:Object.freeze({x:3030,y:470})'],
  ['wounded knight dialogue vignette',woundedInteractionSource,"kind:'woundedKnight'"],
  ['interaction system module',woundedInteractionSource,'class WoundedKnightInteractionSystem'],
  ['desktop interaction prompt',woundedInteractionSource,"Нажмите E для взаимодействия"],
@@ -429,6 +425,8 @@ else{
  if(firstObjectiveEvent.trigger?.spawnedMin!==undefined) fail('First story objective must not unlock mid-wave from spawnedMin');
  if(firstObjectiveEvent.trigger?.xMin!==undefined || firstObjectiveEvent.trigger?.kills!==undefined) fail('First story objective must not depend on old x/kills triggers');
  if(!firstObjectiveEvent.action?.objective?.targetId) fail('First story objective has no targetId');
+ const markerPoint=firstObjectiveEvent.action?.objective?.markerPoint;
+ if(!Number.isFinite(Number(markerPoint?.x)) || !Number.isFinite(Number(markerPoint?.y))) fail('First story objective has no logical markerPoint');
 }
 if(main.includes('ash_campfire_01_')) fail('Rejected Ash Fields campfire is still referenced by runtime code');
 if(ASSET_MANIFEST.some(entry=>String(entry.key).startsWith('ash_campfire_01_'))) fail('Rejected Ash Fields campfire is still present in AssetManifest');
@@ -526,15 +524,9 @@ for(const [label,source,needle] of [
 if(main.includes('this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS')) fail('Mage predictive lead aiming must be removed');
 if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.startsWith('Missing altar/champion encounter contract:')||e.includes('Mage predictive lead'))) pass('Act-I anomalies + wave-4 altar reveal + concurrent first champion contracts present');
 
-<<<<<<< HEAD
-// 16) Performance Diagnostics v3 + free CPU optimisation pass.
-for(const [label,source,needle] of [
- ['trace v2 schema',main,"schema:'last-knight-performance-trace-v2'"],
-=======
 // 16) Performance Diagnostics v5 + free CPU optimisation pass + smart adaptive render quality + rescue navigation.
 for(const [label,source,needle] of [
  ['trace v3 schema',main,"schema:'last-knight-performance-trace-v3'"],
->>>>>>> c550486 (new changes)
  ['pause trace transition guard',main,'const hadReason=this.gameplayPauseReasons.has(reason);'],
  ['pause trace only on transition',main,'if(hadReason!==wanted || nextPaused!==this.gameplayPaused){'],
  ['live render scale 1.25 preset',main,'data-action=\"renderScale\" data-value=\"1.25\"'],
@@ -543,8 +535,6 @@ for(const [label,source,needle] of [
  ['benchmark 10 second measurement after 1.5s settle',main,'measureUntil:now+11500'],
  ['benchmark median FPS',main,'medianFps:percentile(b.fpsSamples,0.5)'],
  ['benchmark p95 frame gap',main,'p95FrameGapMs:percentile(b.frameGapSamples,0.95)'],
-<<<<<<< HEAD
-=======
  ['adaptive quality auto control',main,'data-action="qualityAuto"'],
  ['adaptive quality mode storage',main,"const LK_QUALITY_MODE_STORAGE_KEY = 'lastKnight.quality.mode.v1';"],
  ['adaptive quality saved auto profile',main,"const LK_QUALITY_PROFILE_STORAGE_KEY = 'lastKnight.quality.autoScale.v1';"],
@@ -561,7 +551,6 @@ for(const [label,source,needle] of [
  ['adaptive runtime downgrade trial',main,"'quality_trial_rejected'"],
  ['adaptive bottleneck classification',main,"'quality_benchmark_classified'"],
  ['adaptive trace snapshot',main,'quality:this.getAdaptiveQualitySnapshot()'],
->>>>>>> c550486 (new changes)
  ['subsystem timing accumulator',main,'recordSubsystemTime(name,ms){'],
  ['story subsystem timing',main,"endSubsystemTrace('story'"],
  ['world streaming subsystem timing',main,"endSubsystemTrace('worldStreaming'"],
@@ -571,8 +560,6 @@ for(const [label,source,needle] of [
  ['projectile subsystem timing',main,"endSubsystemTrace('projectiles'"],
  ['vignette subsystem timing',main,"recordSubsystemTime?.('vignette'"],
  ['HUD subsystem timing',main,"recordSubsystemTime?.('HUD'"],
-<<<<<<< HEAD
-=======
 
  ['rescue navigation per-frame budget',main,'this.navigationRescuePathfindBudget=1;'],
  ['rescue navigation stuck detector',navigation,"trace('enemy_stuck_detected'"],
@@ -581,7 +568,6 @@ for(const [label,source,needle] of [
  ['rescue navigation success trace',navigation,"'enemy_rescue_navigation_success'"],
  ['rescue navigation denser waypoints',navigation,'const maxLookAhead=rescueMode?Math.min(raw.length-1,i+4):raw.length-1;'],
  ['rescue navigation expanded A star budget',navigation,'rescueMode?4200:3200'],
->>>>>>> c550486 (new changes)
  ['navigation probe cache',navigation,'enemy.navProbeAt=time+probeInterval+probeJitter;'],
  ['local steering cache',main,'enemy.localSteerProbeAt=time+probeInterval;'],
  ['20Hz crowd separation',navigation,'this.enemySeparationNextAt=time+50;'],
@@ -593,13 +579,6 @@ for(const [label,source,needle] of [
  ['melee candidate reuse',heroMeleeSource,'for(const enemy of this.attackCandidates||[])'],
  ['hero melee proximity state',heroMeleeSource,'updateTargetState(enemies){'],
  ['hero does not swing without target',heroMeleeSource,'if(!hasAttackTarget) return;'],
-<<<<<<< HEAD
- ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;']
-]){
- if(!source.includes(needle)) fail(`Missing Performance Diagnostics v3 contract: ${label}`);
-}
-if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v3 contract:'))) pass('Performance Diagnostics v3 + CPU optimisation contracts present');
-=======
  ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;'],
  ['short browser resume panic cooldown',main,'fps:{panicMax:10,smoothStep:true,deltaHistory:10}'],
  ['browser resume recovery trace',main,"'browser_resume_recovery'"],
@@ -610,7 +589,6 @@ if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v3 contract:'))
  if(!source.includes(needle)) fail(`Missing Performance Diagnostics v4 contract: ${label}`);
 }
 if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v4 contract:'))) pass('Performance Diagnostics v5 + CPU optimisation + smart adaptive quality + rescue navigation contracts present');
->>>>>>> c550486 (new changes)
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');
