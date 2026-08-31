@@ -74,37 +74,27 @@ Editable HUD nodes: hero shell, level badge, HP bar, XP bar, mana, wave panel/ti
 
 The fullscreen button's normal base position is now the **lower-left** utility area. On touch devices it is placed directly above the joystick so the controls do not overlap.
 
-## Render / DPI test build
+## Performance diagnostics v2
 
-This build replaces the obsolete Phaser 3 `resolution` config approach with an explicit high-DPI backing-canvas experiment.
+Open **PERFORMANCE TRACE** in the DEV panel and press **START TRACE** before reproducing a slowdown. The v2 tracer samples four times per second and records browser/page lifecycle transitions immediately. Repeated unchanged pause/orientation states are deduplicated, so the logger no longer floods the JSON every frame.
 
-Open **RENDER / DPI TEST** in the DEV panel.
+Each sample now includes CPU timing buckets for **story**, **worldStreaming**, **enemyAI**, **navigation**, **melee**, **projectiles**, **vignette**, and **HUD**. The timings are intended for relative diagnosis inside one build; nested work such as navigation can also be included inside the broader enemyAI total.
 
-- **1×** renders one backing pixel per CSS pixel (old-style baseline).
-- **1.5×** renders 1.5× in both dimensions.
-- **2×** renders 2× in both dimensions (4× as many pixels total).
-- **AUTO DPR** uses `min(devicePixelRatio, 2)`.
-- The selected render scale is stored in localStorage key `lastKnight.dev.renderScale.v2`.
-- The panel shows device DPR, CSS viewport, real canvas backing size, CSS canvas size, backing/CSS ratio, renderer type and HUD text resolution.
-- Phaser Text objects in active scenes are refreshed to high-DPI text resolution (capped at 2×).
-- HUD uses a dedicated compensating camera zoom, so UI positions and apparent sizes should stay approximately unchanged while render density changes.
-- Main gameplay camera keeps the same world coverage because its existing height-derived camera zoom scales with the larger backing canvas.
+Browser diagnostics still include visibility/focus, page hide/show/freeze/resume, Phaser pause/resume, WebGL context state, memory when available, camera effects, game/story state, active objects, tweens, physics bodies, sounds and HiDPI backing dimensions.
 
-### Mobile A/B test
+## Render / DPI test
 
-1. Open the game on the phone and enter the same scene.
-2. Open DEV → **RENDER / DPI TEST**.
-3. Take a screenshot at **1×**.
-4. Switch to **2×** and wait a second for resize/layout.
-5. Take the same screenshot at **2×**.
-6. Send both screenshots plus the diagnostic text shown in the panel.
+Render scale can be changed live without restarting the scene. The presets are **1.00× / 1.25× / 1.50× / 1.75×**. Default remains **1.50×** and the DEV maximum is now **1.75×**. **AUTO DPR** uses `min(devicePixelRatio, 1.75)`. The selected manual render scale is stored in localStorage key `lastKnight.dev.renderScale.v2`.
 
-Expected proof of the original blur hypothesis: at 2×, Phaser-rendered HUD/world should become visibly sharper while the HTML DEV button changes little or not at all.
+The panel shows device DPR, CSS viewport, real canvas backing size, CSS canvas size, backing/CSS ratio, renderer type and HUD text resolution. HUD/world layout is reapplied after a live scale change so world coverage and UI size remain approximately stable while backing density changes.
 
+### Automatic four-scale benchmark
 
-## Render scale baseline
+Press **RUN 4-SCALE BENCHMARK** while standing in the gameplay situation you want to compare. The benchmark automatically starts Performance Trace if needed, then tests **1.00×, 1.25×, 1.50× and 1.75×**. Each stage gets 1 second to settle after resize and then 10 seconds of measurement. It records average/min/max FPS, average/max real frame gap and counts of frames slower than 33/50/100 ms. When finished it restores the render scale that was active before the benchmark and stores the results in the exported trace JSON.
 
-Default render scale is **1.5×** for a better gameplay/performance balance. DEV still allows 1× / 1.5× / 1.75× / 2× / Auto DPR (capped at 2×).
+## Proximity-gated hero auto-melee
+
+The hero no longer starts sword spin animation, attack-ring FX or sword SFX when there is no living enemy inside the real melee radius. `HeroMelee` still tracks a slightly wider nearby radius (+26 px) for stable combat-state diagnostics, but that wider radius does not permit empty swings. After the last close target disappears, the current attack presentation can finish and the hero returns to normal 8-direction idle/walk animation.
 
 ## Regional combat progression (Build 1.0.5)
 

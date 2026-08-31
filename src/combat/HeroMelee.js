@@ -34,12 +34,53 @@ export default class HeroMelee {
     this.radius = 99;
     this.lastAttack = 0;
     this.attackCounter = 0;
+    this.combatActive = false;
+    this.attackTargetCount = 0;
+    this.nearbyTargetCount = 0;
+    this.nearestTargetDistance = null;
+    this.disengagePadding = 26;
+  }
+
+  updateTargetState(enemies){
+    const owner=this.owner;
+    const attackRadius=this.radius;
+    const nearbyRadius=attackRadius+this.disengagePadding;
+    let attackTargets=0;
+    let nearbyTargets=0;
+    let nearest=Infinity;
+
+    for(const enemy of enemies||[]){
+      if(!enemy?.active || enemy.hp<=0) continue;
+      const d=Phaser.Math.Distance.Between(owner.x,owner.y,enemy.x,enemy.y);
+      if(d<nearest) nearest=d;
+      if(d<=nearbyRadius) nearbyTargets++;
+      if(d<=attackRadius) attackTargets++;
+    }
+
+    this.attackTargetCount=attackTargets;
+    this.nearbyTargetCount=nearbyTargets;
+    this.nearestTargetDistance=Number.isFinite(nearest)?Math.round(nearest*10)/10:null;
+    this.combatActive=nearbyTargets>0;
+    return attackTargets>0;
   }
 
   update(time, enemies){
     // Story anomaly focus deliberately disarms the hero so the anomalous
     // skeleton cannot be accidentally auto-killed during its five-second beat.
-    if(this.scene.isStoryAnomalyMomentActive?.(time)) return;
+    if(this.scene.isStoryAnomalyMomentActive?.(time)){
+      this.combatActive=false;
+      this.attackTargetCount=0;
+      this.nearbyTargetCount=0;
+      this.nearestTargetDistance=null;
+      return;
+    }
+
+    // Exploration is now genuinely quiet: do not start the spin animation,
+    // ring FX or sword SFX unless at least one living enemy is inside the real
+    // melee radius. A slightly wider nearby radius is kept only as hysteresis
+    // for the combat-state diagnostic, not as permission to swing into empty air.
+    const hasAttackTarget=this.updateTargetState(enemies);
+    if(!hasAttackTarget) return;
     if(time < (this.scene.skillLockUntil || 0)) return;
     if(time - this.lastAttack < this.cooldown) return;
 

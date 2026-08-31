@@ -43,6 +43,7 @@ for(const file of ['src/main.js','src/combat/HeroMelee.js','src/config/gameplayC
 
 const mainPath=path.join(root,'src/main.js');
 const main=fs.readFileSync(mainPath,'utf8');
+const heroMeleeSource=fs.readFileSync(path.join(root,'src/combat/HeroMelee.js'),'utf8');
 const navigation=fs.readFileSync(path.join(root,'src/world/NavigationSystem.js'),'utf8');
 const audio=fs.readFileSync(path.join(root,'src/audio/AudioManager.js'),'utf8');
 const cinematicTransitions=fs.readFileSync(path.join(root,'src/ui/cinematicTransitions.js'),'utf8');
@@ -290,7 +291,7 @@ for(const [label,source,needle] of [
  ['declarative objective action',storyDirectorSource,"OBJECTIVE:'objective'"],
  ['MainScene StoryDirector import',main,"import StoryDirector from './story/StoryDirector.js';"],
  ['MainScene StoryDirector install',main,'this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();'],
- ['MainScene StoryDirector update',main,'if(this.storyDirector?.update(time)){'],
+ ['MainScene StoryDirector update',main,'const storyBusy=Boolean(this.storyDirector?.update(time));'],
  ['runtime cinematic mode',main,"this.cinematicMode=data?.mode==='story' ? 'story' : 'prologue';"],
  ['shared prologue story data',storyEventsSource,'const PROLOGUE_STORY_PAGES=Object.freeze([']
 ]){
@@ -475,6 +476,32 @@ for(const [label,source,needle] of [
 }
 if(main.includes('this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS')) fail('Mage predictive lead aiming must be removed');
 if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.startsWith('Missing altar/champion encounter contract:')||e.includes('Mage predictive lead'))) pass('Act-I anomalies + wave-4 altar reveal + concurrent first champion contracts present');
+
+// 16) Performance Diagnostics v2 + proximity-gated hero auto-melee.
+for(const [label,source,needle] of [
+ ['trace v2 schema',main,"schema:'last-knight-performance-trace-v2'"],
+ ['pause trace transition guard',main,'const hadReason=this.gameplayPauseReasons.has(reason);'],
+ ['pause trace only on transition',main,'if(hadReason!==wanted || nextPaused!==this.gameplayPaused){'],
+ ['live render scale 1.25 preset',main,'data-action=\"renderScale\" data-value=\"1.25\"'],
+ ['render scale capped at 1.75',main,'const LK_RENDER_SCALE_MAX = 1.75;'],
+ ['automatic four-scale benchmark',main,'startRenderBenchmark(){'],
+ ['benchmark 10 second measurement',main,'measureUntil:now+11000'],
+ ['subsystem timing accumulator',main,'recordSubsystemTime(name,ms){'],
+ ['story subsystem timing',main,"endSubsystemTrace('story'"],
+ ['world streaming subsystem timing',main,"endSubsystemTrace('worldStreaming'"],
+ ['enemy AI subsystem timing',main,"endSubsystemTrace('enemyAI'"],
+ ['navigation subsystem timing',main,"recordSubsystemTime?.('navigation'"],
+ ['melee subsystem timing',main,"endSubsystemTrace('melee'"],
+ ['projectile subsystem timing',main,"endSubsystemTrace('projectiles'"],
+ ['vignette subsystem timing',main,"recordSubsystemTime?.('vignette'"],
+ ['HUD subsystem timing',main,"recordSubsystemTime?.('HUD'"],
+ ['hero melee proximity state',heroMeleeSource,'updateTargetState(enemies){'],
+ ['hero does not swing without target',heroMeleeSource,'if(!hasAttackTarget) return;'],
+ ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;']
+]){
+ if(!source.includes(needle)) fail(`Missing Performance Diagnostics v2 contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v2 contract:'))) pass('Performance Diagnostics v2 + proximity-gated hero melee contracts present');
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');

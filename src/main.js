@@ -49,7 +49,7 @@ const DEV_BUILD=true;
 // into the CSS viewport. World cameras naturally compensate via their height-based
 // zoom; HUD cameras explicitly zoom by the same factor to keep CSS-logical sizing.
 const LK_DEFAULT_RENDER_SCALE = 1.5;
-const LK_RENDER_SCALE_MAX = 2;
+const LK_RENDER_SCALE_MAX = 1.75;
 const LK_RENDER_SCALE_STORAGE_KEY = 'lastKnight.dev.renderScale.v2';
 let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
 const LK_TEXT_RESOLUTION = 2;
@@ -554,6 +554,10 @@ class LastKnightDevTools {
   this.traceMaxEvents=8000;
   this.traceLastSampleAt=0;
   this.traceFrameBucket=this.createTraceFrameBucket();
+  this.traceSubsystemBucket=this.createTraceSubsystemBucket();
+  this.traceLastEventSignatures=new Map();
+  this.renderBenchmark=null;
+  this.renderBenchmarkResults=[];
   this.traceBrowserHandlers=null;
   this.traceGameHandlers=null;
   this.traceScaleResizeHandler=null;
@@ -737,9 +741,11 @@ class LastKnightDevTools {
     </div></details>
 
     <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
-     <div class="lkdev-label">High-DPI backing canvas. Compare 1× and 2× on the same phone.</div>
-     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1×</button><button data-action="renderScale" data-value="1.5">1.5×</button><button data-action="renderScale" data-value="1.75">1.75×</button><button data-action="renderScale" data-value="2">2×</button></div><div style="display:grid;margin-top:6px"><button data-action="renderScale" data-value="dpr" class="good">AUTO DPR (max 2×)</button></div>
+     <div class="lkdev-label">Live render scale. Changes the WebGL backing resolution without restarting the run.</div>
+     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
+     <div class="lkdev-row"><button data-action="renderScale" data-value="dpr">AUTO DPR (max 1.75×)</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
      <div id="lkdev-render-info" class="lkdev-info">Render diagnostics…</div>
+     <div id="lkdev-render-benchmark" class="lkdev-info">Benchmark idle · 10s per scale</div>
     </div></details>
 
     <details class="lkdev-section" open><summary>CAMERA / SCENE VIEW</summary><div class="lkdev-body">
@@ -877,6 +883,7 @@ class LastKnightDevTools {
    case 'uiCopyLayout':this.uiEditor.copyExport();break;
    case 'uiDownload':this.uiEditor.downloadExport();break;
    case 'renderScale':this.setRenderScale(value);break;
+   case 'renderBenchmark':this.startRenderBenchmark();break;
    case 'zoom':this.setCameraZoom(Number(value));break;
    case 'fitAsh':this.fitAshFields();break;
    case 'followCamera':this.followCamera();break;
@@ -1065,6 +1072,94 @@ class LastKnightDevTools {
   this.refreshStateButtons();this.updateRenderInfo(true);this.updateInfo(true);
   return applied;
  }
+
+ startRenderBenchmark(){
+  if(this.renderBenchmark?.active)return false;
+  if(!this.isPerformanceTraceActive())this.startPerformanceTrace();
+  const now=performance.now();
+  this.renderBenchmarkResults=[];
+  this.renderBenchmark={
+   active:true,
+   scales:[1,1.25,1.5,1.75],
+   index:0,
+   originalScale:LK_RENDER_SCALE,
+   stageStartedAt:now,
+   settleUntil:now+1000,
+   measureUntil:now+11000,
+   fpsSum:0,fpsCount:0,fpsMin:Infinity,fpsMax:0,
+   frameGapSum:0,frameGapCount:0,frameGapMax:0,slow33:0,slow50:0,slow100:0
+  };
+  lkApplyRenderScale(this.scene.game,1,{remember:false});
+  this.recordTraceEvent('render_benchmark_started',{scales:this.renderBenchmark.scales,secondsPerScale:10,settleSeconds:1,originalScale:this.renderBenchmark.originalScale},{sample:true});
+  this.recordTraceEvent('render_benchmark_stage',{scale:1,index:0},{sample:true});
+  this.refreshRenderBenchmarkUi();
+  return true;
+ }
+
+ resetRenderBenchmarkStage(now){
+  const b=this.renderBenchmark;if(!b)return;
+  b.stageStartedAt=now;b.settleUntil=now+1000;b.measureUntil=now+11000;
+  b.fpsSum=0;b.fpsCount=0;b.fpsMin=Infinity;b.fpsMax=0;
+  b.frameGapSum=0;b.frameGapCount=0;b.frameGapMax=0;b.slow33=0;b.slow50=0;b.slow100=0;
+ }
+
+ finishRenderBenchmarkStage(now){
+  const b=this.renderBenchmark;if(!b?.active)return;
+  const scale=b.scales[b.index];
+  const result={
+   scale,
+   avgFps:b.fpsCount?Math.round((b.fpsSum/b.fpsCount)*10)/10:null,
+   minFps:Number.isFinite(b.fpsMin)?Math.round(b.fpsMin*10)/10:null,
+   maxFps:b.fpsCount?Math.round(b.fpsMax*10)/10:null,
+   avgFrameGapMs:b.frameGapCount?Math.round((b.frameGapSum/b.frameGapCount)*100)/100:null,
+   maxFrameGapMs:Math.round(b.frameGapMax*100)/100,
+   slow33:b.slow33,slow50:b.slow50,slow100:b.slow100,
+   sampleCount:b.fpsCount,
+   render:this.getTraceRenderState()
+  };
+  this.renderBenchmarkResults.push(result);
+  if(this.performanceTrace){
+   if(!Array.isArray(this.performanceTrace.benchmarks))this.performanceTrace.benchmarks=[];
+   this.performanceTrace.benchmarks.push(result);
+  }
+  this.recordTraceEvent('render_benchmark_result',result,{sample:true});
+  b.index++;
+  if(b.index>=b.scales.length){
+   b.active=false;
+   lkApplyRenderScale(this.scene.game,b.originalScale,{remember:false});
+   this.recordTraceEvent('render_benchmark_finished',{results:this.renderBenchmarkResults,restoredScale:b.originalScale},{sample:true});
+   this.refreshStateButtons();this.updateRenderInfo(true);this.refreshRenderBenchmarkUi();
+   return;
+  }
+  const nextScale=b.scales[b.index];
+  lkApplyRenderScale(this.scene.game,nextScale,{remember:false});
+  this.resetRenderBenchmarkStage(now);
+  this.recordTraceEvent('render_benchmark_stage',{scale:nextScale,index:b.index},{sample:true});
+  this.refreshStateButtons();this.updateRenderInfo(true);this.refreshRenderBenchmarkUi();
+ }
+
+ updateRenderBenchmark(now=performance.now(),wallGap=0){
+  const b=this.renderBenchmark;if(!b?.active)return;
+  if(now>=b.measureUntil){this.finishRenderBenchmarkStage(now);return;}
+  if(now<b.settleUntil)return;
+  const fps=Math.max(0,Number(this.scene?.game?.loop?.actualFps)||0);
+  if(fps>0){b.fpsSum+=fps;b.fpsCount++;b.fpsMin=Math.min(b.fpsMin,fps);b.fpsMax=Math.max(b.fpsMax,fps);}
+  const gap=Math.max(0,Number(wallGap)||0);
+  if(gap>0){b.frameGapSum+=gap;b.frameGapCount++;b.frameGapMax=Math.max(b.frameGapMax,gap);if(gap>=33.34)b.slow33++;if(gap>=50)b.slow50++;if(gap>=100)b.slow100++;}
+ }
+
+ refreshRenderBenchmarkUi(){
+  const el=document.getElementById('lkdev-render-benchmark');if(!el)return;
+  const b=this.renderBenchmark;
+  const lines=this.renderBenchmarkResults.map(r=>`${r.scale.toFixed(2)}×: ${r.avgFps??'-'} FPS · ${r.avgFrameGapMs??'-'}ms avg · max ${r.maxFrameGapMs??'-'}ms`);
+  if(b?.active){
+   const scale=b.scales[b.index];
+   const now=performance.now();
+   const phase=now<b.settleUntil?'settling':'measuring';
+   const left=Math.max(0,(b.measureUntil-now)/1000).toFixed(1);
+   el.textContent=`RUNNING ${scale.toFixed(2)}× · ${phase} · ${left}s left\n${lines.join('\n')}`;
+  }else el.textContent=lines.length?`DONE\n${lines.join('\n')}`:'Benchmark idle · 10s per scale';
+ }
  updateRenderInfo(force=false){
   const el=document.getElementById('lkdev-render-info');if(!el)return;
   const game=this.scene.game,canvas=game.canvas,css=lkCssViewport(),rect=canvas?.getBoundingClientRect?.();
@@ -1091,6 +1186,32 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
 
  createTraceFrameBucket(){
   return {frames:0,deltaSum:0,deltaMax:0,wallGapMax:0,rawDeltaMax:0,slow33:0,slow50:0,slow100:0};
+ }
+
+ createTraceSubsystemBucket(){
+  return Object.create(null);
+ }
+
+ recordSubsystemTime(name,ms){
+  if(!this.isPerformanceTraceActive())return;
+  const value=Math.max(0,Number(ms)||0);
+  const key=String(name||'other');
+  const slot=this.traceSubsystemBucket[key]||(this.traceSubsystemBucket[key]={calls:0,totalMs:0,maxMs:0});
+  slot.calls++;slot.totalMs+=value;slot.maxMs=Math.max(slot.maxMs,value);
+ }
+
+ consumeTraceSubsystemBucket(){
+  const out={};
+  for(const [name,slot] of Object.entries(this.traceSubsystemBucket||{})){
+   out[name]={
+    calls:slot.calls,
+    totalMs:Math.round(slot.totalMs*1000)/1000,
+    avgMs:slot.calls?Math.round((slot.totalMs/slot.calls)*1000)/1000:0,
+    maxMs:Math.round(slot.maxMs*1000)/1000
+   };
+  }
+  this.traceSubsystemBucket=this.createTraceSubsystemBucket();
+  return out;
  }
 
  isPerformanceTraceActive(){return Boolean(this.performanceTrace?.active);}
@@ -1234,6 +1355,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
    fps:Math.round((Number(loop?.actualFps)||0)*10)/10,
    loop:{delta:Math.round((Number(loop?.delta)||0)*100)/100,rawDelta:Math.round((Number(loop?.rawDelta)||0)*100)/100,targetFps:Number(loop?.targetFps)||null},
    frame:frameSummary,
+   subsystems:this.consumeTraceSubsystemBucket(),
    browser:{
     visibility:document.visibilityState||null,hidden:Boolean(document.hidden),hasFocus:Boolean(document.hasFocus?.()),
     online:navigator.onLine!==false,orientation
@@ -1282,8 +1404,17 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
 
  recordTraceEvent(type,data={},options={}){
   if(!this.isPerformanceTraceActive())return false;
+  const eventType=String(type||'event');
+  const eventData=data&&typeof data==='object'?data:{value:data};
+  if(options?.dedupe){
+   let signature='';
+   try{signature=JSON.stringify(eventData);}catch{signature=String(eventData);}
+   const dedupeKey=String(options?.dedupeKey||eventType);
+   if(this.traceLastEventSignatures.get(dedupeKey)===signature)return false;
+   this.traceLastEventSignatures.set(dedupeKey,signature);
+  }
   const now=performance.now();
-  const event={t:this.traceElapsedMs(now),wall:new Date().toISOString(),type:String(type||'event'),data:data&&typeof data==='object'?data:{value:data}};
+  const event={t:this.traceElapsedMs(now),wall:new Date().toISOString(),type:eventType,data:eventData};
   this.boundedTracePush(this.performanceTrace.events,event,this.traceMaxEvents,'droppedEvents');
   if(options?.sample)this.samplePerformanceTrace(true);
   this.refreshTraceUi();
@@ -1293,8 +1424,8 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
  getTraceMetadata(){
   const game=this.scene?.game;
   return {
-   schema:'last-knight-performance-trace-v1',
-   build:'v10.5-performance-trace',
+   schema:'last-knight-performance-trace-v2',
+   build:'v10.6-performance-diagnostics',
    createdAt:new Date().toISOString(),
    userAgent:navigator.userAgent||null,
    platform:navigator.platform||null,
@@ -1315,6 +1446,8 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   };
   this.traceLastSampleAt=0;
   this.traceFrameBucket=this.createTraceFrameBucket();
+  this.traceSubsystemBucket=this.createTraceSubsystemBucket();
+  this.traceLastEventSignatures.clear();
   this.recordTraceEvent('trace_started',{visibility:document.visibilityState,hasFocus:Boolean(document.hasFocus?.())});
   this.samplePerformanceTrace(true);
   this.refreshTraceUi();
@@ -1335,7 +1468,12 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   this.performanceTrace=null;
   this.traceLastSampleAt=0;
   this.traceFrameBucket=this.createTraceFrameBucket();
+  this.traceSubsystemBucket=this.createTraceSubsystemBucket();
+  this.traceLastEventSignatures.clear();
+  this.renderBenchmarkResults=[];
+  this.renderBenchmark=null;
   this.refreshTraceUi();
+  this.refreshRenderBenchmarkUi();
  }
 
  exportPerformanceTrace(){
@@ -1349,7 +1487,8 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
     startedAt:new Date(trace.startedWall).toISOString(),
     stoppedAt:trace.stoppedWall?new Date(trace.stoppedWall).toISOString():null,
     active:Boolean(trace.active),durationMs:Math.round((trace.active?performance.now()-trace.startedPerf:(trace.stoppedWall-trace.startedWall))*10)/10,
-    sampleIntervalMs:this.traceSampleIntervalMs,droppedSamples:trace.droppedSamples||0,droppedEvents:trace.droppedEvents||0
+    sampleIntervalMs:this.traceSampleIntervalMs,droppedSamples:trace.droppedSamples||0,droppedEvents:trace.droppedEvents||0,
+    benchmarks:trace.benchmarks||[]
    },
    finalState:this.buildTraceSnapshot(performance.now()),
    events:trace.events,
@@ -1503,7 +1642,9 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
  update(_time=0,delta=0){
   const now=performance.now(),wallGap=Math.max(0,now-this.lastUpdateReal),dt=Math.min(50,wallGap);this.lastUpdateReal=now;
   this.recordTraceFrame(delta,wallGap);
+  this.updateRenderBenchmark(now,wallGap);
   this.samplePerformanceTrace(false);
+  if(this.open)this.refreshRenderBenchmarkUi();
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
 
@@ -2839,11 +2980,18 @@ class MainScene extends Phaser.Scene {
   if(!reason) return;
   if(!this.gameplayPauseReasons) this.gameplayPauseReasons=new Set();
 
-  if(shouldPause) this.gameplayPauseReasons.add(reason);
+  const wanted=Boolean(shouldPause);
+  const hadReason=this.gameplayPauseReasons.has(reason);
+  if(wanted) this.gameplayPauseReasons.add(reason);
   else this.gameplayPauseReasons.delete(reason);
 
   const nextPaused=this.gameplayPauseReasons.size>0;
-  this.devTools?.recordTraceEvent?.('gameplay_pause_reason',{reason:String(reason),shouldPause:Boolean(shouldPause),paused:nextPaused,reasons:Array.from(this.gameplayPauseReasons)},{sample:true});
+  // Trace only real state transitions. syncOrientationPause() runs every frame,
+  // so logging the unchanged reason here used to create thousands of JSON events
+  // and distorted the very performance trace we were trying to measure.
+  if(hadReason!==wanted || nextPaused!==this.gameplayPaused){
+   this.devTools?.recordTraceEvent?.('gameplay_pause_reason',{reason:String(reason),shouldPause:wanted,paused:nextPaused,reasons:Array.from(this.gameplayPauseReasons)},{sample:true,dedupe:true,dedupeKey:`gameplay_pause:${reason}`});
+  }
   if(nextPaused===this.gameplayPaused) return;
   this.gameplayPaused=nextPaused;
 
@@ -3218,7 +3366,7 @@ class MainScene extends Phaser.Scene {
  findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){ return NavigationSystem.prototype.findNavigationPath.call(this,startX,startY,targetX,targetY,enemy,maxVisited); }
  updateEnemyStuckState(enemy,time,intendedSpeed){ return NavigationSystem.prototype.updateEnemyStuckState.call(this,enemy,time,intendedSpeed); }
  getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){ return NavigationSystem.prototype.getEnemyNavigationWaypoint.call(this,enemy,time,targetX,targetY,radius); }
- applyEnemySoftSeparation(time){ return NavigationSystem.prototype.applyEnemySoftSeparation.call(this,time); }
+ applyEnemySoftSeparation(time){ const t=this.devTools?.isPerformanceTraceActive?.()?performance.now():0; try{return NavigationSystem.prototype.applyEnemySoftSeparation.call(this,time);} finally{if(t)this.devTools?.recordSubsystemTime?.('navigation',performance.now()-t);} }
  findSafeNavSpawnPoint(x,y,options={}){ return NavigationSystem.prototype.findSafeNavSpawnPoint.call(this,x,y,options); }
 
  getAshPropPhysicsClass(prop,kind='grass'){
@@ -3299,6 +3447,8 @@ class MainScene extends Phaser.Scene {
  }
 
  setEnemySteeredVelocity(enemy,vx,vy,time){
+  const traceNavigationAt=this.devTools?.isPerformanceTraceActive?.()?performance.now():0;
+  try{
   if(!enemy?.body){return;}
   if(this.devFlags?.noCollision){enemy.body.setVelocity(vx,vy);return;}
 
@@ -3365,6 +3515,9 @@ class MainScene extends Phaser.Scene {
   enemy.navForceRepath=true;
   enemy.navNextRepathAt=0;
   enemy.body.setVelocity(0,0);
+  }finally{
+   if(traceNavigationAt)this.devTools?.recordSubsystemTime?.('navigation',performance.now()-traceNavigationAt);
+  }
  }
 
  createAshLandmarkBlocker(objects,x,y,width,height,name){
@@ -6649,6 +6802,7 @@ createAshFieldsEnvironment(objects,zone){
   const keyW=Math.round(view.width);
   const keyH=Math.round(view.height);
   if(state.vignetteKeyX===keyX && state.vignetteKeyY===keyY && state.vignetteKeyW===keyW && state.vignetteKeyH===keyH) return;
+  const traceVignetteAt=this.devTools?.isPerformanceTraceActive?.()?performance.now():0;
   state.vignetteKeyX=keyX;
   state.vignetteKeyY=keyY;
   state.vignetteKeyW=keyW;
@@ -6696,6 +6850,7 @@ createAshFieldsEnvironment(objects,zone){
   }
   ctx.putImageData(image,0,0);
   this.textures?.get?.(STORY_ANOMALY_VIGNETTE_TEXTURE)?.refresh?.();
+  if(traceVignetteAt)this.devTools?.recordSubsystemTime?.('vignette',performance.now()-traceVignetteAt);
  }
 
  createStoryAnomalyOutline(enemy){
@@ -7372,15 +7527,29 @@ createAshFieldsEnvironment(objects,zone){
   });
  }
 
+ beginSubsystemTrace(){
+  return this.devTools?.isPerformanceTraceActive?.()?performance.now():0;
+ }
+
+ endSubsystemTrace(name,startedAt){
+  if(!startedAt)return 0;
+  const now=performance.now();
+  this.devTools?.recordSubsystemTime?.(name,now-startedAt);
+  return now;
+ }
+
  update(time,delta){
   this.syncOrientationPause();
   this.updateLowHealthState();
   this.devTools?.update(time,delta);
+  let traceSectionAt=this.beginSubsystemTrace();
   this.woundedKnightInteractions?.update(time);
   this.updateStoryAnomalyCue(time);
   this.updateAshAltarChampionStory(this.time.now);
   this.updateHeroFocusInteractionStance(time);
-  if(this.storyDirector?.update(time)){
+  const storyBusy=Boolean(this.storyDirector?.update(time));
+  traceSectionAt=this.endSubsystemTrace('story',traceSectionAt);
+  if(storyBusy){
    // A story event may enter dialogue/cinematic focus on this exact frame.
    this.updateHeroFocusInteractionStance(time);
    return;
@@ -7488,8 +7657,10 @@ createAshFieldsEnvironment(objects,zone){
    this.updateHeroWeaponAttachment();
   }
 
+  traceSectionAt=this.beginSubsystemTrace();
   this.updateWorldRegion();
   this.updateWorldStreaming();
+  traceSectionAt=this.endSubsystemTrace('worldStreaming',traceSectionAt);
 
   if(this.waveIntermission){
    if(this.awaitingWorldAdvance){
@@ -7554,7 +7725,9 @@ createAshFieldsEnvironment(objects,zone){
 
   this.updateChampionHazards(time);
   this.updateRelics(time);
+  traceSectionAt=this.beginSubsystemTrace();
   if(!this.isAshChampionIntroActive())this.meleeAttack.update(time,this.enemies);
+  traceSectionAt=this.endSubsystemTrace('melee',traceSectionAt);
   this.updateHeroWeaponAttachment();
   this.cleanupDefeatedEnemies(time);
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
@@ -7565,6 +7738,7 @@ createAshFieldsEnvironment(objects,zone){
   // only enemies whose route is actually blocked request a path.
   this.navigationPathfindBudget=1;
 
+  traceSectionAt=this.beginSubsystemTrace();
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed
   // to deal contact damage at once. The rest still chase and surround the player.
   // This keeps a mob dangerous without turning a full surround into instant death.
@@ -7870,6 +8044,7 @@ createAshFieldsEnvironment(objects,zone){
     }
    }
   }
+  traceSectionAt=this.endSubsystemTrace('enemyAI',traceSectionAt);
 
   for(const o of this.orbs){
    if(o.active && Phaser.Math.Distance.Between(o.x,o.y,this.player.x,this.player.y)<40){
@@ -7915,6 +8090,7 @@ createAshFieldsEnvironment(objects,zone){
    }
   }
 
+  traceSectionAt=this.beginSubsystemTrace();
   const storyProjectileFreeze=this.isStoryAnomalyMomentActive(time);
   for(const projectile of this.projectiles){
    if(!projectile.active) continue;
@@ -7963,6 +8139,7 @@ createAshFieldsEnvironment(objects,zone){
     projectile.destroy();
 
     if(lethal){
+     traceSectionAt=this.endSubsystemTrace('projectiles',traceSectionAt);
      return;
     }
 
@@ -7985,6 +8162,7 @@ createAshFieldsEnvironment(objects,zone){
   this.orbs=this.orbs.filter(o=>o.active);
   this.hearts=this.hearts.filter(heart=>heart.active);
   this.projectiles=this.projectiles.filter(p=>p.active);
+  traceSectionAt=this.endSubsystemTrace('projectiles',traceSectionAt);
 
   const aliveMages=this.enemies.filter(e=>e.active && e.type==='mage').length;
   const aliveShields=this.enemies.filter(e=>e.active && e.type==='shield').length;
@@ -8997,6 +9175,7 @@ class HUDScene extends Phaser.Scene {
   this.resetDevUiRuntimeAlpha();
   const m=this.mainScene;
   if(!m || !m.player) return;
+  const traceHudAt=m.devTools?.isPerformanceTraceActive?.()?performance.now():0;
   this.setLowHealthVisualPaused(Boolean(m.gameplayPaused || m.gameOver));
   const maxHp=Math.max(1,m.player.maxHp||100);
   const hp=Math.max(0,Math.min(maxHp,m.player.hp||0));
@@ -9050,6 +9229,7 @@ class HUDScene extends Phaser.Scene {
   if(over && m.isTouchDevice) this.gameOverHint.setText('Tap restart to continue');
   else this.gameOverHint.setText('Press R or click restart');
   this.applyDevUiRuntimeAlpha();
+  if(traceHudAt)m.devTools?.recordSubsystemTime?.('HUD',performance.now()-traceHudAt);
  }
 }
 
