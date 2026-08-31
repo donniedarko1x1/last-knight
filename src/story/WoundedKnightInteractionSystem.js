@@ -14,12 +14,28 @@ const STORY_FLAG=ASH_WOUNDED_KNIGHT_STORY.metFlag;
 
 const STORY_DIALOGUE=Object.freeze([
  Object.freeze({speaker:'knight',text:'Воды...'}),
- Object.freeze({speaker:'hero',text:'Держись. Я отведу тебя к своим.'}),
- Object.freeze({speaker:'knight',text:'К своим?.. Там уже никого нет.'}),
- Object.freeze({speaker:'knight',text:'Ты из северного гарнизона?'}),
- Object.freeze({speaker:'hero',text:'Не знаю. Я почти ничего не помню о том времени.'}),
- Object.freeze({speaker:'knight',text:'Может... оно и к лучшему.'}),
- Object.freeze({speaker:'hero',text:'Что ты сказал?'})
+ Object.freeze({speaker:'hero',text:'Дыши. Кто вас разбил?'}),
+ Object.freeze({speaker:'knight',text:'Не знаю... Всё смешалось.'}),
+ Object.freeze({speaker:'hero',text:'Где остальные?'}),
+ Object.freeze({speaker:'knight',text:'Кто мог — ушёл к северной дороге. Остальные...'}),
+ Object.freeze({speaker:'hero',text:'Понял.'}),
+ Object.freeze({speaker:'knight',text:'Ты ведь не из нашего отряда.'}),
+ Object.freeze({speaker:'hero',text:'Нет.'}),
+ Object.freeze({speaker:'knight',text:'Тогда зачем ты здесь?'}),
+ Object.freeze({speaker:'hero',text:'Хотел бы я сам знать.'}),
+ Object.freeze({speaker:'knight',text:'Не помнишь?'}),
+ Object.freeze({speaker:'hero',text:'Почти ничего.'}),
+ Object.freeze({speaker:'knight',text:'Тогда тебе тем более нельзя здесь оставаться.'}),
+ Object.freeze({speaker:'hero',text:'Почему?'}),
+ Object.freeze({speaker:'knight',text:'Наш командир повёл уцелевших на север. К старой часовне у тракта.'}),
+ Object.freeze({speaker:'hero',text:'Он знает, что здесь произошло?'}),
+ Object.freeze({speaker:'knight',text:'Если кто и знает — то он.'}),
+ Object.freeze({speaker:'hero',text:'Как его найти?'}),
+ Object.freeze({speaker:'knight',text:'Иди за дорогой. Увидишь чёрные знамёна — значит, почти дошёл.'}),
+ Object.freeze({speaker:'hero',text:'А ты?'}),
+ Object.freeze({speaker:'knight',text:'Я немного полежу.'}),
+ Object.freeze({speaker:'hero',text:'Я вернусь.'}),
+ Object.freeze({speaker:'knight',text:'Не спеши. Мне уже некуда идти.'})
 ]);
 
 const AMBIENT_DIALOGUES=Object.freeze([

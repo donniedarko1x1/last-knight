@@ -1,6 +1,7 @@
 const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:2,3:3,4:2,5:3});
 const TWO_EVENT_FRACTIONS=Object.freeze([0.30,0.72]);
 const THREE_EVENT_FRACTIONS=Object.freeze([0.20,0.50,0.80]);
+const ANOMALY_RELEASE_MS=120;
 
 function deterministicSeed(wave,ordinal){
  return Math.abs((Number(wave)||0)*97+(Number(ordinal)||0)*53);
@@ -71,6 +72,7 @@ class StoryEnemyAnomalySystem {
    triggerDistance,
    hesitateMs,
    hesitateUntil:0,
+   releaseUntil:0,
    fleeAngle:0,
    fleeStartedAt:0,
    returnDelayMs
@@ -81,7 +83,7 @@ class StoryEnemyAnomalySystem {
  isEnemyAnomalyActive(enemy,time=this.scene?.time?.now||0){
   const state=enemy?.storyAnomaly;
   if(!state)return false;
-  return state.phase==='hesitate' || state.phase==='flee' || time<(enemy.storyAnomalyFreezeUntil||0);
+  return state.phase==='hesitate' || state.phase==='release' || state.phase==='flee' || time<(enemy.storyAnomalyFreezeUntil||0);
  }
 
  chooseFleeAngle(enemy){
@@ -155,6 +157,16 @@ class StoryEnemyAnomalySystem {
 
   if(state.phase==='hesitate'){
    if(time<state.hesitateUntil)return {kind:'hesitate'};
+   // Give the vignette a fraction of a second to clear before the skeleton bolts.
+   // This creates a readable beat: focus ends -> world returns -> sudden escape.
+   state.phase='release';
+   state.releaseUntil=time+ANOMALY_RELEASE_MS;
+   enemy.storyAnomalyFreezeUntil=state.releaseUntil;
+   return {kind:'release'};
+  }
+
+  if(state.phase==='release'){
+   if(time<state.releaseUntil)return {kind:'release'};
    state.phase='flee';
    state.fleeAngle=this.chooseFleeAngle(enemy);
    state.fleeStartedAt=time;
@@ -174,5 +186,5 @@ class StoryEnemyAnomalySystem {
  }
 }
 
-export {STORY_WAVE_ANOMALY_COUNTS};
+export {STORY_WAVE_ANOMALY_COUNTS,ANOMALY_RELEASE_MS};
 export default StoryEnemyAnomalySystem;

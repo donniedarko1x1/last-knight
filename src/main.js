@@ -53,6 +53,19 @@ const LK_RENDER_SCALE_STORAGE_KEY = 'lastKnight.dev.renderScale.v2';
 let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
 const LK_TEXT_RESOLUTION = 2;
 
+const STORY_ANOMALY_THOUGHTS=Object.freeze([
+ 'Почему?..',
+ 'Что это?..',
+ 'Нет...',
+ 'Стой...',
+ 'Не так...',
+ 'Куда?..',
+ 'Бежать?..',
+ 'Что со мной?..'
+]);
+const STORY_ANOMALY_PLAYER_SPEED_FACTOR=0.38;
+const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';
+
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
  text?.setResolution?.(LK_TEXT_RESOLUTION);
@@ -4644,6 +4657,8 @@ createAshFieldsEnvironment(objects,zone){
 
  handleSkillInput(index){
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen) return;
+  // The five-second anomaly focus is a deliberate non-combat story beat.
+  if(this.isStoryAnomalyMomentActive(this.time.now)) return;
   if(this.time.now<(this.skillLockUntil||0)) return;
   if(this.mana<=0){
    this.showNoManaFeedback();
@@ -5577,6 +5592,33 @@ createAshFieldsEnvironment(objects,zone){
  }
 
 
+ ensureStoryAnomalyVignetteTexture(){
+  if(this.textures?.exists?.(STORY_ANOMALY_VIGNETTE_TEXTURE)) return STORY_ANOMALY_VIGNETTE_TEXTURE;
+  const size=512;
+  const texture=this.textures?.createCanvas?.(STORY_ANOMALY_VIGNETTE_TEXTURE,size,size);
+  const ctx=texture?.context;
+  if(!texture || !ctx) return null;
+
+  ctx.clearRect(0,0,size,size);
+  const c=size*0.5;
+  const gradient=ctx.createRadialGradient(c,c,size*0.055,c,c,size*0.50);
+  gradient.addColorStop(0.00,'rgba(0,0,0,0.00)');
+  gradient.addColorStop(0.16,'rgba(0,0,0,0.01)');
+  gradient.addColorStop(0.30,'rgba(0,0,0,0.12)');
+  gradient.addColorStop(0.46,'rgba(0,0,0,0.48)');
+  gradient.addColorStop(0.66,'rgba(0,0,0,0.72)');
+  gradient.addColorStop(1.00,'rgba(0,0,0,0.82)');
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,size,size);
+  texture.refresh?.();
+  return STORY_ANOMALY_VIGNETTE_TEXTURE;
+ }
+
+ getStoryAnomalyThought(enemy){
+  const seed=Math.abs(Number(enemy?.storyAnomaly?.seed)||0);
+  return STORY_ANOMALY_THOUGHTS[seed%STORY_ANOMALY_THOUGHTS.length];
+ }
+
  highlightStoryAnomaly(enemy,{durationMs=5000}={}){
   if(!enemy?.active || !this.add || this.gameOver) return false;
   if(this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active || this.levelChoiceOpen || this.championRewardOpen) return false;
@@ -5594,11 +5636,19 @@ createAshFieldsEnvironment(objects,zone){
   const cam=this.cameras.main;
   const focusMs=Phaser.Math.Clamp(Math.floor(durationMs)||5000,4800,5200);
   const restoreZoom=cam.zoom;
+  const vignetteTexture=this.ensureStoryAnomalyVignetteTexture();
+  const vignetteSpan=Math.max(cam.worldView.width,cam.worldView.height)*2.20;
+  const vignette=vignetteTexture
+   ? this.add.image(enemy.x,enemy.y,vignetteTexture)
+      .setDepth(219)
+      .setDisplaySize(vignetteSpan,vignetteSpan)
+      .setAlpha(0)
+   : null;
 
   const ring=this.add.circle(enemy.x,enemy.y+2,34,0xffe08a,0.12)
-   .setDepth(13)
+   .setDepth(220)
    .setStrokeStyle(3,0xfff1a8,0.94);
-  const label=lkAddText(this,enemy.x,enemy.y-68,'??????...',{
+  const label=lkAddText(this,enemy.x,enemy.y-68,this.getStoryAnomalyThought(enemy),{
    fontSize:'22px',
    color:'#fff2b5',
    stroke:'#171007',
@@ -5608,14 +5658,28 @@ createAshFieldsEnvironment(objects,zone){
   ring.setScale(0.86);
   label.setAlpha(0);
 
+  if(vignette){
+   this.tweens.add({targets:vignette,alpha:1,duration:280,ease:'Sine.easeOut'});
+  }
   this.tweens.add({targets:ring,scale:1.18,alpha:0.26,duration:360,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
-  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:170,ease:'Sine.easeOut'});
+  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:190,delay:110,ease:'Sine.easeOut'});
 
   const focusZoom=Math.min(restoreZoom*1.08,restoreZoom+0.14);
   this.storyAnomalyCueState={
-   enemy,ring,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
+   enemy,vignette,ring,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
    cameraSettledAt:this.time.now+320
   };
+
+  // Cancel the hero's current auto-attack presentation immediately. No new
+  // sword attacks or skills can start until the focus beat ends.
+  this.playerAttackUntil=this.time.now;
+  if(this.activeAttackFx?.active){
+   try{this.activeAttackFx.destroy();}catch{}
+   this.activeAttackFx=null;
+  }
+  if(this.meleeAttack){
+   this.meleeAttack.lastAttack=this.time.now;
+  }
 
   // Cancel ordinary enemy windups. During the five-second anomaly beat they may
   // keep moving slowly, but they cannot start or complete attacks.
@@ -5652,6 +5716,7 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   const bob=Math.sin(time*0.01)*4;
+  state.vignette?.setPosition(enemy.x,enemy.y);
   state.ring?.setPosition(enemy.x,enemy.y+2);
   state.label?.setPosition(enemy.x,enemy.y-68+bob);
 
@@ -5670,9 +5735,20 @@ createAshFieldsEnvironment(objects,zone){
 
   this.storyAnomalyCueState=null;
 
-  for(const object of [state.ring,state.label]){
-   try{object?.destroy();}catch{}
+  // The thought vanishes first and the soft vignette opens back up just before
+  // the skeleton enters its short release beat and bolts away.
+  const fadeTargets=[state.vignette,state.ring,state.label].filter(object=>object?.active);
+  if(fadeTargets.length){
+   this.tweens.add({
+    targets:fadeTargets,alpha:0,duration:120,ease:'Sine.easeIn',
+    onComplete:()=>{
+     for(const object of fadeTargets){try{object?.destroy();}catch{}}
+    }
+   });
   }
+
+  // Prevent an auto-sword swing from firing on the exact frame control returns.
+  if(this.meleeAttack)this.meleeAttack.lastAttack=this.time.now;
 
   const cam=this.cameras.main;
   const restoreZoom=state.restoreZoom||cam.zoom;
@@ -6146,8 +6222,8 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(this.isStoryAnomalyMomentActive(time)){
-   vx*=0.55;
-   vy*=0.55;
+   vx*=STORY_ANOMALY_PLAYER_SPEED_FACTOR;
+   vy*=STORY_ANOMALY_PLAYER_SPEED_FACTOR;
   }
 
   this.player.body.setVelocity(vx,vy);

@@ -37,6 +37,9 @@ export default class HeroMelee {
   }
 
   update(time, enemies){
+    // Story anomaly focus deliberately disarms the hero so the anomalous
+    // skeleton cannot be accidentally auto-killed during its five-second beat.
+    if(this.scene.isStoryAnomalyMomentActive?.(time)) return;
     if(time < (this.scene.skillLockUntil || 0)) return;
     if(time - this.lastAttack < this.cooldown) return;
 
