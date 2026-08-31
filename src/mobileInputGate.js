@@ -1,25 +1,22 @@
 import Phaser from 'phaser';
+import {MOBILE_POINTER_REGION,classifyMobilePointer,isRightInteractionPointer} from './input/MobileInputPolicy.js';
 
-// Mobile input contract shared by every world interaction:
-// left visual half of the physical canvas = movement only;
-// right visual half = world interaction / dialogue advance.
-function getClientX(pointer){
- const nativeEvent=pointer?.event;
- const touch=nativeEvent?.changedTouches?.[0] || nativeEvent?.touches?.[0];
- const clientX=Number(touch?.clientX ?? nativeEvent?.clientX);
- return Number.isFinite(clientX)?clientX:null;
-}
+// Permanent mobile input contract:
+//   left half  = movement only
+//   right half = world interaction / dialogue advance
+// This module patches the shared interaction bus itself, so even an old or
+// future HUD handler cannot accidentally emit a left-side interaction.
 
-function isRightCanvasHalf(game,pointer){
- const canvas=game?.canvas;
- const clientX=getClientX(pointer);
- if(canvas?.getBoundingClientRect && clientX!==null){
-  const rect=canvas.getBoundingClientRect();
-  if(rect.width>0)return clientX>=rect.left+rect.width*0.5;
- }
- // Fallback only when the native DOM coordinate is unavailable.
- const width=Math.max(1,game?.scale?.displaySize?.width || game?.scale?.width || 1);
- return Number(pointer?.x||0)>=width*0.5;
+const GATE_VERSION='v8-pointer-start-firewall';
+
+function ensureMultitouch(game){
+ const manager=game?.input;
+ if(!manager?.addPointer)return;
+ // Phaser starts with mouse + one touch pointer. We want three touch pointers:
+ // movement + interaction/skill + one spare, i.e. 4 pointers total with mouse.
+ const total=Math.max(0,Number(manager.pointersTotal)||0);
+ const missing=Math.max(0,4-total);
+ if(missing>0)manager.addPointer(missing);
 }
 
 function pointerToHudSpace(hud,pointer){
@@ -27,44 +24,59 @@ function pointerToHudSpace(hud,pointer){
  if(cam?.getWorldPoint){
   try{return cam.getWorldPoint(pointer.x,pointer.y);}catch{}
  }
- const zoom=Math.max(0.01,cam?.zoom||1);
- return {x:(pointer.x-(cam?.x||0))/zoom,y:(pointer.y-(cam?.y||0))/zoom};
+ const zoom=Math.max(0.01,Number(cam?.zoom)||1);
+ return {x:((Number(pointer?.x)||0)-(Number(cam?.x)||0))/zoom,y:((Number(pointer?.y)||0)-(Number(cam?.y)||0))/zoom};
 }
 
-function installGate(game){
- const main=game?.scene?.getScene?.('main');
- const hud=game?.scene?.getScene?.('HUDScene');
- if(!main || !hud || !main.sys?.isActive?.() || !hud.sys?.isActive?.())return false;
- if(hud.__lkPermanentMobileInputGateInstalled)return true;
+function installMainInteractionFirewall(game,main){
+ if(!main?.events)return false;
+ const previous=main.__lkMobileInteractionFirewall;
+ if(previous?.version===GATE_VERSION && previous?.emitter===main.events)return true;
+
+ const emitter=main.events;
+ const originalEmit=emitter.emit;
+ if(typeof originalEmit!=='function')return false;
+
+ emitter.emit=function(eventName,...args){
+  if(eventName==='mobile-world-interact' && main.isTouchDevice){
+   const pointer=args[0];
+   if(!isRightInteractionPointer(pointer,game?.scale?.width))return false;
+  }
+  return originalEmit.call(this,eventName,...args);
+ };
 
  main.isMobileInteractionPointerAllowed=(pointer)=>{
   if(!main.isTouchDevice)return true;
-  return isRightCanvasHalf(game,pointer);
+  return isRightInteractionPointer(pointer,game?.scale?.width);
  };
  main.emitMobileWorldInteraction=(pointer)=>{
-  if(!main.isMobileInteractionPointerAllowed(pointer))return false;
-  main.events?.emit?.('mobile-world-interact',pointer);
-  return true;
+  if(!main.isTouchDevice || !main.isMobileInteractionPointerAllowed(pointer))return false;
+  return emitter.emit('mobile-world-interact',pointer);
  };
+ main.__lkMobileInteractionFirewall={version:GATE_VERSION,emitter,originalEmit};
+ return true;
+}
 
- // Replace only HUD pointerdown routing. pointermove/up remain the original game code.
- try{hud.input?.off?.('pointerdown',hud.onPointerDown,hud);}catch{}
- hud.__lkOriginalMobilePointerDown=hud.onPointerDown;
- hud.onPointerDown=function(pointer,gameObjects=[]){
+function installHudRouting(game,hud,main){
+ if(!hud || !main)return false;
+ if(hud.__lkMobileInputRoutingVersion===GATE_VERSION)return true;
+
+ const oldHandler=hud.onPointerDown;
+ const replacement=function(pointer,gameObjects=[]){
   if(this.mainScene?.devTools?.uiEditor?.editMode){
    this.mainScene.devTools.uiEditor.handlePointerDown(pointer);
    return;
   }
   if(!this.mainScene?.isTouchDevice || !this.joyCenter || this.levelChoiceVisible || this.championRewardVisible || this.mainScene?.gameOver)return;
 
-  const rightHalf=this.mainScene.isMobileInteractionPointerAllowed(pointer);
-  if(rightHalf){
+  const region=classifyMobilePointer(pointer,game?.scale?.width);
+  if(region===MOBILE_POINTER_REGION.INTERACTION){
    const hitHudControl=Array.isArray(gameObjects) && gameObjects.some(obj=>Boolean(obj?.input && obj.input.enabled!==false));
-   if(!hitHudControl)this.mainScene.emitMobileWorldInteraction(pointer);
+   if(!hitHudControl)this.mainScene?.emitMobileWorldInteraction?.(pointer);
    return;
   }
+  if(region!==MOBILE_POINTER_REGION.MOVEMENT)return;
 
-  // Any touch that physically starts in the LEFT visual half is movement only.
   if(this.movePointerId!==null)return;
   const pp=pointerToHudSpace(this,pointer);
   this.movePointerId=pointer.id;
@@ -73,17 +85,37 @@ function installGate(game){
   this.mainScene.mobileMoveY=0;
   this.joyKnob?.setPosition?.(this.joyCenter.x,this.joyCenter.y);
  };
- hud.input?.on?.('pointerdown',hud.onPointerDown,hud);
- hud.__lkPermanentMobileInputGateInstalled=true;
+
+ // If HUD is already running, remove the exact old callback and bind the new
+ // one now. If it hasn't created yet, replacing the method is enough: create()
+ // will bind this replacement when HUDScene starts.
+ if(hud.input && typeof oldHandler==='function'){
+  try{hud.input.off('pointerdown',oldHandler,hud);}catch{}
+ }
+ hud.onPointerDown=replacement;
+ if(hud.sys?.isActive?.() && hud.input){
+  hud.input.on('pointerdown',hud.onPointerDown,hud);
+ }
+ hud.__lkMobileInputRoutingVersion=GATE_VERSION;
+ return true;
+}
+
+function install(game){
+ if(!game)return false;
+ ensureMultitouch(game);
+ const main=game.scene?.getScene?.('main');
+ const hud=game.scene?.getScene?.('HUDScene');
+ if(!main || !hud)return false;
+ installMainInteractionFirewall(game,main);
+ installHudRouting(game,hud,main);
  return true;
 }
 
 function boot(){
- const games=Phaser.GAMES||[];
- for(const game of games){
-  if(installGate(game))return;
+ for(const game of Phaser.GAMES||[]){
+  if(install(game))return;
  }
- setTimeout(boot,100);
+ setTimeout(boot,50);
 }
 
 boot();
