@@ -212,10 +212,16 @@ class NavigationSystem {
   let from={x:startX,y:startY};
   let i=0;
   const radius=(enemy?.hitRadius||14)+5;
+  const rescueMode=Boolean(enemy?.navRescueActive);
   while(i<raw.length){
    let best=i;
-   for(let j=raw.length-1;j>i;j--){
-    if(!this.isAshPathBlocked(from.x,from.y,raw[j].x,raw[j].y,radius)){
+   // Rescue paths intentionally keep more intermediate waypoints. Normal A*
+   // aggressively collapses long clear segments for CPU efficiency; a stuck
+   // skeleton temporarily gets denser guidance so it can work around awkward
+   // landmark corners instead of repeatedly choosing the same local tangent.
+   const maxLookAhead=rescueMode?Math.min(raw.length-1,i+4):raw.length-1;
+   for(let j=maxLookAhead;j>i;j--){
+    if(!this.isAshPathBlocked(from.x,from.y,raw[j].x,raw[j].y,radius,enemy)){
      best=j;
      break;
     }
@@ -228,30 +234,68 @@ class NavigationSystem {
  }
 
  updateEnemyStuckState(enemy,time,intendedSpeed){
-  if(!enemy) return;
-  if(!enemy.navStuckCheckAt){
-   enemy.navStuckCheckAt=time+650;
-   enemy.navLastX=enemy.x;
-   enemy.navLastY=enemy.y;
-   enemy.navStuckCount=0;
+  if(!enemy || enemy.type!=='skeleton' || enemy.storyDormant || !enemy.active || enemy.hp<=0) return;
+  enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
+  const trace=(type,data={})=>this.devTools?.recordTraceEvent?.(type,{
+   enemyType:enemy.type,navSeed:enemy.navSeed,wave:this.wave||0,
+   x:Math.round(enemy.x),y:Math.round(enemy.y),...data
+  },{sample:true});
+  const playerDistance=this.player?.active
+   ? Phaser.Math.Distance.Between(enemy.x,enemy.y,this.player.x,this.player.y)
+   : 0;
+  const locked=time<(enemy.attackAnimUntil||0) || time<(enemy.staggerUntil||0) ||
+   time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0) ||
+   time<(enemy.storyAnomalyFreezeUntil||0) || Boolean(this.gameplayPaused);
+
+  // Rescue mode lasts only a few seconds and exits as soon as it demonstrably
+  // made progress. This preserves the cheap v10.7 navigation for normal mobs.
+  if(enemy.navRescueActive){
+   const movedFromStart=Phaser.Math.Distance.Between(enemy.x,enemy.y,enemy.navRescueStartX??enemy.x,enemy.navRescueStartY??enemy.y);
+   const distanceGain=(enemy.navRescueStartDistance??playerDistance)-playerDistance;
+   const success=movedFromStart>=90 || distanceGain>=72;
+   const expired=time>=(enemy.navRescueUntil||0);
+   if(success || expired){
+    enemy.navRescueActive=false;
+    enemy.navRescueCooldownUntil=time+(success?3500:1800);
+    enemy.navStuckAnchorX=enemy.x;enemy.navStuckAnchorY=enemy.y;enemy.navStuckSince=time;
+    enemy.navProbeAt=0;enemy.localSteerProbeAt=0;
+    trace(success?'enemy_rescue_navigation_success':'enemy_rescue_navigation_expired',{
+     durationMs:Math.round(time-(enemy.navRescueStartedAt||time)),
+     moved:Math.round(movedFromStart),distanceGain:Math.round(distanceGain)
+    });
+   }
    return;
   }
-  if(time<enemy.navStuckCheckAt) return;
 
-  const moved=Phaser.Math.Distance.Between(enemy.x,enemy.y,enemy.navLastX??enemy.x,enemy.navLastY??enemy.y);
-  const locked=time<(enemy.attackAnimUntil||0) || time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0);
-  const farFromPlayer=this.player?.active && Phaser.Math.Distance.Between(enemy.x,enemy.y,this.player.x,this.player.y)>78;
-  if(intendedSpeed>20 && !locked && farFromPlayer && moved<8){
-   enemy.navStuckCount=(enemy.navStuckCount||0)+1;
-   enemy.navForceRepath=true;
-   enemy.navNextRepathAt=0;
-   enemy.obstacleSteerUntil=0;
-  } else {
-   enemy.navStuckCount=0;
+  if(locked || intendedSpeed<=20 || playerDistance<=96){
+   enemy.navStuckAnchorX=enemy.x;enemy.navStuckAnchorY=enemy.y;enemy.navStuckSince=time;
+   return;
   }
-  enemy.navLastX=enemy.x;
-  enemy.navLastY=enemy.y;
-  enemy.navStuckCheckAt=time+650;
+  if(time<(enemy.navRescueCooldownUntil||0)) return;
+
+  if(!Number.isFinite(enemy.navStuckAnchorX) || !Number.isFinite(enemy.navStuckAnchorY)){
+   enemy.navStuckAnchorX=enemy.x;enemy.navStuckAnchorY=enemy.y;enemy.navStuckSince=time;
+   return;
+  }
+  const anchorDx=enemy.x-enemy.navStuckAnchorX;
+  const anchorDy=enemy.y-enemy.navStuckAnchorY;
+  const anchorMoveSq=anchorDx*anchorDx+anchorDy*anchorDy;
+  if(anchorMoveSq>28*28){
+   enemy.navStuckAnchorX=enemy.x;enemy.navStuckAnchorY=enemy.y;enemy.navStuckSince=time;
+   return;
+  }
+  if(time-(enemy.navStuckSince||time)<4000) return;
+
+  enemy.navRescueActive=true;
+  enemy.navRescueStartedAt=time;
+  enemy.navRescueUntil=time+4500;
+  enemy.navRescueStartX=enemy.x;enemy.navRescueStartY=enemy.y;
+  enemy.navRescueStartDistance=playerDistance;
+  enemy.navPath=null;enemy.navPathIndex=0;
+  enemy.navForceRepath=true;enemy.navNextRepathAt=0;enemy.navProbeAt=0;
+  enemy.obstacleSteerUntil=0;enemy.cachedSteerAngle=null;enemy.localSteerProbeAt=0;
+  trace('enemy_stuck_detected',{stuckMs:Math.round(time-(enemy.navStuckSince||time)),playerDistance:Math.round(playerDistance)});
+  trace('enemy_rescue_navigation_started',{durationMs:4500,playerDistance:Math.round(playerDistance)});
  }
 
  getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){
@@ -272,8 +316,14 @@ class NavigationSystem {
   const targetDx=targetX-enemy.x;
   const targetDy=targetY-enemy.y;
   const targetDistanceSq=targetDx*targetDx+targetDy*targetDy;
+<<<<<<< HEAD
   const probeInterval=targetDistanceSq>700*700?260:(targetDistanceSq>340*340?160:90);
   const probeJitter=enemy.navSeed%31;
+=======
+  const rescueMode=Boolean(enemy.navRescueActive && time<(enemy.navRescueUntil||0));
+  const probeInterval=rescueMode?35:(targetDistanceSq>700*700?260:(targetDistanceSq>340*340?160:90));
+  const probeJitter=rescueMode?(enemy.navSeed%9):(enemy.navSeed%31);
+>>>>>>> c550486 (new changes)
   const mustProbe=enemy.navForceRepath || enemy.navGridVersion!==this.navigationGridVersion || !Number.isFinite(enemy.navProbeAt) || time>=enemy.navProbeAt || probeTargetMovedSq>(cellSize*0.7)*(cellSize*0.7);
   let directBlocked=Boolean(enemy.navProbeBlocked);
   if(mustProbe){
@@ -293,19 +343,42 @@ class NavigationSystem {
 
   const targetMoveDx=targetX-(enemy.navTargetX??targetX);
   const targetMoveDy=targetY-(enemy.navTargetY??targetY);
+<<<<<<< HEAD
   const targetMoved=(targetMoveDx*targetMoveDx+targetMoveDy*targetMoveDy)>(cellSize*1.5)*(cellSize*1.5);
+=======
+  const targetMoveThreshold=rescueMode?cellSize*0.45:cellSize*1.5;
+  const targetMoved=(targetMoveDx*targetMoveDx+targetMoveDy*targetMoveDy)>targetMoveThreshold*targetMoveThreshold;
+>>>>>>> c550486 (new changes)
   const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
-  const periodicRefresh=pathFinished && time>=(enemy.navNextRepathAt||0);
+  const periodicRefresh=rescueMode
+   ? time>=(enemy.navNextRepathAt||0)
+   : (pathFinished && time>=(enemy.navNextRepathAt||0));
   const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
+<<<<<<< HEAD
   if(needsPath && this.navigationPathfindBudget>0){
    this.navigationPathfindBudget--;
    enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
+=======
+  const normalBudget=(this.navigationPathfindBudget||0)>0;
+  const rescueBudget=rescueMode && (this.navigationRescuePathfindBudget||0)>0;
+  if(needsPath && (normalBudget || rescueBudget)){
+   if(rescueBudget)this.navigationRescuePathfindBudget--;else this.navigationPathfindBudget--;
+   enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy,rescueMode?4200:3200);
+>>>>>>> c550486 (new changes)
    enemy.navPathIndex=0;
    enemy.navTargetX=targetX;
    enemy.navTargetY=targetY;
    enemy.navGridVersion=this.navigationGridVersion;
    enemy.navForceRepath=false;
+<<<<<<< HEAD
    enemy.navNextRepathAt=time+1050+(enemy.navSeed%520);
+=======
+   enemy.navNextRepathAt=time+(rescueMode?320+(enemy.navSeed%120):1050+(enemy.navSeed%520));
+   if(rescueMode)this.devTools?.recordTraceEvent?.('enemy_rescue_repath',{
+    enemyType:enemy.type,navSeed:enemy.navSeed,wave:this.wave||0,pathLength:enemy.navPath?.length||0,
+    x:Math.round(enemy.x),y:Math.round(enemy.y)
+   },{sample:true});
+>>>>>>> c550486 (new changes)
   }
 
   const path=enemy.navPath;

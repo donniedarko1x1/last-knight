@@ -74,7 +74,11 @@ Editable HUD nodes: hero shell, level badge, HP bar, XP bar, mana, wave panel/ti
 
 The fullscreen button's normal base position is now the **lower-left** utility area. On touch devices it is placed directly above the joystick so the controls do not overlap.
 
+<<<<<<< HEAD
 ## Performance diagnostics v2
+=======
+## Performance diagnostics v3
+>>>>>>> c550486 (new changes)
 
 Open **PERFORMANCE TRACE** in the DEV panel and press **START TRACE** before reproducing a slowdown. The v2 tracer samples four times per second and records browser/page lifecycle transitions immediately. Repeated unchanged pause/orientation states are deduplicated, so the logger no longer floods the JSON every frame.
 
@@ -82,6 +86,7 @@ Each sample now includes CPU timing buckets for **story**, **worldStreaming**, *
 
 Browser diagnostics still include visibility/focus, page hide/show/freeze/resume, Phaser pause/resume, WebGL context state, memory when available, camera effects, game/story state, active objects, tweens, physics bodies, sounds and HiDPI backing dimensions.
 
+<<<<<<< HEAD
 ## Render / DPI test
 
 Render scale can be changed live without restarting the scene. The presets are **1.00× / 1.25× / 1.50× / 1.75×**. Default remains **1.50×** and the DEV maximum is now **1.75×**. **AUTO DPR** uses `min(devicePixelRatio, 1.75)`. The selected manual render scale is stored in localStorage key `lastKnight.dev.renderScale.v2`.
@@ -92,6 +97,26 @@ The panel shows device DPR, CSS viewport, real canvas backing size, CSS canvas s
 
 Press **RUN 4-SCALE BENCHMARK** while standing in the gameplay situation you want to compare. The benchmark automatically starts Performance Trace if needed, then tests **1.00×, 1.25×, 1.50× and 1.75×**. Each stage gets 1 second to settle after resize and then 10 seconds of measurement. It records average/min/max FPS, average/max real frame gap and counts of frames slower than 33/50/100 ms. When finished it restores the render scale that was active before the benchmark and stores the results in the exported trace JSON.
 
+=======
+## Render / DPI test + Adaptive Quality
+
+Render scale can be changed live without restarting the scene. The manual presets remain **1.00× / 1.25× / 1.50× / 1.75×**; the default scale and maximum are unchanged. Pressing any manual preset switches quality mode to **MANUAL**, stores the chosen scale under `lastKnight.dev.renderScale.v2`, and prevents automatic quality changes.
+
+**AUTO QUALITY** enables the adaptive controller. On a fresh/main-scene start it waits for stable gameplay, gathers **10 seconds of valid active-frame samples**, and can move at most **one render-scale step** from the current profile. Browser-hidden time, pauses, menus, story focus, vignette/camera transitions, resize settling, and benchmark runs are excluded from the probe.
+
+After the initial probe, AUTO monitors a rolling **15-second** window. Sustained frame pressure can queue only a one-step downgrade. The actual resize is delayed until a safe gameplay moment with no ordinary enemies, champion, attack, story focus, or camera transition. After a change the controller settles and observes again rather than cascading through profiles.
+
+If a downgrade produces almost no median-FPS or p95-frame-time improvement, a **CPU-bound guard** blocks further automatic render-scale reductions for one minute. This prevents a CPU-limited device from sacrificing image quality when lowering backing resolution is not helping.
+
+Automatic upgrades after long headroom are conservative: AUTO records and displays the next higher profile as available, but does not silently raise quality during gameplay. AUTO mode and its learned scale are stored separately under `lastKnight.quality.mode.v1` and `lastKnight.quality.autoScale.v1`.
+
+The panel shows device DPR, CSS viewport, real canvas backing size, CSS canvas size, backing/CSS ratio, renderer type, HUD text resolution, current quality mode/phase, pending safe-point changes, probe metrics, and CPU-bound guard state. Performance Trace v3 also exports adaptive-quality history and `quality_*` events.
+
+### Automatic four-scale benchmark
+
+Press **RUN 4-SCALE BENCHMARK** while standing in the gameplay situation you want to compare. The benchmark automatically starts Performance Trace if needed, then tests **1.00×, 1.25×, 1.50× and 1.75×**. Each stage gets 1 second to settle after resize and then 10 seconds of measurement. It records average/min/max FPS, average/max real frame gap and counts of frames slower than 33/50/100 ms. When finished it restores the render scale that was active before the benchmark and stores the results in the exported trace JSON.
+
+>>>>>>> c550486 (new changes)
 ## Proximity-gated hero auto-melee
 
 The hero no longer starts sword spin animation, attack-ring FX or sword SFX when there is no living enemy inside the real melee radius. `HeroMelee` still tracks a slightly wider nearby radius (+26 px) for stable combat-state diagnostics, but that wider radius does not permit empty swings. After the last close target disappears, the current attack presentation can finish and the hero returns to normal 8-direction idle/walk animation.
@@ -113,3 +138,10 @@ Ash Fields remains the original combat baseline. Later regions add pressure with
 - Regional melee bonus is added after normal sword upgrades and also feeds skills/relic effects that already scale from melee damage.
 - Regional HP/melee growth is applied on the official biome transition. DEV Travel teleports apply the destination balance immediately for testing.
 - DEV → ENEMIES includes **REGION POPULATION TEST** buttons (AUTO / 1.00× / 1.15× / 1.30× / 1.45× / 1.60×). They recalculate the current wave without changing enemy HP.
+
+## v10.8 browser-resume + fixed story UI sizing
+
+Phaser's default post-panic timing cooldown is 120 frames, which is especially noticeable after switching browser tabs on machines already running near 30 FPS. v10.8 keeps delta smoothing enabled but sets `fps.panicMax` to **10 frames**, so focus/visibility recovery settles quickly instead of dragging for several seconds. Performance Trace records `browser_resume_recovery` with the active cooldown and pause duration.
+
+World-space story UI now compensates for both camera zoom and the real canvas backing/CSS ratio. Wounded-knight interaction prompts, wounded-knight dialogue panels, and anomalous-skeleton thought text therefore keep the same perceived CSS size when switching live render scale between **1.00× / 1.25× / 1.50× / 1.75×**. Their world anchors still follow the actors normally.
+

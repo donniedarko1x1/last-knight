@@ -68,6 +68,33 @@ function addUiText(scene,x,y,text,style){
  return object;
 }
 
+// World-space story text should keep a stable CSS-pixel size even when the
+// backing render scale changes. Convert one CSS pixel into the current camera's
+// world units instead of letting HiDPI scale shrink speech panels.
+function worldUiScale(scene){
+ const cam=scene?.cameras?.main;
+ const zoom=Math.max(0.01,cam?.zoom||1);
+ const canvas=scene?.game?.canvas;
+ let backingScale=1;
+ try{
+  const rect=canvas?.getBoundingClientRect?.();
+  if(rect?.width>0&&rect?.height>0){
+   const sx=(canvas.width||scene?.scale?.width||rect.width)/rect.width;
+   const sy=(canvas.height||scene?.scale?.height||rect.height)/rect.height;
+   if(Number.isFinite(sx)&&Number.isFinite(sy)&&sx>0&&sy>0)backingScale=(sx+sy)*0.5;
+  }
+ }catch{}
+ return Math.max(0.05,backingScale/zoom);
+}
+
+function cssViewportWidth(scene){
+ try{
+  const rect=scene?.game?.canvas?.getBoundingClientRect?.();
+  if(rect?.width>0)return rect.width;
+ }catch{}
+ return Math.max(320,(scene?.scale?.width||1280)/Math.max(0.01,worldUiScale(scene)*(scene?.cameras?.main?.zoom||1)));
+}
+
 class WoundedKnightInteractionSystem {
  constructor(scene,{storyDirector=null}={}){
   this.scene=scene;
@@ -83,6 +110,7 @@ class WoundedKnightInteractionSystem {
   this.cameraRestore=null;
   this.activeStoryTargetId=null;
   this.objectiveMarker=null;
+  this.dialogueVignetteState=null;
 
   this._onKeyDown=this.onKeyDown.bind(this);
   this._onPointerDown=this.onPointerDown.bind(this);
@@ -165,6 +193,8 @@ class WoundedKnightInteractionSystem {
   for(const object of [this.promptText,this.dialogueText]){
    try{object?.destroy();}catch{}
   }
+  try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
+  this.dialogueVignetteState=null;
   this.objectiveMarker?.destroy();
   this.objectiveMarker=null;
   this.knights.clear();
@@ -178,10 +208,14 @@ class WoundedKnightInteractionSystem {
 
  registerKnight(sprite,{id,index=0,story=false}={}){
   if(!sprite || !id)return null;
+  const previous=this.knights.get(String(id));
   const entry={
    id:String(id),index:Number(index)||0,sprite,story:Boolean(story),
-   eventId:story?STORY_EVENT_ID:`ash_wounded_knight_talk_${index}`
+   eventId:story?STORY_EVENT_ID:`ash_wounded_knight_talk_${index}`,
+   markerAnchor:previous?.markerAnchor||{id:String(id),x:Number(sprite.x)||0,y:Number(sprite.y)||0,active:true,visible:true}
   };
+  entry.markerAnchor.x=Number(sprite.x)||entry.markerAnchor.x||0;
+  entry.markerAnchor.y=Number(sprite.y)||entry.markerAnchor.y||0;
   this.knights.set(entry.id,entry);
   sprite.woundedKnightInteractionId=entry.id;
 
@@ -192,6 +226,20 @@ class WoundedKnightInteractionSystem {
    this.activateStoryTarget(entry.id);
   }
   return entry;
+ }
+
+ syncKnightMarkerAnchor(entry){
+  if(!entry)return null;
+  if(!entry.markerAnchor){
+   entry.markerAnchor={id:entry.id,x:0,y:0,active:true,visible:true};
+  }
+  const sprite=entry.sprite;
+  const x=Number(sprite?.x),y=Number(sprite?.y);
+  if(Number.isFinite(x))entry.markerAnchor.x=x;
+  if(Number.isFinite(y))entry.markerAnchor.y=y;
+  entry.markerAnchor.active=true;
+  entry.markerAnchor.visible=true;
+  return entry.markerAnchor;
  }
 
  isCompleted(entry){
@@ -241,7 +289,8 @@ class WoundedKnightInteractionSystem {
   if(!id)return false;
   this.activeStoryTargetId=id;
   const entry=this.knights.get(id);
-  this.objectiveMarker?.setTarget(entry?.sprite||null);
+  const anchor=this.syncKnightMarkerAnchor(entry);
+  this.objectiveMarker?.setTarget(anchor||null);
   return Boolean(entry);
  }
 
@@ -301,6 +350,7 @@ class WoundedKnightInteractionSystem {
   const touch=Boolean(scene.isTouchDevice);
   prompt.setText(touch?'Нажмите для взаимодействия':'Нажмите E для взаимодействия');
   prompt.setFontSize(touch?16:15);
+  prompt.setScale(worldUiScale(scene));
   const target=this.nearest.sprite;
   const promptOffset=Math.max(58,(target?.displayHeight||60)*0.60);
   prompt.setPosition(target.x,target.y-promptOffset).setVisible(true);
@@ -410,6 +460,22 @@ class WoundedKnightInteractionSystem {
   cam.pan(focusX,focusY,CAMERA_IN_MS,'Sine.easeOut',true);
   cam.zoomTo(targetZoom,CAMERA_IN_MS,'Sine.easeOut',true);
 
+<<<<<<< HEAD
+=======
+  // Use the same soft story vignette language as anomaly/champion beats, but
+  // only after the dialogue camera has settled. This applies to every lying
+  // wounded knight, not just the main story NPC.
+  try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
+  this.dialogueVignetteState={
+   target:entry.sprite,kind:'woundedKnight',cameraLocked:true,vignette:null,
+   vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
+  };
+  scene.time.delayedCall(CAMERA_IN_MS+25,()=>{
+   if(!this.active || this.active.entry!==entry || !this.dialogueVignetteState)return;
+   scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});
+  });
+
+>>>>>>> c550486 (new changes)
   this.showDialogueLine();
  }
 
@@ -456,6 +522,7 @@ class WoundedKnightInteractionSystem {
   if(actor && this.dialogueText){
    const cam=scene.cameras.main;
    const view=cam.worldView;
+<<<<<<< HEAD
    // Dialogue is a world object, but it should read like UI. Compensate only
    // zoom-in so camera focus never inflates the panel over the characters.
    const dialogueScale=1/Math.max(1,cam.zoom||1);
@@ -463,6 +530,17 @@ class WoundedKnightInteractionSystem {
    const wrapWidth=scene.isTouchDevice
     ? Math.min(300,Math.max(220,view.width*0.30))
     : Math.min(390,Math.max(300,view.width*0.34));
+=======
+   // Dialogue is a world object, but it reads like UI. Compensate for both
+   // camera zoom and the HiDPI backing scale so 1.00x..1.75x never changes the
+   // perceived CSS size of the speech panel.
+   const dialogueScale=worldUiScale(scene);
+   this.dialogueText.setScale(dialogueScale);
+   const cssW=cssViewportWidth(scene);
+   const wrapWidth=scene.isTouchDevice
+    ? Math.min(300,Math.max(220,cssW*0.34))
+    : Math.min(390,Math.max(300,cssW*0.30));
+>>>>>>> c550486 (new changes)
    this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
 
    // Measure after wrapping. The text uses origin (0.5, 1), therefore each
@@ -519,6 +597,9 @@ class WoundedKnightInteractionSystem {
  updateActiveDialogue(time){
   if(!this.active)return;
   this.positionDialogueUi();
+  if(this.dialogueVignetteState?.vignette?.active){
+   this.scene?.updateStoryAnomalyVignette?.(this.dialogueVignetteState,this.scene?.cameras?.main);
+  }
   if(this.active.closing && time>=this.closeAt){
    this.finishDialogue();
   }
@@ -542,6 +623,11 @@ class WoundedKnightInteractionSystem {
   const scene=this.scene;
   const cam=scene.cameras.main;
   const restoreZoom=this.cameraRestore?.zoom||cam.zoom;
+  const vignette=this.dialogueVignetteState?.vignette;
+  if(vignette?.active){
+   scene.tweens?.killTweensOf?.(vignette);
+   scene.tweens?.add?.({targets:vignette,alpha:0,duration:Math.min(220,CAMERA_OUT_MS),ease:'Sine.easeIn'});
+  }
   cam.zoomTo(restoreZoom,CAMERA_OUT_MS,'Sine.easeInOut',true);
   cam.pan(scene.player.x,scene.player.y,CAMERA_OUT_MS,'Sine.easeInOut',true);
   this.closeAt=now+CAMERA_OUT_MS+20;
@@ -564,6 +650,8 @@ class WoundedKnightInteractionSystem {
   cam.startFollow(scene.player,true,1,1);
   cam.centerOn(scene.player.x,scene.player.y);
 
+  try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
+  this.dialogueVignetteState=null;
   this.active=null;
   this.dialogueControls=null;
   this.cameraRestore=null;
@@ -577,11 +665,15 @@ class WoundedKnightInteractionSystem {
   if(!this.objectiveMarker)return;
   const entry=this.activeStoryTargetId?this.knights.get(this.activeStoryTargetId):null;
   const objectiveActive=this.storyDirector?.isObjectiveActive?.(STORY_OBJECTIVE_ID);
-  if(!objectiveActive || !entry?.sprite?.active || this.isCompleted(entry)){
+  if(!objectiveActive || !entry || this.isCompleted(entry)){
    this.objectiveMarker.hide();
    return;
   }
-  if(this.objectiveMarker.target!==entry.sprite)this.objectiveMarker.setTarget(entry.sprite);
+  // Marker navigation follows a persistent logical anchor. Runtime environment
+  // culling may hide the knight sprite when it is far away, but can no longer
+  // hide or invalidate the objective compass itself.
+  const anchor=this.syncKnightMarkerAnchor(entry);
+  if(this.objectiveMarker.target!==anchor)this.objectiveMarker.setTarget(anchor);
   this.objectiveMarker.update(time,{forceHide});
  }
 }

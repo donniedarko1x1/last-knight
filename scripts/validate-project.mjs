@@ -194,6 +194,41 @@ for(const [label,needle] of [
 }
 if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) pass('Broken Saint local smoke + 3s reveal hold + altar release phase contracts present');
 
+<<<<<<< HEAD
+=======
+// 8c) Broken Saint reward / build-strategy v1 contracts.
+const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
+for(const [label,source,needle] of [
+ ['Lift commitment slowdown',main,'const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.70;'],
+ ['Lift slowdown only after a real launch',main,'if(longestLiftMs>0){\n   this.liftCommitUntil='],
+ ['Spin remains stationary',main,'if(time<(this.spinCommitUntil||0) && time>=(this.playerForcedUntil||0)){'],
+ ['Pilgrim Path evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath'],
+ ['Verdict evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.verdict'],
+ ['Saint Stance evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.saintStance'],
+ ['three-step Broken Saint reward flow',main,"stepTitle:'СИЛА ЧЕМПИОНА'"],
+ ['Cracked Halo relic',main,"name:'ТРЕСНУВШИЙ НИМБ'"],
+ ['Saints Nail post-Lift mark window',main,'BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600'],
+ ['Ash Rosary cross-skill mana discount',main,'return 0.75;'],
+ ['reverse-smoke champion death',main,'beginBrokenSaintDefeatSequence(enemy){'],
+ ['reward UI base-skill icons',main,'entry.icon.setTexture(c.iconKey);'],
+ ['larger reward decision panel',main,'const panelW=Math.min(compact?720:900'],
+ ['larger reward description type',main,'.setFontSize(veryCompact?10:(compact?11.5:13.5))'],
+ ['Broken Saint essence icon map',main,'const BROKEN_SAINT_ESSENCE_ICON_KEYS=Object.freeze({'],
+ ['Essence of Body icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.body]"],
+ ['Essence of Will icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.will]"],
+ ['Essence of Discipline icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.discipline]"],
+ ['Cracked Halo asset manifest',assetManifestSource,'broken_saint_relic_cracked_halo'],
+ ['Saints Nail asset manifest',assetManifestSource,'broken_saint_relic_saints_nail'],
+ ['Ash Rosary asset manifest',assetManifestSource,'broken_saint_relic_ash_rosary'],
+ ['Essence Body asset manifest',assetManifestSource,'broken_saint_essence_body'],
+ ['Essence Will asset manifest',assetManifestSource,'broken_saint_essence_will'],
+ ['Essence Discipline asset manifest',assetManifestSource,'broken_saint_essence_discipline']
+]){
+ if(!source.includes(needle)) fail(`Missing Broken Saint reward contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Broken Saint reward contract:'))) pass('Broken Saint build rewards + reverse-smoke death + mobile reward UI contracts present');
+
+>>>>>>> c550486 (new changes)
 // 9) World Navigation v2 contracts. Architecture Refactor v1 moves the
 // global A*/grid implementation into src/world/NavigationSystem.js while the
 // MainScene keeps thin compatibility delegates and local steering.
@@ -221,6 +256,12 @@ if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.star
 for(const [label,source,needle] of [
  ['stable Ash altar marker proxy',main,'getAshStoryMarkerTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){'],
  ['Ash altar marker uses stable target',main,'this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});'],
+<<<<<<< HEAD
+=======
+ ['Ash altar lookup survives culling',main,'object?.active && !object.devDeleted && object.devEnvMeta?.key===key'],
+ ['story marker ignores sprite visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
+ ['wounded dialogue gets settled vignette',woundedInteractionSource,'scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});'],
+>>>>>>> c550486 (new changes)
  ['settled-camera vignette factory',main,'createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){'],
  ['skeleton vignette waits for camera lock',main,'state.cameraLocked=true;\n    this.createSettledStoryVignette(state,cam,{fadeMs:280});'],
  ['champion vignette waits for camera lock',main,'this.createSettledStoryVignette(state,cam,{fadeMs:300});']
@@ -234,7 +275,11 @@ for(const [label,source,needle] of [
  ['dialogue actor avoidance',woundedInteractionSource,'dialogueOverlapArea(a,b){'],
  ['dialogue candidate layout',woundedInteractionSource,'const candidates=['],
  ['dialogue safe viewport',woundedInteractionSource,'const safe=scene.isTouchDevice'],
+<<<<<<< HEAD
  ['dialogue zoom compensation',woundedInteractionSource,'const dialogueScale=1/Math.max(1,cam.zoom||1);'],
+=======
+ ['dialogue CSS/backing compensation',woundedInteractionSource,'const dialogueScale=worldUiScale(scene);'],
+>>>>>>> c550486 (new changes)
  ['dialogue camera context',woundedInteractionSource,'cam.zoom*1.18'],
  ['single A* route budget per frame',main,'this.navigationPathfindBudget=1;'],
  ['sleeping DEV overlays',main,'hasActiveOverlay(){'],
@@ -338,8 +383,12 @@ for(const [label,source,needle] of [
  ['objective marker module',objectiveMarkerSource,'class StoryObjectiveMarker'],
  ['strict 10 percent marker frame',objectiveMarkerSource,'const FRAME_INSET_RATIO=0.10;'],
  ['marker ray/rectangle intersection',objectiveMarkerSource,'rayRectIntersection(ox,oy,dx,dy,rect)'],
- ['marker direction from player to target',objectiveMarkerSource,'const dx=target.x-player.x;'],
- ['marker direction from player to target Y',objectiveMarkerSource,'const dy=target.y-player.y;'],
+ ['marker direction from player to target',objectiveMarkerSource,'const dx=targetX-player.x;'],
+ ['marker direction from player to target Y',objectiveMarkerSource,'const dy=targetY-player.y;'],
+ ['marker logical target cache',objectiveMarkerSource,'this.lastTargetPoint={x,y};'],
+ ['marker ignores render visibility',objectiveMarkerSource,'target visibility is NOT consulted here'],
+ ['wounded knight stable marker anchor',woundedInteractionSource,'markerAnchor:previous?.markerAnchor'],
+ ['wounded knight dialogue vignette',woundedInteractionSource,"kind:'woundedKnight'"],
  ['interaction system module',woundedInteractionSource,'class WoundedKnightInteractionSystem'],
  ['desktop interaction prompt',woundedInteractionSource,"Нажмите E для взаимодействия"],
  ['dialogue wounded-knight speaker label',woundedInteractionSource,"'Раненый рыцарь'"],
@@ -477,9 +526,15 @@ for(const [label,source,needle] of [
 if(main.includes('this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS')) fail('Mage predictive lead aiming must be removed');
 if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.startsWith('Missing altar/champion encounter contract:')||e.includes('Mage predictive lead'))) pass('Act-I anomalies + wave-4 altar reveal + concurrent first champion contracts present');
 
+<<<<<<< HEAD
 // 16) Performance Diagnostics v3 + free CPU optimisation pass.
 for(const [label,source,needle] of [
  ['trace v2 schema',main,"schema:'last-knight-performance-trace-v2'"],
+=======
+// 16) Performance Diagnostics v5 + free CPU optimisation pass + smart adaptive render quality + rescue navigation.
+for(const [label,source,needle] of [
+ ['trace v3 schema',main,"schema:'last-knight-performance-trace-v3'"],
+>>>>>>> c550486 (new changes)
  ['pause trace transition guard',main,'const hadReason=this.gameplayPauseReasons.has(reason);'],
  ['pause trace only on transition',main,'if(hadReason!==wanted || nextPaused!==this.gameplayPaused){'],
  ['live render scale 1.25 preset',main,'data-action=\"renderScale\" data-value=\"1.25\"'],
@@ -488,6 +543,25 @@ for(const [label,source,needle] of [
  ['benchmark 10 second measurement after 1.5s settle',main,'measureUntil:now+11500'],
  ['benchmark median FPS',main,'medianFps:percentile(b.fpsSamples,0.5)'],
  ['benchmark p95 frame gap',main,'p95FrameGapMs:percentile(b.frameGapSamples,0.95)'],
+<<<<<<< HEAD
+=======
+ ['adaptive quality auto control',main,'data-action="qualityAuto"'],
+ ['adaptive quality mode storage',main,"const LK_QUALITY_MODE_STORAGE_KEY = 'lastKnight.quality.mode.v1';"],
+ ['adaptive quality saved auto profile',main,"const LK_QUALITY_PROFILE_STORAGE_KEY = 'lastKnight.quality.autoScale.v1';"],
+ ['adaptive startup probe',main,'quality_probe_started'],
+ ['adaptive sustained pressure',main,"'sustained_frame_pressure'"],
+ ['adaptive safe moment gate',main,'isAdaptiveQualitySafeMoment(){'],
+ ['adaptive one-step scales',main,'const LK_QUALITY_SCALES = Object.freeze([1,1.25,1.5,1.75]);'],
+ ['manual render scale locks auto mode',main,"this.setAdaptiveQualityMode('manual');"],
+ ['adaptive learned scale-response map',main,"const LK_QUALITY_RESPONSE_STORAGE_KEY = 'lastKnight.quality.scaleResponse.v1';"],
+ ['adaptive meaningful FPS threshold',main,'const LK_QUALITY_MIN_FPS_GAIN_PCT = 8;'],
+ ['adaptive meaningful p95 threshold',main,'const LK_QUALITY_MIN_P95_GAIN_PCT = 12;'],
+ ['adaptive benchmark learning',main,'learnAdaptiveQualityFromBenchmark(this.renderBenchmarkResults);'],
+ ['adaptive downgrade evidence gate',main,"'quality_downgrade_rejected'"],
+ ['adaptive runtime downgrade trial',main,"'quality_trial_rejected'"],
+ ['adaptive bottleneck classification',main,"'quality_benchmark_classified'"],
+ ['adaptive trace snapshot',main,'quality:this.getAdaptiveQualitySnapshot()'],
+>>>>>>> c550486 (new changes)
  ['subsystem timing accumulator',main,'recordSubsystemTime(name,ms){'],
  ['story subsystem timing',main,"endSubsystemTrace('story'"],
  ['world streaming subsystem timing',main,"endSubsystemTrace('worldStreaming'"],
@@ -497,6 +571,17 @@ for(const [label,source,needle] of [
  ['projectile subsystem timing',main,"endSubsystemTrace('projectiles'"],
  ['vignette subsystem timing',main,"recordSubsystemTime?.('vignette'"],
  ['HUD subsystem timing',main,"recordSubsystemTime?.('HUD'"],
+<<<<<<< HEAD
+=======
+
+ ['rescue navigation per-frame budget',main,'this.navigationRescuePathfindBudget=1;'],
+ ['rescue navigation stuck detector',navigation,"trace('enemy_stuck_detected'"],
+ ['rescue navigation temporary activation',navigation,'enemy.navRescueUntil=time+4500;'],
+ ['rescue navigation repath trace',navigation,"'enemy_rescue_repath'"],
+ ['rescue navigation success trace',navigation,"'enemy_rescue_navigation_success'"],
+ ['rescue navigation denser waypoints',navigation,'const maxLookAhead=rescueMode?Math.min(raw.length-1,i+4):raw.length-1;'],
+ ['rescue navigation expanded A star budget',navigation,'rescueMode?4200:3200'],
+>>>>>>> c550486 (new changes)
  ['navigation probe cache',navigation,'enemy.navProbeAt=time+probeInterval+probeJitter;'],
  ['local steering cache',main,'enemy.localSteerProbeAt=time+probeInterval;'],
  ['20Hz crowd separation',navigation,'this.enemySeparationNextAt=time+50;'],
@@ -508,11 +593,24 @@ for(const [label,source,needle] of [
  ['melee candidate reuse',heroMeleeSource,'for(const enemy of this.attackCandidates||[])'],
  ['hero melee proximity state',heroMeleeSource,'updateTargetState(enemies){'],
  ['hero does not swing without target',heroMeleeSource,'if(!hasAttackTarget) return;'],
+<<<<<<< HEAD
  ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;']
 ]){
  if(!source.includes(needle)) fail(`Missing Performance Diagnostics v3 contract: ${label}`);
 }
 if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v3 contract:'))) pass('Performance Diagnostics v3 + CPU optimisation contracts present');
+=======
+ ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;'],
+ ['short browser resume panic cooldown',main,'fps:{panicMax:10,smoothStep:true,deltaHistory:10}'],
+ ['browser resume recovery trace',main,"'browser_resume_recovery'"],
+ ['fixed CSS-scale anomaly thought',main,'const anomalyUiScale=lkWorldUiScale(this,cam);'],
+ ['fixed CSS-scale wounded prompt',woundedInteractionSource,'prompt.setScale(worldUiScale(scene));'],
+ ['fixed CSS-scale wounded dialogue',woundedInteractionSource,'const dialogueScale=worldUiScale(scene);']
+]){
+ if(!source.includes(needle)) fail(`Missing Performance Diagnostics v4 contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v4 contract:'))) pass('Performance Diagnostics v5 + CPU optimisation + smart adaptive quality + rescue navigation contracts present');
+>>>>>>> c550486 (new changes)
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');

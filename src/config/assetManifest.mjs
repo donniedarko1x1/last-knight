@@ -151,6 +151,21 @@ for(const [key,url] of Object.entries({
 
 for(let i=0;i<5;i++) image(REGION_ASH,R,`ash_champion_smoke_${pad2(i)}`,`/assets/effects/ash_champion_smoke/ash_champion_smoke_${pad2(i)}.png`);
 
+<<<<<<< HEAD
+=======
+for(const [key,url] of Object.entries({
+ broken_saint_relic_cracked_halo:'/assets/ui/relics/broken_saint/broken_saint_cracked_halo.png',
+ broken_saint_relic_saints_nail:'/assets/ui/relics/broken_saint/broken_saint_saints_nail.png',
+ broken_saint_relic_ash_rosary:'/assets/ui/relics/broken_saint/broken_saint_ash_rosary.png'
+})) image(REGION_ASH,R,key,url);
+
+for(const [key,url] of Object.entries({
+ broken_saint_essence_body:'/assets/ui/essences/broken_saint/broken_saint_essence_body.png',
+ broken_saint_essence_will:'/assets/ui/essences/broken_saint/broken_saint_essence_will.png',
+ broken_saint_essence_discipline:'/assets/ui/essences/broken_saint/broken_saint_essence_discipline.png'
+})) image(REGION_ASH,R,key,url);
+
+>>>>>>> c550486 (new changes)
 for(const [name,count] of Object.entries({holy_mark:4,holy_impact:4,holy_beam:3,reflect_shield:4,reflect_spark:2})){
  for(let i=0;i<count;i++) image(REGION_ASH,R,`broken_saint_${name}_${pad2(i)}`,`/assets/effects/broken_saint/broken_saint_${name}_${pad2(i)}.png`);
 }

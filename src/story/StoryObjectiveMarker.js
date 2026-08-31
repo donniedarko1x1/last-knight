@@ -40,6 +40,10 @@ class StoryObjectiveMarker {
   this.scene=scene;
   this.insetRatio=Phaser.Math.Clamp(Number(insetRatio)||FRAME_INSET_RATIO,0.02,0.45);
   this.target=null;
+<<<<<<< HEAD
+=======
+  this.lastTargetPoint=null;
+>>>>>>> c550486 (new changes)
   this.targetOffsetY=WORLD_MARKER_OFFSET_Y;
   this.installed=false;
  }
@@ -64,7 +68,10 @@ class StoryObjectiveMarker {
    new Phaser.Geom.Point(0,-11),new Phaser.Geom.Point(9,0),
    new Phaser.Geom.Point(0,11),new Phaser.Geom.Point(-9,0)
   ],true);
+<<<<<<< HEAD
   // The small point above the diamond makes its travel direction readable.
+=======
+>>>>>>> c550486 (new changes)
   markerGraphics.fillTriangle(-5,-19,5,-19,0,-28);
   this.edgeMarker=scene.add.container(0,0,[markerGraphics])
    .setScrollFactor(0).setDepth(626).setVisible(false);
@@ -77,20 +84,58 @@ class StoryObjectiveMarker {
   this.worldMarker=null;
   this.edgeMarker=null;
   this.target=null;
+<<<<<<< HEAD
+=======
+  this.lastTargetPoint=null;
+>>>>>>> c550486 (new changes)
   this.scene=null;
   this.installed=false;
+ }
+
+<<<<<<< HEAD
+ setTarget(target,{worldOffsetY=WORLD_MARKER_OFFSET_Y}={}){
+  this.target=target||null;
+  this.targetOffsetY=Number(worldOffsetY)||WORLD_MARKER_OFFSET_Y;
+  if(!this.target)this.hide();
+=======
+ // Story navigation deliberately owns a logical world position rather than a
+ // render object's visibility. Environment culling is allowed to set a distant
+ // NPC/landmark sprite visible=false; that must NEVER switch off its objective
+ // compass. The objective owner clears the marker when the story state ends.
+ resolveTargetPoint(){
+  let source=this.target;
+  try{
+   if(typeof source==='function')source=source();
+   else if(source?.getStoryMarkerPoint)source=source.getStoryMarkerPoint();
+  }catch{}
+  const x=Number(source?.x);
+  const y=Number(source?.y);
+  if(Number.isFinite(x) && Number.isFinite(y)){
+   this.lastTargetPoint={x,y};
+  }
+  return this.lastTargetPoint;
  }
 
  setTarget(target,{worldOffsetY=WORLD_MARKER_OFFSET_Y}={}){
   this.target=target||null;
   this.targetOffsetY=Number(worldOffsetY)||WORLD_MARKER_OFFSET_Y;
-  if(!this.target)this.hide();
+  if(!this.target){
+   this.lastTargetPoint=null;
+   this.hide();
+  }else{
+   this.resolveTargetPoint();
+  }
+>>>>>>> c550486 (new changes)
   return this.target;
  }
 
  clearTarget(target=null){
   if(target && this.target!==target)return false;
   this.target=null;
+<<<<<<< HEAD
+=======
+  this.lastTargetPoint=null;
+>>>>>>> c550486 (new changes)
   this.hide();
   return true;
  }
@@ -110,9 +155,15 @@ class StoryObjectiveMarker {
 
  update(time=0,{forceHide=false}={}){
   const scene=this.scene;
+<<<<<<< HEAD
   const target=this.target;
   const player=scene?.player;
   if(forceHide || !scene || !target?.active || !target.visible || !player?.active){
+=======
+  const player=scene?.player;
+  const point=this.resolveTargetPoint();
+  if(forceHide || !scene || !point || !player?.active){
+>>>>>>> c550486 (new changes)
    this.hide();
    return false;
   }
@@ -122,11 +173,22 @@ class StoryObjectiveMarker {
   const metrics=scene.getUiMetrics?.()||{
    width:view.width,height:view.height,cx:view.width*0.5,cy:view.height*0.5
   };
+<<<<<<< HEAD
 
   // scrollFactor(0) UI in this project is laid out in camera-local world units,
   // so subtracting worldView gives the exact screen-space position at any zoom.
   const targetScreenX=target.x-view.left;
   const targetScreenY=target.y-view.top;
+=======
+  const targetX=point.x;
+  const targetY=point.y;
+
+  // UI coordinates are camera-local world units in this project. Crucially,
+  // target visibility is NOT consulted here: rendering and story navigation are
+  // independent systems now.
+  const targetScreenX=targetX-view.left;
+  const targetScreenY=targetY-view.top;
+>>>>>>> c550486 (new changes)
   const targetOnScreen=(
    targetScreenX>=0 && targetScreenX<=metrics.width &&
    targetScreenY>=0 && targetScreenY<=metrics.height
@@ -136,18 +198,29 @@ class StoryObjectiveMarker {
    this.edgeMarker?.setVisible(false);
    const floatY=Math.sin(time*0.006)*4;
    this.worldMarker
+<<<<<<< HEAD
     ?.setPosition(target.x,target.y-this.targetOffsetY+floatY)
+=======
+    ?.setPosition(targetX,targetY-this.targetOffsetY+floatY)
+>>>>>>> c550486 (new changes)
     .setVisible(true);
    return true;
   }
 
   this.worldMarker?.setVisible(false);
 
+<<<<<<< HEAD
   // IMPORTANT: direction is always target WORLD position minus PLAYER WORLD
   // position. The camera centre is intentionally not involved. Following the
   // marker therefore converges on the actual story target.
   const dx=target.x-player.x;
   const dy=target.y-player.y;
+=======
+  // Direction is always logical TARGET WORLD position minus PLAYER WORLD
+  // position. Camera centre and target sprite visibility are irrelevant.
+  const dx=targetX-player.x;
+  const dy=targetY-player.y;
+>>>>>>> c550486 (new changes)
   if(Math.hypot(dx,dy)<0.001){
    this.edgeMarker?.setVisible(false);
    return true;
@@ -156,15 +229,21 @@ class StoryObjectiveMarker {
   const frame=this.getFrame(metrics);
   const playerScreenX=player.x-view.left;
   const playerScreenY=player.y-view.top;
+<<<<<<< HEAD
 
   // Usually the player is inside the 10% frame. Near world bounds the camera can
   // leave the player outside it, so clamp only the ray origin; keep the true
   // world-space direction unchanged.
+=======
+>>>>>>> c550486 (new changes)
   const ox=Phaser.Math.Clamp(playerScreenX,frame.left+0.001,frame.right-0.001);
   const oy=Phaser.Math.Clamp(playerScreenY,frame.top+0.001,frame.bottom-0.001);
   let hit=rayRectIntersection(ox,oy,dx,dy,frame);
 
+<<<<<<< HEAD
   // Defensive fallback for pathological viewport/bounds combinations.
+=======
+>>>>>>> c550486 (new changes)
   if(!hit){
    const cx=(frame.left+frame.right)*0.5;
    const cy=(frame.top+frame.bottom)*0.5;

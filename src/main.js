@@ -51,9 +51,52 @@ const DEV_BUILD=true;
 const LK_DEFAULT_RENDER_SCALE = 1.5;
 const LK_RENDER_SCALE_MAX = 1.75;
 const LK_RENDER_SCALE_STORAGE_KEY = 'lastKnight.dev.renderScale.v2';
+const LK_QUALITY_MODE_STORAGE_KEY = 'lastKnight.quality.mode.v1';
+const LK_QUALITY_PROFILE_STORAGE_KEY = 'lastKnight.quality.autoScale.v1';
+const LK_QUALITY_RESPONSE_STORAGE_KEY = 'lastKnight.quality.scaleResponse.v1';
+const LK_QUALITY_SCALES = Object.freeze([1,1.25,1.5,1.75]);
+const LK_QUALITY_PROFILES = Object.freeze({1:'Performance',1.25:'Balanced',1.5:'Quality',1.75:'Ultra'});
+const LK_QUALITY_PROBE_ACTIVE_MS = 10000;
+const LK_QUALITY_MONITOR_WINDOW_MS = 15000;
+const LK_QUALITY_POST_CHANGE_SETTLE_MS = 2500;
+const LK_QUALITY_DOWNGRADE_COOLDOWN_MS = 15000;
+const LK_QUALITY_UPGRADE_RECOMMEND_MS = 45000;
+const LK_QUALITY_MIN_FPS_GAIN_PCT = 8;
+const LK_QUALITY_MIN_P95_GAIN_PCT = 12;
+const LK_QUALITY_TRIAL_ACTIVE_MS = 8000;
+const LK_QUALITY_RESPONSE_TTL_MS = 1000*60*60*24*30;
 let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
 const LK_TEXT_RESOLUTION = 2;
 
+<<<<<<< HEAD
+=======
+function lkReadQualityMode(){
+ try{return localStorage.getItem(LK_QUALITY_MODE_STORAGE_KEY)==='manual'?'manual':'auto';}catch{return 'auto';}
+}
+function lkProfileName(scale){
+ const exact=LK_QUALITY_SCALES.reduce((best,value)=>Math.abs(value-scale)<Math.abs(best-scale)?value:best,LK_QUALITY_SCALES[0]);
+ return LK_QUALITY_PROFILES[exact]||`${exact.toFixed(2)}x`;
+}
+function lkReadQualityResponseMap(){
+ try{
+  const raw=JSON.parse(localStorage.getItem(LK_QUALITY_RESPONSE_STORAGE_KEY)||'{}');
+  if(!raw || typeof raw!=='object')return {};
+  const now=Date.now();
+  const out={};
+  for(const [key,value] of Object.entries(raw)){
+   if(!value || typeof value!=='object')continue;
+   const at=Number(value.at)||0;
+   if(at && now-at>LK_QUALITY_RESPONSE_TTL_MS)continue;
+   out[key]=value;
+  }
+  return out;
+ }catch{return {};}
+}
+function lkWriteQualityResponseMap(map){
+ try{localStorage.setItem(LK_QUALITY_RESPONSE_STORAGE_KEY,JSON.stringify(map||{}));}catch{}
+}
+
+>>>>>>> c550486 (new changes)
 const STORY_ANOMALY_THOUGHTS=Object.freeze([
  'Он выжил...',
  'Этого не может быть...',
@@ -89,6 +132,37 @@ const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
 const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
 const ASH_CHAMPION_SMOKE_TEXTURE_PREFIX='ash_champion_smoke_';
 const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
+<<<<<<< HEAD
+=======
+const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.70;
+const BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600;
+const BROKEN_SAINT_MARK_DURATION_MS=5000;
+const BROKEN_SAINT_RELIC_IDS=Object.freeze({
+ crackedHalo:'brokenSaintCrackedHalo',
+ saintsNail:'brokenSaintSaintsNail',
+ ashRosary:'brokenSaintAshRosary'
+});
+const BROKEN_SAINT_EVOLUTION_IDS=Object.freeze({
+ pilgrimPath:'brokenSaintQuakePilgrimPath',
+ verdict:'brokenSaintLiftVerdict',
+ saintStance:'brokenSaintSpinSaintStance'
+});
+const BROKEN_SAINT_ESSENCE_IDS=Object.freeze({
+ body:'brokenSaintEssenceBody',
+ will:'brokenSaintEssenceWill',
+ discipline:'brokenSaintEssenceDiscipline'
+});
+const BROKEN_SAINT_RELIC_ICON_KEYS=Object.freeze({
+ [BROKEN_SAINT_RELIC_IDS.crackedHalo]:'broken_saint_relic_cracked_halo',
+ [BROKEN_SAINT_RELIC_IDS.saintsNail]:'broken_saint_relic_saints_nail',
+ [BROKEN_SAINT_RELIC_IDS.ashRosary]:'broken_saint_relic_ash_rosary'
+});
+const BROKEN_SAINT_ESSENCE_ICON_KEYS=Object.freeze({
+ [BROKEN_SAINT_ESSENCE_IDS.body]:'broken_saint_essence_body',
+ [BROKEN_SAINT_ESSENCE_IDS.will]:'broken_saint_essence_will',
+ [BROKEN_SAINT_ESSENCE_IDS.discipline]:'broken_saint_essence_discipline'
+});
+>>>>>>> c550486 (new changes)
 
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
@@ -114,6 +188,20 @@ function lkUiPointer(scene,pointer){
   try{return cam.getWorldPoint(pointer.x,pointer.y); }catch{}
  }
  return {x:pointer.x/Math.max(0.01,LK_RENDER_SCALE||1),y:pointer.y/Math.max(0.01,LK_RENDER_SCALE||1)};
+}
+function lkWorldUiScale(scene,cam=scene?.cameras?.main){
+ const zoom=Math.max(0.01,cam?.zoom||1);
+ const canvas=scene?.game?.canvas;
+ let backingScale=LK_RENDER_SCALE||1;
+ try{
+  const rect=canvas?.getBoundingClientRect?.();
+  if(rect?.width>0&&rect?.height>0){
+   const sx=(canvas.width||scene?.scale?.width||rect.width)/rect.width;
+   const sy=(canvas.height||scene?.scale?.height||rect.height)/rect.height;
+   if(Number.isFinite(sx)&&Number.isFinite(sy)&&sx>0&&sy>0)backingScale=(sx+sy)*0.5;
+  }
+ }catch{}
+ return Math.max(0.05,backingScale/zoom);
 }
 function lkApplyTextResolution(game){
  const res=LK_TEXT_RESOLUTION;
@@ -558,6 +646,10 @@ class LastKnightDevTools {
   this.traceLastEventSignatures=new Map();
   this.renderBenchmark=null;
   this.renderBenchmarkResults=[];
+<<<<<<< HEAD
+=======
+  this.adaptiveQuality=this.createAdaptiveQualityState();
+>>>>>>> c550486 (new changes)
   this.traceBrowserHandlers=null;
   this.traceGameHandlers=null;
   this.traceScaleResizeHandler=null;
@@ -602,6 +694,10 @@ class LastKnightDevTools {
   this.refreshSelectedPanel();
   this.refreshStateButtons();
   this.refreshTraceUi();
+<<<<<<< HEAD
+=======
+  this.refreshAdaptiveQualityUi(true);
+>>>>>>> c550486 (new changes)
   this.uiEditor.refreshPanel();
   window.__LK_DEV=this;
  }
@@ -741,9 +837,16 @@ class LastKnightDevTools {
     </div></details>
 
     <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
+<<<<<<< HEAD
      <div class="lkdev-label">Live render scale. Changes the WebGL backing resolution without restarting the run.</div>
      <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
      <div class="lkdev-row"><button data-action="renderScale" data-value="dpr">AUTO DPR (max 1.75×)</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
+=======
+     <div class="lkdev-label">Live render scale. Manual presets lock quality; AUTO measures sustained frame pressure and only changes scale at safe gameplay moments.</div>
+     <div class="lkdev-row"><button data-action="qualityAuto" class="good">AUTO QUALITY</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
+     <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
+     <div id="lkdev-quality-info" class="lkdev-info">Adaptive quality…</div>
+>>>>>>> c550486 (new changes)
      <div id="lkdev-render-info" class="lkdev-info">Render diagnostics…</div>
      <div id="lkdev-render-benchmark" class="lkdev-info">Benchmark idle · 10s per scale</div>
     </div></details>
@@ -883,6 +986,10 @@ class LastKnightDevTools {
    case 'uiCopyLayout':this.uiEditor.copyExport();break;
    case 'uiDownload':this.uiEditor.downloadExport();break;
    case 'renderScale':this.setRenderScale(value);break;
+<<<<<<< HEAD
+=======
+   case 'qualityAuto':this.setAdaptiveQualityMode('auto',{restartProbe:true});break;
+>>>>>>> c550486 (new changes)
    case 'renderBenchmark':this.startRenderBenchmark();break;
    case 'zoom':this.setCameraZoom(Number(value));break;
    case 'fitAsh':this.fitAshFields();break;
@@ -1065,9 +1172,363 @@ class LastKnightDevTools {
  followCamera(){const c=this.scene.cameras.main;this.freeCamera=false;this.cameraLocked=false;this.cameraPan=null;c.startFollow(this.scene.player,true,0.10,0.10);this.scene.setupResponsiveWorldCamera?.();}
  lockCamera(){const c=this.scene.cameras.main;this.freeCamera=false;this.cameraLocked=true;this.cameraPan=null;c.stopFollow();}
  toggleFreeCamera(){this.freeCamera=!this.freeCamera;this.cameraLocked=false;this.cameraPan=null;const c=this.scene.cameras.main;if(this.freeCamera)c.stopFollow();else this.followCamera();}
+ createAdaptiveQualityState(){
+  const now=performance.now();
+  const mode=lkReadQualityMode();
+  return {
+   mode,
+   phase:mode==='auto'?'warmup':'manual',
+   startedAt:now,
+   suspendedUntil:now+LK_QUALITY_POST_CHANGE_SETTLE_MS,
+   probeValidMs:0,
+   probeSamples:[],
+   monitorSamples:[],
+   pendingScale:null,
+   pendingReason:null,
+   recommendedUpgrade:null,
+   lastResult:null,
+   lastDecisionAt:0,
+   lastScaleChangeAt:0,
+   lastUiAt:0,
+   lastViewportKey:'',
+   cpuBoundLikely:false,
+   cpuBoundBlockUntil:0,
+   bottleneckClass:'unknown',
+   scaleResponse:lkReadQualityResponseMap(),
+   pendingTrial:null,
+   activeTrial:null,
+   history:[]
+  };
+ }
+
+ qualityPercentile(values,p){
+  if(!values?.length)return null;
+  const sorted=[...values].sort((a,b)=>a-b);
+  const pos=(sorted.length-1)*Phaser.Math.Clamp(p,0,1);
+  const lo=Math.floor(pos),hi=Math.ceil(pos);
+  return lo===hi?sorted[lo]:sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo);
+ }
+
+ buildAdaptiveQualityMetrics(samples){
+  if(!samples?.length)return null;
+  const gaps=samples.map(sample=>sample.gap).filter(value=>Number.isFinite(value)&&value>0);
+  if(!gaps.length)return null;
+  const fps=gaps.map(gap=>1000/gap);
+  const slow33=gaps.filter(gap=>gap>=33.34).length;
+  const slow50=gaps.filter(gap=>gap>=50).length;
+  return {
+   samples:gaps.length,
+   medianFps:Math.round(this.qualityPercentile(fps,0.5)*10)/10,
+   p05Fps:Math.round(this.qualityPercentile(fps,0.05)*10)/10,
+   medianGapMs:Math.round(this.qualityPercentile(gaps,0.5)*100)/100,
+   p95GapMs:Math.round(this.qualityPercentile(gaps,0.95)*100)/100,
+   slow33Ratio:Math.round((slow33/gaps.length)*1000)/1000,
+   slow50Ratio:Math.round((slow50/gaps.length)*1000)/1000
+  };
+ }
+
+ logAdaptiveQualityEvent(type,data={}){
+  const q=this.adaptiveQuality;if(!q)return;
+  const event={at:new Date().toISOString(),type,data};
+  q.history.push(event);
+  if(q.history.length>240)q.history.splice(0,q.history.length-240);
+  this.recordTraceEvent(type,data,{sample:true});
+ }
+
+ resetAdaptiveQualitySampling({restartProbe=false,settleMs=LK_QUALITY_POST_CHANGE_SETTLE_MS}={}){
+  const q=this.adaptiveQuality;if(!q)return;
+  const now=performance.now();
+  q.probeSamples=[];q.probeValidMs=0;q.monitorSamples=[];
+  q.suspendedUntil=now+Math.max(0,settleMs||0);
+  if(restartProbe&&q.mode==='auto')q.phase='warmup';
+ }
+
+ setAdaptiveQualityMode(mode,{restartProbe=false}={}){
+  const q=this.adaptiveQuality;if(!q)return false;
+  const next=mode==='manual'?'manual':'auto';
+  const before=q.mode;
+  q.mode=next;q.pendingScale=null;q.pendingReason=null;q.recommendedUpgrade=null;
+  q.cpuBoundLikely=false;q.cpuBoundBlockUntil=0;q.pendingTrial=null;q.activeTrial=null;
+  if(next==='auto'){
+   q.phase='warmup';
+   q.startedAt=performance.now();
+   this.resetAdaptiveQualitySampling({restartProbe:true,settleMs:LK_QUALITY_POST_CHANGE_SETTLE_MS});
+  }else{
+   q.phase='manual';q.probeSamples=[];q.monitorSamples=[];
+  }
+  try{localStorage.setItem(LK_QUALITY_MODE_STORAGE_KEY,next);}catch{}
+  this.logAdaptiveQualityEvent('quality_mode_changed',{before,after:next,renderScale:LK_RENDER_SCALE,restartProbe:Boolean(restartProbe)});
+  this.refreshStateButtons();this.refreshAdaptiveQualityUi(true);
+  return true;
+ }
+
+ getAdaptiveQualitySnapshot(){
+  const q=this.adaptiveQuality;
+  if(!q)return null;
+  return {
+   mode:q.mode,phase:q.phase,profile:lkProfileName(LK_RENDER_SCALE),renderScale:Math.round(LK_RENDER_SCALE*100)/100,
+   pendingScale:q.pendingScale,recommendedUpgrade:q.recommendedUpgrade,
+   probeValidMs:Math.round(q.probeValidMs||0),monitorSamples:q.monitorSamples?.length||0,
+   cpuBoundLikely:Boolean(q.cpuBoundLikely),bottleneckClass:q.bottleneckClass||'unknown',
+   activeTrial:q.activeTrial?{from:q.activeTrial.from,to:q.activeTrial.to,validMs:Math.round(q.activeTrial.validMs||0)}:null,
+   lastResult:q.lastResult||null
+  };
+ }
+
+ isAdaptiveQualityFrameValid(now,wallGap){
+  const q=this.adaptiveQuality,s=this.scene,cam=s.cameras?.main;
+  if(!q || q.mode!=='auto' || this.renderBenchmark?.active)return false;
+  if(now<q.suspendedUntil)return false;
+  if(typeof document!=='undefined' && (document.hidden || document.visibilityState!=='visible' || !document.hasFocus?.()))return false;
+  if(!Number.isFinite(wallGap) || wallGap<8 || wallGap>250)return false;
+  if(s.gameOver || s.gameplayPaused || s.levelChoiceOpen || s.championRewardOpen)return false;
+  if(s.storyFocusLockOwner || s.storyDirector?.isBusy?.() || s.storyAnomalyCueState || s.ashChampionIntroState || s.woundedKnightInteractions?.active)return false;
+  if(cam?.panEffect?.isRunning || cam?.zoomEffect?.isRunning || cam?.fadeEffect?.isRunning)return false;
+  return true;
+ }
+
+ isAdaptiveQualitySafeMoment(){
+  const s=this.scene,cam=s.cameras?.main;
+  if(!s || s.gameOver || this.renderBenchmark?.active)return false;
+  if(s.storyFocusLockOwner || s.storyDirector?.isBusy?.() || s.storyAnomalyCueState || s.ashChampionIntroState || s.woundedKnightInteractions?.active)return false;
+  if(cam?.panEffect?.isRunning || cam?.zoomEffect?.isRunning || cam?.fadeEffect?.isRunning)return false;
+  if(s.activeChampion?.active)return false;
+  if((s.meleeAttack?.combatActive)||((s.playerAttackUntil||0)>(s.time?.now||0)))return false;
+  const ordinary=(s.enemies||[]).some(enemy=>enemy?.active&&enemy.hp>0&&enemy.type!=='champion'&&!enemy.storyDormant);
+  return !ordinary && (Boolean(s.waveIntermission) || Number(s.wave||0)<=1 || Boolean(s.levelChoiceOpen));
+ }
+
+ qualityResponseKey(from,to){return `${Number(from).toFixed(2)}>${Number(to).toFixed(2)}`;}
+
+ getAdaptiveScaleResponse(from,to){
+  const q=this.adaptiveQuality;if(!q)return null;
+  return q.scaleResponse?.[this.qualityResponseKey(from,to)]||null;
+ }
+
+ rememberAdaptiveScaleResponse(from,to,baseline,result,source='runtime_trial'){
+  const q=this.adaptiveQuality;if(!q||!baseline||!result)return null;
+  const baseFps=Math.max(1,Number(baseline.medianFps)||1);
+  const baseP95=Math.max(1,Number(baseline.p95GapMs)||1);
+  const fpsGainPct=((Number(result.medianFps)||0)-baseFps)/baseFps*100;
+  const p95GainPct=(baseP95-(Number(result.p95GapMs)||baseP95))/baseP95*100;
+  const helpful=fpsGainPct>=LK_QUALITY_MIN_FPS_GAIN_PCT || p95GainPct>=LK_QUALITY_MIN_P95_GAIN_PCT;
+  const evidence={
+   from:Number(from),to:Number(to),helpful,source,at:Date.now(),
+   fpsGainPct:Math.round(fpsGainPct*10)/10,p95GainPct:Math.round(p95GainPct*10)/10,
+   baseline:{medianFps:baseline.medianFps,p95GapMs:baseline.p95GapMs},
+   result:{medianFps:result.medianFps,p95GapMs:result.p95GapMs}
+  };
+  q.scaleResponse[this.qualityResponseKey(from,to)]=evidence;
+  lkWriteQualityResponseMap(q.scaleResponse);
+  this.refreshAdaptiveBottleneckClass();
+  this.logAdaptiveQualityEvent('quality_scale_response_learned',evidence);
+  return evidence;
+ }
+
+ refreshAdaptiveBottleneckClass(){
+  const q=this.adaptiveQuality;if(!q)return 'unknown';
+  const evidence=Object.values(q.scaleResponse||{}).filter(item=>item&&Number.isFinite(item.from)&&Number.isFinite(item.to));
+  if(!evidence.length){q.bottleneckClass=q.cpuBoundLikely?'cpu_limited':'unknown';return q.bottleneckClass;}
+  const helpful=evidence.filter(item=>item.helpful).length;
+  q.bottleneckClass=helpful===0?'cpu_limited':(helpful>=2?'gpu_limited':'mixed');
+  return q.bottleneckClass;
+ }
+
+ learnAdaptiveQualityFromBenchmark(results){
+  const q=this.adaptiveQuality;if(!q||!Array.isArray(results)||results.length<2)return;
+  const sorted=[...results].filter(r=>Number.isFinite(r?.scale)).sort((a,b)=>a.scale-b.scale);
+  for(let i=1;i<sorted.length;i++){
+   const lower=sorted[i-1],higher=sorted[i];
+   if(!Number.isFinite(lower.medianFps)||!Number.isFinite(higher.medianFps)||!Number.isFinite(lower.p95FrameGapMs)||!Number.isFinite(higher.p95FrameGapMs))continue;
+   this.rememberAdaptiveScaleResponse(
+    higher.scale,lower.scale,
+    {medianFps:higher.medianFps,p95GapMs:higher.p95FrameGapMs},
+    {medianFps:lower.medianFps,p95GapMs:lower.p95FrameGapMs},
+    'four_scale_benchmark'
+   );
+  }
+  const bottleneck=this.refreshAdaptiveBottleneckClass();
+  this.logAdaptiveQualityEvent('quality_benchmark_classified',{bottleneck,responseMap:q.scaleResponse});
+ }
+
+ requestAdaptiveDowngrade(target,reason,metrics){
+  const q=this.adaptiveQuality;if(!q)return false;
+  const evidence=this.getAdaptiveScaleResponse(LK_RENDER_SCALE,target);
+  if(evidence && !evidence.helpful){
+   q.cpuBoundLikely=true;q.cpuBoundBlockUntil=performance.now()+120000;
+   this.refreshAdaptiveBottleneckClass();
+   this.logAdaptiveQualityEvent('quality_downgrade_rejected',{
+    from:LK_RENDER_SCALE,to:target,reason:'resolution_not_bottleneck',trigger:reason,evidence,metrics
+   });
+   return false;
+  }
+  if(!evidence){
+   q.pendingTrial={from:LK_RENDER_SCALE,to:target,baseline:metrics,trigger:reason};
+  }
+  return this.queueAdaptiveQualityScale(target,evidence?reason:`${reason}_trial`,metrics);
+ }
+
+ evaluateAdaptiveQualityTrial(now){
+  const q=this.adaptiveQuality,trial=q?.activeTrial;if(!q||!trial)return false;
+  if((trial.validMs||0)<LK_QUALITY_TRIAL_ACTIVE_MS)return false;
+  const result=this.buildAdaptiveQualityMetrics(trial.samples||[]);
+  if(!result)return false;
+  const evidence=this.rememberAdaptiveScaleResponse(trial.from,trial.to,trial.baseline,result,'runtime_trial');
+  q.activeTrial=null;
+  if(evidence?.helpful){
+   this.logAdaptiveQualityEvent('quality_trial_accepted',{from:trial.from,to:trial.to,evidence});
+   return true;
+  }
+  q.cpuBoundLikely=true;q.cpuBoundBlockUntil=now+120000;
+  this.logAdaptiveQualityEvent('quality_trial_rejected',{from:trial.from,to:trial.to,evidence,action:'rollback_when_safe'});
+  this.queueAdaptiveQualityScale(trial.from,'resolution_not_bottleneck_rollback',result);
+  return true;
+ }
+
+ chooseAdaptiveInitialScale(metrics){
+  const index=Math.max(0,LK_QUALITY_SCALES.findIndex(scale=>Math.abs(scale-LK_RENDER_SCALE)<0.01));
+  const pressure=metrics && (metrics.medianFps<42 || metrics.p95GapMs>38 || metrics.slow50Ratio>0.08);
+  const headroom=metrics && metrics.medianFps>=56 && metrics.p95GapMs<=22 && metrics.slow33Ratio<0.03;
+  if(pressure&&index>0){
+   const lower=LK_QUALITY_SCALES[index-1];
+   const evidence=this.getAdaptiveScaleResponse(LK_RENDER_SCALE,lower);
+   if(evidence && !evidence.helpful)return LK_RENDER_SCALE;
+   return lower;
+  }
+  if(headroom&&index<LK_QUALITY_SCALES.length-1)return LK_QUALITY_SCALES[index+1];
+  return LK_QUALITY_SCALES[Math.max(0,index)];
+ }
+
+ queueAdaptiveQualityScale(scale,reason,metrics=null){
+  const q=this.adaptiveQuality;
+  const target=LK_QUALITY_SCALES.find(value=>Math.abs(value-Number(scale))<0.01);
+  if(!q || q.mode!=='auto' || !target || Math.abs(target-LK_RENDER_SCALE)<0.01)return false;
+  q.pendingScale=target;q.pendingReason=reason||'adaptive';q.lastResult=metrics||q.lastResult;
+  this.logAdaptiveQualityEvent('quality_change_pending',{from:LK_RENDER_SCALE,to:target,reason:q.pendingReason,metrics});
+  return true;
+ }
+
+ applyPendingAdaptiveQuality(now=performance.now()){
+  const q=this.adaptiveQuality;if(!q || q.mode!=='auto' || q.pendingScale===null)return false;
+  if(!this.isAdaptiveQualitySafeMoment())return false;
+  const before=LK_RENDER_SCALE,target=q.pendingScale,reason=q.pendingReason;
+  const trial=q.pendingTrial && Math.abs(q.pendingTrial.to-target)<0.01 ? q.pendingTrial : null;
+  const applied=lkApplyRenderScale(this.scene.game,target,{remember:false});
+  try{localStorage.setItem(LK_QUALITY_PROFILE_STORAGE_KEY,String(applied));}catch{}
+  q.pendingScale=null;q.pendingReason=null;q.pendingTrial=null;q.phase='monitoring';q.lastScaleChangeAt=now;q.lastDecisionAt=now;q.recommendedUpgrade=null;
+  q.activeTrial=trial?{...trial,startedAt:now,validMs:0,samples:[]}:null;
+  q.suspendedUntil=now+LK_QUALITY_POST_CHANGE_SETTLE_MS;q.probeSamples=[];q.probeValidMs=0;q.monitorSamples=[];
+  this.logAdaptiveQualityEvent('quality_changed',{from:before,to:applied,profile:lkProfileName(applied),reason});
+  this.refreshStateButtons();this.updateRenderInfo(true);this.refreshAdaptiveQualityUi(true);
+  return true;
+ }
+
+ finishAdaptiveQualityProbe(now){
+  const q=this.adaptiveQuality;if(!q || !q.probeSamples.length)return;
+  const metrics=this.buildAdaptiveQualityMetrics(q.probeSamples);
+  const selected=this.chooseAdaptiveInitialScale(metrics);
+  q.lastResult=metrics;q.phase='monitoring';q.lastDecisionAt=now;q.probeSamples=[];q.probeValidMs=0;
+  this.logAdaptiveQualityEvent('quality_probe_result',{currentScale:LK_RENDER_SCALE,selectedScale:selected,profile:lkProfileName(selected),metrics});
+  if(Math.abs(selected-LK_RENDER_SCALE)>=0.01){
+   if(selected<LK_RENDER_SCALE)this.requestAdaptiveDowngrade(selected,'initial_probe',metrics);
+   else this.queueAdaptiveQualityScale(selected,'initial_probe',metrics);
+  }else{
+   try{localStorage.setItem(LK_QUALITY_PROFILE_STORAGE_KEY,String(LK_RENDER_SCALE));}catch{}
+  }
+ }
+
+ evaluateAdaptiveQualityPressure(now){
+  const q=this.adaptiveQuality;if(!q || q.mode!=='auto' || q.pendingScale!==null)return;
+  const cutoff=now-LK_QUALITY_MONITOR_WINDOW_MS;
+  q.monitorSamples=q.monitorSamples.filter(sample=>sample.at>=cutoff);
+  if(q.monitorSamples.length<120 || now-q.lastDecisionAt<LK_QUALITY_DOWNGRADE_COOLDOWN_MS)return;
+  const metrics=this.buildAdaptiveQualityMetrics(q.monitorSamples);
+  if(!metrics)return;
+  q.lastResult=metrics;q.lastDecisionAt=now;
+
+  if(q.cpuBoundLikely && now>=q.cpuBoundBlockUntil){q.cpuBoundLikely=false;this.refreshAdaptiveBottleneckClass();}
+
+  const index=LK_QUALITY_SCALES.findIndex(scale=>Math.abs(scale-LK_RENDER_SCALE)<0.01);
+  const pressure=metrics.medianFps<38 || metrics.p95GapMs>45 || metrics.slow50Ratio>0.12;
+  if(pressure && index>0 && !(q.cpuBoundLikely&&now<q.cpuBoundBlockUntil)){
+   this.requestAdaptiveDowngrade(LK_QUALITY_SCALES[index-1],'sustained_frame_pressure',metrics);
+   return;
+  }
+  if(index<LK_QUALITY_SCALES.length-1 && now-Math.max(q.lastScaleChangeAt,q.startedAt)>=LK_QUALITY_UPGRADE_RECOMMEND_MS){
+   const headroom=metrics.medianFps>=57 && metrics.p95GapMs<=22 && metrics.slow33Ratio<0.03;
+   if(headroom && q.recommendedUpgrade===null){
+    q.recommendedUpgrade=LK_QUALITY_SCALES[index+1];
+    this.logAdaptiveQualityEvent('quality_upgrade_available',{from:LK_RENDER_SCALE,to:q.recommendedUpgrade,metrics});
+   }
+  }
+ }
+
+ updateAdaptiveQuality(now=performance.now(),wallGap=0){
+  const q=this.adaptiveQuality;if(!q || q.mode!=='auto')return;
+  const css=lkCssViewport();
+  const viewportKey=`${css.width}x${css.height}@${Number(window.devicePixelRatio||1).toFixed(2)}`;
+  if(q.lastViewportKey && q.lastViewportKey!==viewportKey){
+   q.lastViewportKey=viewportKey;
+   this.resetAdaptiveQualitySampling({restartProbe:q.phase!=='monitoring',settleMs:3000});
+   this.logAdaptiveQualityEvent('quality_sampling_reset',{reason:'viewport_changed',viewportKey});
+   return;
+  }
+  q.lastViewportKey=viewportKey;
+  if(wallGap>500){
+   this.resetAdaptiveQualitySampling({restartProbe:q.phase!=='monitoring',settleMs:3000});
+   this.logAdaptiveQualityEvent('quality_sampling_reset',{reason:'large_frame_gap',wallGap:Math.round(wallGap)});
+   return;
+  }
+  this.applyPendingAdaptiveQuality(now);
+  if(!this.isAdaptiveQualityFrameValid(now,wallGap)){this.refreshAdaptiveQualityUi(false);return;}
+  const sample={at:now,gap:Math.max(8,wallGap)};
+  if(q.phase==='warmup'){
+   q.phase='probing';q.probeSamples=[];q.probeValidMs=0;
+   this.logAdaptiveQualityEvent('quality_probe_started',{renderScale:LK_RENDER_SCALE,profile:lkProfileName(LK_RENDER_SCALE),targetActiveMs:LK_QUALITY_PROBE_ACTIVE_MS});
+  }
+  if(q.phase==='probing'){
+   q.probeSamples.push(sample);q.probeValidMs+=Math.min(sample.gap,100);
+   if(q.probeValidMs>=LK_QUALITY_PROBE_ACTIVE_MS)this.finishAdaptiveQualityProbe(now);
+  }else if(q.phase==='monitoring'){
+   q.monitorSamples.push(sample);
+   if(q.monitorSamples.length>1800)q.monitorSamples.splice(0,q.monitorSamples.length-1800);
+   if(q.activeTrial){
+    q.activeTrial.samples.push(sample);
+    q.activeTrial.validMs+=Math.min(sample.gap,100);
+    this.evaluateAdaptiveQualityTrial(now);
+   }
+   if(!q.activeTrial)this.evaluateAdaptiveQualityPressure(now);
+  }
+  this.applyPendingAdaptiveQuality(now);
+  this.refreshAdaptiveQualityUi(false);
+ }
+
+ refreshAdaptiveQualityUi(force=false){
+  const el=typeof document!=='undefined'?document.getElementById('lkdev-quality-info'):null;
+  const q=this.adaptiveQuality;if(!el||!q)return;
+  const now=performance.now();if(!force&&now-q.lastUiAt<400)return;q.lastUiAt=now;
+  const profile=lkProfileName(LK_RENDER_SCALE);
+  const pending=q.pendingScale!==null?` · pending ${lkProfileName(q.pendingScale)} ${q.pendingScale.toFixed(2)}×`:'';
+  const upgrade=q.recommendedUpgrade!==null?`
+Headroom detected: ${lkProfileName(q.recommendedUpgrade)} ${q.recommendedUpgrade.toFixed(2)}× available`:'';
+  const metrics=q.lastResult?`
+median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
+  const bottleneck=q.bottleneckClass&&q.bottleneckClass!=='unknown'?` · ${q.bottleneckClass.replace('_',' ').toUpperCase()}`:'';
+  const cpu=q.cpuBoundLikely?' · downgrade guard':'';
+  const trial=q.activeTrial?` · testing ${q.activeTrial.from.toFixed(2)}→${q.activeTrial.to.toFixed(2)}`:'';
+  const progress=q.phase==='probing'?` ${(Math.min(1,q.probeValidMs/LK_QUALITY_PROBE_ACTIVE_MS)*100).toFixed(0)}%`:'';
+  el.textContent=`${q.mode.toUpperCase()} · ${q.phase}${progress} · ${profile} ${LK_RENDER_SCALE.toFixed(2)}×${bottleneck}${cpu}${trial}${pending}${metrics}${upgrade}`;
+ }
+
  setRenderScale(value){
   const before=LK_RENDER_SCALE;
+<<<<<<< HEAD
   const applied=lkApplyRenderScale(this.scene.game,value);
+=======
+  this.setAdaptiveQualityMode('manual');
+  const applied=lkApplyRenderScale(this.scene.game,value);
+  this.logAdaptiveQualityEvent('quality_manual_scale',{requested:String(value),before,after:applied,profile:lkProfileName(applied)});
+>>>>>>> c550486 (new changes)
   this.recordTraceEvent('render_scale_changed',{requested:String(value),before,after:applied},{sample:true});
   this.refreshStateButtons();this.updateRenderInfo(true);this.updateInfo(true);
   return applied;
@@ -1139,6 +1600,10 @@ class LastKnightDevTools {
   b.index++;
   if(b.index>=b.scales.length){
    b.active=false;
+<<<<<<< HEAD
+=======
+   this.learnAdaptiveQualityFromBenchmark(this.renderBenchmarkResults);
+>>>>>>> c550486 (new changes)
    lkApplyRenderScale(this.scene.game,b.originalScale,{remember:false});
    this.recordTraceEvent('render_benchmark_finished',{results:this.renderBenchmarkResults,restoredScale:b.originalScale},{sample:true});
    this.refreshStateButtons();this.updateRenderInfo(true);this.refreshRenderBenchmarkUi();
@@ -1379,6 +1844,10 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
     sceneTimePaused:Boolean(s.time?.paused),physicsPaused:Boolean(s.physics?.world?.isPaused)
    },
    render:this.getTraceRenderState(),
+<<<<<<< HEAD
+=======
+   quality:this.getAdaptiveQualitySnapshot(),
+>>>>>>> c550486 (new changes)
    camera:this.getTraceCameraState(),
    player:{
     x:player?Math.round(player.x*10)/10:null,y:player?Math.round(player.y*10)/10:null,
@@ -1438,8 +1907,13 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
  getTraceMetadata(){
   const game=this.scene?.game;
   return {
+<<<<<<< HEAD
    schema:'last-knight-performance-trace-v2',
    build:'v10.6-performance-diagnostics',
+=======
+   schema:'last-knight-performance-trace-v3',
+   build:'v10.8-adaptive-quality',
+>>>>>>> c550486 (new changes)
    createdAt:new Date().toISOString(),
    userAgent:navigator.userAgent||null,
    platform:navigator.platform||null,
@@ -1502,7 +1976,11 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
     stoppedAt:trace.stoppedWall?new Date(trace.stoppedWall).toISOString():null,
     active:Boolean(trace.active),durationMs:Math.round((trace.active?performance.now()-trace.startedPerf:(trace.stoppedWall-trace.startedWall))*10)/10,
     sampleIntervalMs:this.traceSampleIntervalMs,droppedSamples:trace.droppedSamples||0,droppedEvents:trace.droppedEvents||0,
+<<<<<<< HEAD
     benchmarks:trace.benchmarks||[]
+=======
+    benchmarks:trace.benchmarks||[],qualityHistory:[...(this.adaptiveQuality?.history||[])]
+>>>>>>> c550486 (new changes)
    },
    finalState:this.buildTraceSnapshot(performance.now()),
    events:trace.events,
@@ -1601,7 +2079,11 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   this.traceBrowserHandlers=null;this.traceGameHandlers=null;
  }
 
+<<<<<<< HEAD
  refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
+=======
+ refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='qualityAuto')on=this.adaptiveQuality?.mode==='auto';if(a==='renderScale'){const target=Number(v);on=Number.isFinite(target)&&Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
+>>>>>>> c550486 (new changes)
 
  getCurrentSegment(){const x=this.scene.player?.x||0;return ASH_FIELDS_SEGMENTS.find(seg=>x>=seg.start&&x<seg.end)?.id||'-';}
  updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
@@ -1657,8 +2139,14 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   const now=performance.now(),wallGap=Math.max(0,now-this.lastUpdateReal),dt=Math.min(50,wallGap);this.lastUpdateReal=now;
   this.recordTraceFrame(delta,wallGap);
   this.updateRenderBenchmark(now,wallGap);
+<<<<<<< HEAD
   this.samplePerformanceTrace(false);
   if(this.open)this.refreshRenderBenchmarkUi();
+=======
+  this.updateAdaptiveQuality(now,wallGap);
+  this.samplePerformanceTrace(false);
+  if(this.open){this.refreshRenderBenchmarkUi();this.refreshAdaptiveQualityUi(false);}
+>>>>>>> c550486 (new changes)
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
 
@@ -2614,6 +3102,26 @@ class MainScene extends Phaser.Scene {
   this.championHazards=[];
   this.relicZones=[];
   this.championRelics=new Set();
+  this.championSkillEvolutions=new Set();
+  this.championEssences=new Set();
+  this.currentChampionRewardChoices=[];
+  this.currentChampionRewardFlow=null;
+  this.currentChampionRewardStepIndex=0;
+  this.brokenSaintDefeatSequenceActive=false;
+  this.brokenSaintDefeatFx=[];
+  this.bsPenitenceCharges=0;
+  this.liftCommitUntil=0;
+  this.liftPostMarkWindowStartsAt=0;
+  this.liftPostMarkWindowUntil=0;
+  this.liftPostMarkConsumed=false;
+  this.spinCommitUntil=0;
+  this.spinSaintsNailConsumed=false;
+  this.playerSpeedBoostUntil=0;
+  this.playerSpeedBoostFactor=1;
+  this.ashRosaryDiscount=null;
+  this.championHpMultiplier=1;
+  this.championManaRegenMultiplier=1;
+  this.skillRecoveryMultiplier=1;
   this.nextSoulSkullAt=0;
   this.nextCursedGroundAt=0;
   this.killStreakBonus=0;
@@ -2737,6 +3245,26 @@ class MainScene extends Phaser.Scene {
   this.championHazards=[];
   this.relicZones=[];
   this.championRelics=new Set();
+  this.championSkillEvolutions=new Set();
+  this.championEssences=new Set();
+  this.currentChampionRewardChoices=[];
+  this.currentChampionRewardFlow=null;
+  this.currentChampionRewardStepIndex=0;
+  this.brokenSaintDefeatSequenceActive=false;
+  this.brokenSaintDefeatFx=[];
+  this.bsPenitenceCharges=0;
+  this.liftCommitUntil=0;
+  this.liftPostMarkWindowStartsAt=0;
+  this.liftPostMarkWindowUntil=0;
+  this.liftPostMarkConsumed=false;
+  this.spinCommitUntil=0;
+  this.spinSaintsNailConsumed=false;
+  this.playerSpeedBoostUntil=0;
+  this.playerSpeedBoostFactor=1;
+  this.ashRosaryDiscount=null;
+  this.championHpMultiplier=1;
+  this.championManaRegenMultiplier=1;
+  this.skillRecoveryMultiplier=1;
   this.nextSoulSkullAt=0;
   this.nextCursedGroundAt=0;
   this.killStreakBonus=0;
@@ -3483,8 +4011,14 @@ class MainScene extends Phaser.Scene {
   const previousAngle=Number.isFinite(enemy.cachedSteerAngle)?enemy.cachedSteerAngle:null;
   const inputAngleDelta=previousAngle===null?Math.PI:Math.abs(Phaser.Math.Angle.Wrap(inputAngle-(enemy.cachedInputAngle??inputAngle)));
   const closeToPlayer=(toPlayerX*toPlayerX+toPlayerY*toPlayerY)<360*360;
+<<<<<<< HEAD
   const probeInterval=closeToPlayer?50:90;
   const canReuse=previousAngle!==null && !enemy.navForceRepath && time<(enemy.localSteerProbeAt||0) && inputAngleDelta<0.26;
+=======
+  const rescueNavigation=Boolean(enemy.navRescueActive && time<(enemy.navRescueUntil||0));
+  const probeInterval=rescueNavigation?24:(closeToPlayer?50:90);
+  const canReuse=previousAngle!==null && !enemy.navForceRepath && time<(enemy.localSteerProbeAt||0) && inputAngleDelta<(rescueNavigation?0.14:0.26);
+>>>>>>> c550486 (new changes)
   if(canReuse){
    enemy.body.setVelocity(Math.cos(previousAngle)*speed,Math.sin(previousAngle)*speed);
    return;
@@ -4461,7 +4995,7 @@ createAshFieldsEnvironment(objects,zone){
 
  getRegionalPlayerMaxHp(index=this.progressionBalanceZoneIndex){
   const balance=this.getRegionBalance(index);
-  return Math.max(1,Math.round(BALANCE.PLAYER_BASE_MAX_HP*balance.playerMaxHpMultiplier));
+  return Math.max(1,Math.round(BALANCE.PLAYER_BASE_MAX_HP*balance.playerMaxHpMultiplier*(this.championHpMultiplier||1)));
  }
 
  applyRegionalHeroBalance(index=this.progressionBalanceZoneIndex,showFeedback=true){
@@ -5232,11 +5766,6 @@ createAshFieldsEnvironment(objects,zone){
 
  getChampionRewardChoices(kind){
   return ({
-   brokenSaint:[
-    ['HOLY FRAGMENT','Every 5th sword swing releases a light slash','holyFragment'],
-    ['MERCY SEAL','Sword deals +25% damage to enemies below 30% HP','mercySeal'],
-    ['FALLEN BLESSING','Survive one lethal hit and restore 30 HP','fallenBlessing']
-   ],
    necromancer:[
     ['SOUL SKULL','A spectral skull attacks a nearby enemy periodically','soulSkull'],
     ['GREEN CURSE','Dead enemies can leave damaging cursed ground','greenCurse'],
@@ -5255,61 +5784,155 @@ createAshFieldsEnvironment(objects,zone){
   })[kind] || [];
  }
 
+ getBrokenSaintRewardFlow(){
+  return [
+   {
+    stepTitle:'СИЛА ЧЕМПИОНА',
+    subtitle:'ВЫБЕРИТЕ ЭВОЛЮЦИЮ ОДНОГО БАЗОВОГО НАВЫКА',
+    choices:[
+     {
+      type:'evolution',id:BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath,
+      iconKey:SKILL_ICON_KEYS.quake,
+      name:'ПУТЬ ПАЛОМНИКА',
+      desc:'Удар по земле: отбросьте 2+ врагов → +35% скорости движения на 2 сек.',
+      meta:'ТЕМП · базовая роль: ESCAPE'
+     },
+     {
+      type:'evolution',id:BROKEN_SAINT_EVOLUTION_IDS.verdict,
+      iconKey:SKILL_ICON_KEYS.lift,
+      name:'ПРИГОВОР',
+      desc:'Подброс: пока поднятые враги в воздухе, входящий урон снижен на 25%.',
+      meta:'СТОЙКОСТЬ · база: −30% скорости до приземления'
+     },
+     {
+      type:'evolution',id:BROKEN_SAINT_EVOLUTION_IDS.saintStance,
+      iconKey:SKILL_ICON_KEYS.spin,
+      name:'СТОЙКОСТЬ СВЯТОГО',
+      desc:'Вертушка: пока герой стоит и вращает меч, входящий урон снижен на 18%.',
+      meta:'СТОЙКОСТЬ / МЕЧНИК · риск сохраняется'
+     }
+    ]
+   },
+   {
+    stepTitle:'РЕЛИКВИЯ BROKEN SAINT',
+    subtitle:'ВЫБЕРИТЕ ОДНУ РЕЛИКВИЮ',
+    choices:[
+     {
+      type:'relic',id:BROKEN_SAINT_RELIC_IDS.crackedHalo,
+      iconKey:BROKEN_SAINT_RELIC_ICON_KEYS[BROKEN_SAINT_RELIC_IDS.crackedHalo],
+      name:'ТРЕСНУВШИЙ НИМБ',
+      desc:'Урон во время Подброса или Вертушки даёт заряд Покаяния (до 3). Следующая Земля расходует заряды: сильнее урон и отбрасывание.',
+      meta:'СТОЙКОСТЬ + ТЕМП'
+     },
+     {
+      type:'relic',id:BROKEN_SAINT_RELIC_IDS.saintsNail,
+      iconKey:BROKEN_SAINT_RELIC_ICON_KEYS[BROKEN_SAINT_RELIC_IDS.saintsNail],
+      name:'ГВОЗДЬ СВЯТОГО',
+      desc:'После Подброса первый ударивший вас враг получает Клеймо на 5 сек. Во время Вертушки — первый ударивший враг. Следующий навык по Клейму наносит +30%.',
+      meta:'СТОЙКОСТЬ + ОХОТНИК'
+     },
+     {
+      type:'relic',id:BROKEN_SAINT_RELIC_IDS.ashRosary,
+      iconKey:BROKEN_SAINT_RELIC_ICON_KEYS[BROKEN_SAINT_RELIC_IDS.ashRosary],
+      name:'ПЕПЕЛЬНЫЕ ЧЁТКИ',
+      desc:'Земля или Подброс задели 3+ врагов → следующий ДРУГОЙ навык в течение 6 сек. стоит на 25% меньше маны.',
+      meta:'ЦИКЛ / SKILL'
+     }
+    ]
+   },
+   {
+    stepTitle:'ЭССЕНЦИЯ BROKEN SAINT',
+    subtitle:'ВЫБЕРИТЕ ПОСТОЯННОЕ УСИЛЕНИЕ',
+    choices:[
+     {
+      type:'essence',id:BROKEN_SAINT_ESSENCE_IDS.body,
+      iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.body],
+      name:'ЭССЕНЦИЯ ТЕЛА',
+      desc:'+10% к максимальному запасу HP.',
+      meta:'СТОЙКОСТЬ / МЕЧНИК'
+     },
+     {
+      type:'essence',id:BROKEN_SAINT_ESSENCE_IDS.will,
+      iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.will],
+      name:'ЭССЕНЦИЯ ВОЛИ',
+      desc:'+8% к скорости восстановления маны.',
+      meta:'ЦИКЛ / SKILL'
+     },
+     {
+      type:'essence',id:BROKEN_SAINT_ESSENCE_IDS.discipline,
+      iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.discipline],
+      name:'ЭССЕНЦИЯ ДИСЦИПЛИНЫ',
+      desc:'+6% к восстановлению между применениями базовых навыков.',
+      meta:'ТЕМП / ЦИКЛ'
+     }
+    ]
+   }
+  ];
+ }
+
  openChampionRewards(kind){
   if(this.championRewardOpen) return;
-  const choices=this.getChampionRewardChoices(kind);
-  if(!choices.length) return;
+  const def=this.getChampionDefinition(kind);
+  if(!def) return;
+
+  let flow=[];
+  if(kind==='brokenSaint'){
+   flow=this.getBrokenSaintRewardFlow();
+  } else {
+   const legacy=this.getChampionRewardChoices(kind);
+   if(!legacy.length) return;
+   flow=[{
+    stepTitle:`${def.name} DEFEATED`,
+    subtitle:'CHOOSE ONE CHAMPION RELIC',
+    choices:legacy.map(([name,desc,id])=>({type:'relic',id,name,desc,meta:'CHAMPION RELIC'}))
+   }];
+  }
 
   this.championRewardOpen=true;
   this.setGameplayPaused('championReward',true);
-  const def=this.getChampionDefinition(kind);
-  this.currentChampionRewardChoices=choices;
+  this.currentChampionRewardKind=kind;
+  this.currentChampionRewardFlow=flow;
+  this.currentChampionRewardStepIndex=0;
+  this.showCurrentChampionRewardStep();
+ }
+
+ showCurrentChampionRewardStep(){
+  const flow=this.currentChampionRewardFlow||[];
+  const step=flow[this.currentChampionRewardStepIndex];
+  if(!step) return;
+  this.currentChampionRewardChoices=step.choices||[];
+  const def=this.getChampionDefinition(this.currentChampionRewardKind);
   const hudScene=this.scene.get('HUDScene');
   if(hudScene && typeof hudScene.showChampionRewards==='function'){
-   hudScene.showChampionRewards(def.name,def.rewardColor,choices);
-   this.championRewardObjects=[];
-   return;
-  }
-
-  const {cx,cy}=this.getUiMetrics();
-  const panel=this.add.rectangle(cx,cy,650,360,0x080b08,0.94)
-   .setStrokeStyle(3,0xd8b65c,0.85).setDepth(230).setScrollFactor(0);
-  const title=lkAddText(this,cx,cy-145,`${def.name} DEFEATED`,{fontSize:'27px',color:def.rewardColor,stroke:'#111111',strokeThickness:4})
-   .setOrigin(0.5).setDepth(231).setScrollFactor(0);
-  const subtitle=lkAddText(this,cx,cy-110,'CHOOSE ONE CHAMPION RELIC',{fontSize:'15px',color:'#ffffff'})
-   .setOrigin(0.5).setDepth(231).setScrollFactor(0);
-
-  this.championRewardObjects=[panel,title,subtitle];
-
-  choices.forEach((choice,i)=>{
-   const [name,desc,id]=choice;
-   const y=cy-55+i*82;
-   const card=this.add.rectangle(cx,y,570,66,0x243323,0.96)
-    .setStrokeStyle(2,0x7f9b68,0.8).setDepth(231).setScrollFactor(0).setInteractive({useHandCursor:true});
-   const nameText=lkAddText(this,cx-265,y-17,name,{fontSize:'18px',color:'#ffe8a8'}).setDepth(232).setScrollFactor(0);
-   const descText=lkAddText(this,cx-265,y+7,desc,{fontSize:'13px',color:'#dbe8d7',wordWrap:{width:500}}).setDepth(232).setScrollFactor(0);
-
-   card.on('pointerover',()=>card.setFillStyle(0x354b32,1));
-   card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
-   card.on('pointerdown',()=>{
-    this.grantChampionRelic(id);
-    this.closeChampionRewards(name);
+   hudScene.showChampionRewards(def?.name||'CHAMPION',def?.rewardColor||'#f5d78f',this.currentChampionRewardChoices,{
+    stepTitle:step.stepTitle,
+    subtitle:step.subtitle,
+    stepIndex:this.currentChampionRewardStepIndex,
+    totalSteps:flow.length
    });
-
-   this.championRewardObjects.push(card,nameText,descText);
-  });
+  }
  }
 
  selectChampionReward(index){
   if(!this.championRewardOpen) return;
   const choice=this.currentChampionRewardChoices?.[index];
   if(!choice) return;
-  const [name,,id]=choice;
-  this.grantChampionRelic(id);
-  this.closeChampionRewards(name);
+
+  if(choice.type==='evolution') this.grantChampionSkillEvolution(choice.id);
+  else if(choice.type==='essence') this.grantChampionEssence(choice.id);
+  else this.grantChampionRelic(choice.id);
+
+  const nextIndex=this.currentChampionRewardStepIndex+1;
+  if(nextIndex<(this.currentChampionRewardFlow?.length||0)){
+   this.currentChampionRewardStepIndex=nextIndex;
+   this.showCurrentChampionRewardStep();
+   return;
+  }
+  this.closeChampionRewards();
  }
 
- closeChampionRewards(rewardName){
+ closeChampionRewards(){
+  const finishedKind=this.currentChampionRewardKind;
   const hudScene=this.scene.get('HUDScene');
   if(hudScene && typeof hudScene.hideChampionRewards==='function') hudScene.hideChampionRewards();
   for(const obj of this.championRewardObjects){
@@ -5317,14 +5940,18 @@ createAshFieldsEnvironment(objects,zone){
   }
   this.championRewardObjects=[];
   this.currentChampionRewardChoices=[];
+  this.currentChampionRewardFlow=null;
+  this.currentChampionRewardStepIndex=0;
+  this.currentChampionRewardKind=null;
   this.championRewardOpen=false;
   this.setGameplayPaused('championReward',false);
+  if(finishedKind==='brokenSaint') this.setupBackgroundMusic();
 
   this.grantXp(40);
 
   const txt=lkAddText(this,
    this.player.x,this.player.y-62,
-   `${rewardName}\nRELIC ACQUIRED`,
+   'СИЛА ЧЕМПИОНА\nПРИНЯТА',
    {fontSize:'17px',color:'#ffe49b',align:'center',stroke:'#17120a',strokeThickness:3}
   ).setOrigin(0.5).setDepth(100);
 
@@ -5334,11 +5961,38 @@ createAshFieldsEnvironment(objects,zone){
   });
  }
 
+ grantChampionSkillEvolution(id){
+  if(!id) return;
+  this.championSkillEvolutions.add(id);
+ }
+
  grantChampionRelic(id){
+  if(!id) return;
   this.championRelics.add(id);
   if(id==='fallenBlessing') this.fallenBlessingUsed=false;
   if(id==='soulSkull') this.nextSoulSkullAt=this.time.now+1400;
   if(id==='cursedGround') this.nextCursedGroundAt=this.time.now+4000;
+ }
+
+ grantChampionEssence(id){
+  if(!id || this.championEssences.has(id)) return;
+  this.championEssences.add(id);
+  if(id===BROKEN_SAINT_ESSENCE_IDS.body){
+   const previousMax=Math.max(1,this.player?.maxHp||BALANCE.PLAYER_BASE_MAX_HP);
+   this.championHpMultiplier*=1.10;
+   const nextMax=this.getRegionalPlayerMaxHp(this.progressionBalanceZoneIndex);
+   if(this.player){
+    this.player.maxHp=nextMax;
+    this.player.hp=Math.min(nextMax,(this.player.hp||0)+Math.max(0,nextMax-previousMax));
+    this.updateLowHealthState(true);
+   }
+  } else if(id===BROKEN_SAINT_ESSENCE_IDS.will){
+   this.championManaRegenMultiplier*=0.92;
+   this.manaRegenMs=Math.max(250,Math.round(BALANCE.MANA_REGEN_MS*this.championManaRegenMultiplier));
+   if(this.mana<this.maxMana) this.nextManaRegenAt=this.time.now+this.manaRegenMs;
+  } else if(id===BROKEN_SAINT_ESSENCE_IDS.discipline){
+   this.skillRecoveryMultiplier*=0.94;
+  }
  }
 
  updateMana(time){
@@ -5350,31 +6004,51 @@ createAshFieldsEnvironment(objects,zone){
   }
   if(!this.nextManaRegenAt) this.nextManaRegenAt=time+this.manaRegenMs;
   while(this.mana<this.maxMana && time>=this.nextManaRegenAt){
-   this.mana++;
+   this.mana=Math.min(this.maxMana,this.mana+1);
    if(this.mana<this.maxMana) this.nextManaRegenAt+=this.manaRegenMs;
    else this.nextManaRegenAt=0;
   }
  }
 
- spendMana(){
+ getSkillManaCost(index){
+  const discount=this.ashRosaryDiscount;
+  if(
+   this.championRelics.has(BROKEN_SAINT_RELIC_IDS.ashRosary) &&
+   discount &&
+   this.time.now<=(discount.expiresAt||0) &&
+   index!==discount.sourceIndex
+  ) return 0.75;
+  return 1;
+ }
+
+ spendMana(index){
   if(this.devFlags?.infiniteMana){this.mana=this.maxMana;return true;}
-  if(this.mana<=0) return false;
+  const cost=this.getSkillManaCost(index);
+  if(this.mana+1e-6<cost) return false;
   const wasFull=this.mana>=this.maxMana;
-  this.mana--;
+  this.mana=Math.max(0,this.mana-cost);
+  if(cost<1 && this.ashRosaryDiscount && index!==this.ashRosaryDiscount.sourceIndex){
+   this.ashRosaryDiscount=null;
+  }
   if(wasFull || !this.nextManaRegenAt) this.nextManaRegenAt=this.time.now+this.manaRegenMs;
   return true;
  }
 
  handleSkillInput(index){
+<<<<<<< HEAD
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen) return;
+=======
+  if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen || this.brokenSaintDefeatSequenceActive) return;
+>>>>>>> c550486 (new changes)
   // The five-second anomaly focus is a deliberate non-combat story beat.
   if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;
   if(this.time.now<(this.skillLockUntil||0)) return;
-  if(this.mana<=0){
+  const cost=this.getSkillManaCost(index);
+  if(this.mana+1e-6<cost){
    this.showNoManaFeedback();
    return;
   }
-  if(!this.spendMana()) return;
+  if(!this.spendMana(index)) return;
   if(index===1){
    this.playSkillSfx('sfx_skill_quake',0.294);
    this.castGroundTremor();
@@ -5384,7 +6058,7 @@ createAshFieldsEnvironment(objects,zone){
   } else if(index===3){
    this.playSkillSfx('sfx_skill_spin');
    this.castSpin();
-  } else this.mana=Math.min(this.maxMana,this.mana+1);
+  } else this.mana=Math.min(this.maxMana,this.mana+cost);
  }
 
  showNoManaFeedback(){
@@ -5582,10 +6256,76 @@ createAshFieldsEnvironment(objects,zone){
   }
  }
 
+ hasChampionEvolution(id){
+  return Boolean(id && this.championSkillEvolutions?.has(id));
+ }
+
+ triggerAshRosary(sourceIndex,hitCount){
+  if(!this.championRelics.has(BROKEN_SAINT_RELIC_IDS.ashRosary) || hitCount<3) return;
+  this.ashRosaryDiscount={sourceIndex,expiresAt:this.time.now+6000};
+  const txt=lkAddText(this,this.player.x,this.player.y-52,'ЧЁТКИ: СЛЕДУЮЩИЙ ДРУГОЙ НАВЫК −25% МАНЫ',{
+   fontSize:'11px',color:'#ffb36d',stroke:'#251108',strokeThickness:3,align:'center'
+  }).setOrigin(0.5).setDepth(78);
+  this.tweens.add({targets:txt,y:txt.y-18,alpha:0,duration:900,onComplete:()=>txt.destroy()});
+ }
+
+ markSaintsNailTarget(enemy){
+  if(!enemy?.active || enemy.hp<=0) return false;
+  const now=this.time.now;
+  enemy.saintsNailMarkedUntil=now+BROKEN_SAINT_MARK_DURATION_MS;
+  if(enemy.saintsNailMarkVisual?.active) enemy.saintsNailMarkVisual.destroy();
+  enemy.saintsNailMarkVisual=this.add.circle(enemy.x,enemy.y,Math.max(24,(enemy.hitRadius||14)+10),0x6aa8ff,0.05)
+   .setStrokeStyle(2,0xaed6ff,0.92).setDepth(14.6);
+  const txt=lkAddText(this,enemy.x,enemy.y-42,'КЛЕЙМО',{
+   fontSize:'11px',fontStyle:'bold',color:'#b9dcff',stroke:'#102038',strokeThickness:3
+  }).setOrigin(0.5).setDepth(33);
+  this.tweens.add({targets:txt,y:txt.y-12,alpha:0,duration:650,onComplete:()=>txt.destroy()});
+  return true;
+ }
+
+ maybeMarkSaintsNailAttacker(attacker,now=this.time.now){
+  if(!this.championRelics.has(BROKEN_SAINT_RELIC_IDS.saintsNail) || !attacker?.active || attacker.hp<=0) return false;
+  const liftWindow=now>=(this.liftPostMarkWindowStartsAt||0) && now<=(this.liftPostMarkWindowUntil||0) && !this.liftPostMarkConsumed;
+  const spinWindow=now<(this.spinCommitUntil||0) && !this.spinSaintsNailConsumed;
+  if(!liftWindow && !spinWindow) return false;
+  if(liftWindow) this.liftPostMarkConsumed=true;
+  if(spinWindow) this.spinSaintsNailConsumed=true;
+  return this.markSaintsNailTarget(attacker);
+ }
+
+ consumeSaintsNailSkillBonus(enemy){
+  if(!enemy?.active || this.time.now>(enemy.saintsNailMarkedUntil||0)) return 1;
+  enemy.saintsNailMarkedUntil=0;
+  if(enemy.saintsNailMarkVisual?.active) enemy.saintsNailMarkVisual.destroy();
+  enemy.saintsNailMarkVisual=null;
+  return 1.30;
+ }
+
+ getBrokenSaintCommitmentDamageReduction(now=this.time.now){
+  let reduction=0;
+  if(this.hasChampionEvolution(BROKEN_SAINT_EVOLUTION_IDS.verdict) && now<(this.liftCommitUntil||0)) reduction+=0.25;
+  if(this.hasChampionEvolution(BROKEN_SAINT_EVOLUTION_IDS.saintStance) && now<(this.spinCommitUntil||0)) reduction+=0.18;
+  return Math.min(0.30,reduction);
+ }
+
+ registerCrackedHaloDamage(now=this.time.now){
+  if(!this.championRelics.has(BROKEN_SAINT_RELIC_IDS.crackedHalo)) return;
+  if(now>=(this.liftCommitUntil||0) && now>=(this.spinCommitUntil||0)) return;
+  const before=this.bsPenitenceCharges||0;
+  this.bsPenitenceCharges=Math.min(3,before+1);
+  if(this.bsPenitenceCharges!==before){
+   const txt=lkAddText(this,this.player.x,this.player.y-46,`ПОКАЯНИЕ ${this.bsPenitenceCharges}/3`,{
+    fontSize:'11px',fontStyle:'bold',color:'#ffd878',stroke:'#2b1808',strokeThickness:3
+   }).setOrigin(0.5).setDepth(78);
+   this.tweens.add({targets:txt,y:txt.y-14,alpha:0,duration:620,onComplete:()=>txt.destroy()});
+  }
+ }
+
  setSkillAttackPose(duration){
-  this.skillLockUntil=Math.max(this.skillLockUntil||0,this.time.now+duration);
+  const recoveryDuration=Math.max(120,Math.round(duration*(this.skillRecoveryMultiplier||1)));
+  this.skillLockUntil=Math.max(this.skillLockUntil||0,this.time.now+recoveryDuration);
   this.playerAttackDir=this.playerDir||'down';
-  this.startHeroSpinAttack(duration);
+  this.startHeroSpinAttack(recoveryDuration);
  }
 
  consumeShieldBlock(enemy){
@@ -5606,7 +6346,9 @@ createAshFieldsEnvironment(objects,zone){
  applySkillDamage(enemy,baseDamage,source,tint=0xffd77a,knockback=105){
   if(!enemy || !enemy.active || enemy.hp<=0) return false;
   if(this.consumeShieldBlock(enemy)) return false;
-  const resolved=this.getSwordDamageAgainst ? this.getSwordDamageAgainst(enemy,baseDamage) : baseDamage;
+  const nailMultiplier=this.consumeSaintsNailSkillBonus(enemy);
+  const adjustedBase=baseDamage*nailMultiplier;
+  const resolved=this.getSwordDamageAgainst ? this.getSwordDamageAgainst(enemy,adjustedBase) : adjustedBase;
   const killed=this.damageEnemy(enemy,resolved,source,tint);
   if(!killed && enemy.body && enemy.body.enable && enemy.active){
    const angle=Phaser.Math.Angle.Between(this.player.x,this.player.y,enemy.x,enemy.y);
@@ -5617,9 +6359,14 @@ createAshFieldsEnvironment(objects,zone){
 
  castGroundTremor(){
   const radius=190;
-  // Ground Tremor is primarily an escape / space-making tool, not a damage nuke.
-  const damage=this.getEffectiveMeleeDamage()*0.4;
-  const maxPushDistance=220;
+  const penitenceCharges=this.championRelics.has(BROKEN_SAINT_RELIC_IDS.crackedHalo)
+   ? Math.min(3,this.bsPenitenceCharges||0)
+   : 0;
+  if(penitenceCharges>0) this.bsPenitenceCharges=0;
+  // Ground Tremor remains an escape / space-making tool. Broken Saint may add
+  // payoff to a successful escape, but never changes the skill into a nuke.
+  const damage=this.getEffectiveMeleeDamage()*0.4*(1+penitenceCharges*0.12);
+  const maxPushDistance=220*(1+penitenceCharges*0.15);
   const pushMs=430;
   this.setSkillAttackPose(520);
   const x=this.player.x,y=this.player.y;
@@ -5628,10 +6375,12 @@ createAshFieldsEnvironment(objects,zone){
   this.tweens.add({targets:core,scale:1.8,alpha:0,duration:300,onComplete:()=>core.destroy()});
   this.tweens.add({targets:wave,scale:radius/64,alpha:0,duration:380,ease:'Quad.easeOut',onComplete:()=>wave.destroy()});
   this.cameras.main.shake(220,0.008);
+  let hitCount=0;
   for(const enemy of this.enemies){
    if(!enemy.active || enemy.hp<=0) continue;
    const d=Phaser.Math.Distance.Between(x,y,enemy.x,enemy.y);
    if(d>radius+(enemy.hitRadius||0)) continue;
+   hitCount++;
 
    this.applySkillDamage(enemy,damage,'skill:tremor',0xffd77a,0);
    if(!enemy.active || enemy.hp<=0 || !enemy.body) continue;
@@ -5656,6 +6405,16 @@ createAshFieldsEnvironment(objects,zone){
    enemy.staggerUntil=Math.max(enemy.staggerUntil||0,enemy.skillTremorUntil+500);
    enemy.body.setVelocity(enemy.skillTremorVX,enemy.skillTremorVY);
   }
+
+  if(this.hasChampionEvolution(BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath) && hitCount>=2){
+   this.playerSpeedBoostUntil=Math.max(this.playerSpeedBoostUntil||0,this.time.now+2000);
+   this.playerSpeedBoostFactor=Math.max(this.playerSpeedBoostFactor||1,1.35);
+   const txt=lkAddText(this,this.player.x,this.player.y-52,'ПУТЬ ПАЛОМНИКА · +35% СКОРОСТИ',{
+    fontSize:'11px',fontStyle:'bold',color:'#ffe09a',stroke:'#2a1b08',strokeThickness:3
+   }).setOrigin(0.5).setDepth(78);
+   this.tweens.add({targets:txt,y:txt.y-16,alpha:0,duration:700,onComplete:()=>txt.destroy()});
+  }
+  this.triggerAshRosary(1,hitCount);
  }
 
  castLift(){
@@ -5664,18 +6423,22 @@ createAshFieldsEnvironment(objects,zone){
   const landingDamage=this.getEffectiveMeleeDamage()*0.75;
   this.setSkillAttackPose(650);
   const x=this.player.x,y=this.player.y;
+  const castAt=this.time.now;
   const field=this.add.circle(x,y,58,0x75b7ff,0.09).setStrokeStyle(4,0x9dd7ff,0.82).setDepth(16);
   this.tweens.add({targets:field,scale:radius/58,alpha:0,duration:560,ease:'Sine.easeOut',onComplete:()=>field.destroy()});
   this.cameras.main.shake(200,0.007);
 
   let longestLiftMs=0;
+  let hitCount=0;
   for(const enemy of this.enemies){
    if(!enemy.active || enemy.hp<=0) continue;
    const d=Phaser.Math.Distance.Between(x,y,enemy.x,enemy.y);
    if(d>radius+(enemy.hitRadius||0)) continue;
+   hitCount++;
 
    // Hollow Tree is rooted into the arena: Lift can hurt it, but cannot launch,
-   // stagger or otherwise disable its AI.
+   // stagger or otherwise disable its AI. It therefore does not create the
+   // player's commitment slowdown.
    if(enemy.type==='champion' && enemy.championKind==='hollowTree'){
     const resolved=this.getSwordDamageAgainst(enemy,initialDamage);
     this.damageEnemy(enemy,resolved,'skill:lift',0x9dd7ff);
@@ -5698,8 +6461,8 @@ createAshFieldsEnvironment(objects,zone){
    }
    longestLiftMs=Math.max(longestLiftMs,liftMs);
 
-   enemy.skillLiftStartAt=this.time.now;
-   enemy.skillLiftUntil=this.time.now+liftMs;
+   enemy.skillLiftStartAt=castAt;
+   enemy.skillLiftUntil=castAt+liftMs;
    enemy.skillLiftHeight=Phaser.Math.Between(heightMin,heightMax);
    enemy.skillLiftDriftX=Phaser.Math.Between(-drift,drift);
    enemy.skillLiftDriftY=Phaser.Math.Between(-Math.max(4,Math.round(drift*0.6)),Math.max(4,Math.round(drift*0.6)));
@@ -5722,16 +6485,23 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(longestLiftMs>0){
+   this.liftCommitUntil=Math.max(this.liftCommitUntil||0,castAt+longestLiftMs);
+   this.liftPostMarkWindowStartsAt=castAt+longestLiftMs;
+   this.liftPostMarkWindowUntil=this.liftPostMarkWindowStartsAt+BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS;
+   this.liftPostMarkConsumed=false;
    this.time.delayedCall(longestLiftMs,()=>{
     if(!this.gameOver) this.cameras.main.shake(210,0.007);
    });
   }
+  this.triggerAshRosary(2,hitCount);
  }
 
  castSpin(){
   const radius=132;
   const perHit=this.getEffectiveMeleeDamage()*0.55;
-  const x0=this.player.x,y0=this.player.y;
+  const castAt=this.time.now;
+  this.spinCommitUntil=castAt+760;
+  this.spinSaintsNailConsumed=false;
   this.setSkillAttackPose(760);
   for(let hit=0;hit<4;hit++){
    this.time.delayedCall(hit*165,()=>{
@@ -5842,13 +6612,17 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   this.onEnemyKilled(enemy,deathX,deathY);
+  const reverseSmokeDeath=Boolean(enemyType==='champion' && enemy.championKind==='brokenSaint');
   if(enemyType==='champion') this.onChampionDefeated(enemy);
-  this.createDeathBurst(enemy,deathX,deathY);
+  if(!reverseSmokeDeath) this.createDeathBurst(enemy,deathX,deathY);
 
-  if(enemy.visual && enemy.visual.active) enemy.visual.destroy();
+  // Broken Saint's sprite and readability shadow are intentionally left alive
+  // for ~1.3s so the death can mirror his reveal: smoke in, figure out.
+  if(!reverseSmokeDeath && enemy.visual && enemy.visual.active) enemy.visual.destroy();
   if(enemy.auraVisual && enemy.auraVisual.active) enemy.auraVisual.destroy();
   if(enemy.reflectVisual && enemy.reflectVisual.active) enemy.reflectVisual.destroy();
-  this.destroyEnemyReadabilityShadow(enemy);
+  if(enemy.saintsNailMarkVisual?.active) enemy.saintsNailMarkVisual.destroy();
+  if(!reverseSmokeDeath) this.destroyEnemyReadabilityShadow(enemy);
 
   enemy.destroy();
   this.kills++;
@@ -5904,7 +6678,7 @@ createAshFieldsEnvironment(objects,zone){
   );
  }
 
- damagePlayer(amount,source='enemy'){
+ damagePlayer(amount,source='enemy',attacker=null){
   if(this.devFlags?.godMode) return false;
   if(this.gameOver || amount<=0) return false;
   const now=this.time.now;
@@ -5930,6 +6704,16 @@ createAshFieldsEnvironment(objects,zone){
   if(this.championRelics.has('ironWill') && this.player.hp<=35){
    finalDamage=Math.max(1,Math.round(finalDamage*0.70));
   }
+  const commitmentReduction=this.getBrokenSaintCommitmentDamageReduction(now);
+  if(commitmentReduction>0){
+   finalDamage=Math.max(1,Math.round(finalDamage*(1-commitmentReduction)));
+  }
+
+  // Broken Saint rewards react only to damage that genuinely gets through
+  // invulnerability/block checks. The Lift mark window starts after landing;
+  // Spin keeps its risk window during the stationary channel.
+  this.maybeMarkSaintsNailAttacker(attacker,now);
+  this.registerCrackedHaloDamage(now);
 
   if(this.championRelics.has('necromancerSoul')){
    this.killStreakBonus=0;
@@ -6189,6 +6973,75 @@ createAshFieldsEnvironment(objects,zone){
   }
  }
 
+ createBrokenSaintDefeatSmokeFx(x,y,visual=null){
+  const fx=[];
+  const animKey=this.ensureAshChampionRevealAnimation();
+  if(!animKey) return fx;
+  const figureW=Math.max(120,visual?.displayWidth||150);
+  const figureH=Math.max(130,visual?.displayHeight||155);
+  const layers=[
+   {frame:0,depth:217.7,w:Math.min(238,figureW*1.48),h:Math.min(246,figureH*1.48),alpha:0.42,delay:0},
+   {frame:1,depth:218.35,w:Math.min(196,figureW*1.22),h:Math.min(206,figureH*1.26),alpha:0.30,delay:70},
+   {frame:2,depth:219.04,w:Math.min(214,figureW*1.34),h:Math.min(224,figureH*1.36),alpha:0.78,delay:120},
+   {frame:3,depth:219.08,w:Math.min(176,figureW*1.08),h:Math.min(190,figureH*1.14),alpha:0.34,delay:190}
+  ];
+  for(const layer of layers){
+   const key=`${ASH_CHAMPION_SMOKE_TEXTURE_PREFIX}${String(layer.frame).padStart(2,'0')}`;
+   const sprite=this.add.sprite(x,y-18,key).setOrigin(0.5,0.54).setDepth(layer.depth).setDisplaySize(layer.w,layer.h).setAlpha(0);
+   sprite.play(animKey);
+   sprite.anims?.setProgress?.(layer.frame/Math.max(1,ASH_CHAMPION_SMOKE_FRAME_COUNT-1));
+   fx.push(sprite);
+   this.tweens.add({
+    targets:sprite,alpha:{from:0,to:layer.alpha},displayWidth:{from:layer.w*0.84,to:layer.w},displayHeight:{from:layer.h*0.84,to:layer.h},
+    duration:520,delay:layer.delay,ease:'Sine.easeOut'
+   });
+  }
+  return fx;
+ }
+
+ beginBrokenSaintDefeatSequence(enemy){
+  if(this.brokenSaintDefeatSequenceActive) return;
+  const x=enemy?.x??this.player.x;
+  const y=enemy?.y??this.player.y;
+  const visual=enemy?.visual?.active?enemy.visual:null;
+  const shadow=enemy?.shadowVisual?.active?enemy.shadowVisual:null;
+  this.brokenSaintDefeatSequenceActive=true;
+  this.setHeroFocusInteraction('brokenSaintDefeat',true);
+  this.player?.body?.setVelocity?.(0,0);
+  this.mobileMoveX=0; this.mobileMoveY=0; this.mobileMovePointerId=null;
+  this.playerAttackUntil=this.time.now;
+  this.skillLockUntil=Math.max(this.skillLockUntil||0,this.time.now+1800);
+  if(this.activeAttackFx?.active){this.activeAttackFx.destroy();this.activeAttackFx=null;}
+  for(const projectile of this.projectiles||[]){if(projectile?.active)projectile.destroy();}
+  this.projectiles=(this.projectiles||[]).filter(p=>p?.active);
+  try{this.physics.pause();}catch{}
+
+  this.brokenSaintDefeatFx=this.createBrokenSaintDefeatSmokeFx(x,y,visual);
+  if(visual){
+   this.tweens.add({targets:visual,alpha:0,duration:650,delay:160,ease:'Sine.easeIn'});
+  }
+  if(shadow){
+   this.tweens.add({targets:shadow,alpha:0,duration:520,delay:120,ease:'Sine.easeIn'});
+  }
+  this.cameras.main.shake(240,0.006);
+
+  this.time.delayedCall(860,()=>{
+   for(const smoke of this.brokenSaintDefeatFx||[]){
+    if(smoke?.active) this.tweens.add({targets:smoke,alpha:0,scaleX:1.06,scaleY:1.06,duration:420,ease:'Sine.easeIn'});
+   }
+  });
+  this.time.delayedCall(1320,()=>{
+   if(visual?.active) visual.destroy();
+   if(shadow?.active) shadow.destroy();
+   for(const smoke of this.brokenSaintDefeatFx||[]){if(smoke?.active)smoke.destroy();}
+   this.brokenSaintDefeatFx=[];
+   this.brokenSaintDefeatSequenceActive=false;
+   this.setHeroFocusInteraction('brokenSaintDefeat',false);
+   try{this.physics.resume();}catch{}
+   this.openChampionRewards('brokenSaint');
+  });
+ }
+
  onChampionDefeated(enemy){
   const kind=enemy.championKind;
   if(kind==='brokenSaint'){
@@ -6196,18 +7049,23 @@ createAshFieldsEnvironment(objects,zone){
    this.stopBrokenSaintMusic();
   }
   this.activeChampion=null;
-  if(kind==='brokenSaint') this.setupBackgroundMusic();
   this.championEventActive=false;
   this.championNameText.setVisible(false);
   this.championHpBack.setVisible(false);
   this.championHpFill.setVisible(false);
-
   this.clearChampionHazards();
-
-  this.cameras.main.flash(300,230,200,110,false);
 
   // Defeating a champion opens the thematic passage to the next region.
   this.requestWorldAdvance(kind);
+
+  if(kind==='brokenSaint'){
+   // Reverse the reveal language: smoke fades IN over the corpse while the
+   // champion fades OUT, then the three-part reward flow takes over.
+   this.beginBrokenSaintDefeatSequence(enemy);
+   return;
+  }
+
+  this.cameras.main.flash(300,230,200,110,false);
   this.openChampionRewards(kind);
  }
 
@@ -6410,7 +7268,11 @@ createAshFieldsEnvironment(objects,zone){
 
  getAshStoryLandmarkTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){
   const actual=(this.devEnvironmentObjects||[]).find(object=>
+<<<<<<< HEAD
    object?.active && !object.devDeleted && object.visible!==false && object.devEnvMeta?.key===key
+=======
+   object?.active && !object.devDeleted && object.devEnvMeta?.key===key
+>>>>>>> c550486 (new changes)
   );
   if(actual)return actual;
 
@@ -6836,7 +7698,12 @@ createAshFieldsEnvironment(objects,zone){
    .setDisplaySize(view.width,view.height)
    .setAlpha(0);
   state.vignette=vignette;
+<<<<<<< HEAD
   this.devTools?.recordTraceEvent?.('story_vignette_created',{kind:state.enemy?'anomaly':'champion',cameraZoom:cam.zoom,centerX:Math.round(cam.worldView.centerX),centerY:Math.round(cam.worldView.centerY),cameraLocked:Boolean(state.cameraLocked)},{sample:true});
+=======
+  const vignetteKind=state.kind||(state.enemy?'anomaly':'champion');
+  this.devTools?.recordTraceEvent?.('story_vignette_created',{kind:vignetteKind,cameraZoom:cam.zoom,centerX:Math.round(cam.worldView.centerX),centerY:Math.round(cam.worldView.centerY),cameraLocked:Boolean(state.cameraLocked)},{sample:true});
+>>>>>>> c550486 (new changes)
   state.vignetteKeyX=null;
   state.vignetteKeyY=null;
   state.vignetteKeyW=null;
@@ -7016,12 +7883,17 @@ createAshFieldsEnvironment(objects,zone){
   // first so the mask is generated against the final, stable worldView.
   const outline=this.createStoryAnomalyOutline(enemy);
 
+<<<<<<< HEAD
   const label=lkAddText(this,enemy.x,enemy.y-68,this.getStoryAnomalyThought(enemy),{
+=======
+  const anomalyUiScale=lkWorldUiScale(this,cam);
+  const label=lkAddText(this,enemy.x,enemy.y-68*anomalyUiScale,this.getStoryAnomalyThought(enemy),{
+>>>>>>> c550486 (new changes)
    fontSize:'22px',
    color:'#fff2b5',
    stroke:'#171007',
    strokeThickness:4
-  }).setOrigin(0.5).setDepth(221);
+  }).setOrigin(0.5).setDepth(221).setScale(anomalyUiScale);
 
   label.setAlpha(0);
 
@@ -7101,7 +7973,14 @@ createAshFieldsEnvironment(objects,zone){
   const bob=Math.sin(time*0.01)*4;
   const cam=this.cameras.main;
   this.syncStoryAnomalyOutline(state);
+<<<<<<< HEAD
   state.label?.setPosition(enemy.x,enemy.y-68+bob);
+=======
+  if(state.label?.active){
+   const uiScale=lkWorldUiScale(this,cam);
+   state.label.setScale(uiScale).setPosition(enemy.x,enemy.y-(68-bob)*uiScale);
+  }
+>>>>>>> c550486 (new changes)
 
   // Once the opening pan/zoom is over, snap to the exact final composition.
   // Only then may the vignette exist; rebuilding it during camera motion caused
@@ -7651,6 +8530,14 @@ createAshFieldsEnvironment(objects,zone){
    return;
   }
 
+  if(this.brokenSaintDefeatSequenceActive){
+   this.player?.body?.setVelocity?.(0,0);
+   this.mobileMoveX=0;
+   this.mobileMoveY=0;
+   this.updateHeroFocusInteractionStance(time);
+   return;
+  }
+
   this.updateMana(time);
 
   if(Phaser.Input.Keyboard.JustDown(this.skillKeys.skill1)) this.handleSkillInput(1);
@@ -7667,6 +8554,15 @@ createAshFieldsEnvironment(objects,zone){
    s*=this.playerSlowFactor||0.45;
   } else {
    this.playerSlowFactor=1;
+  }
+  // Lift is control with commitment: if at least one target was actually
+  // launched, the hero loses 30% movement speed until the last launched target
+  // reaches its landing time. A missed Lift has no movement penalty.
+  if(time<(this.liftCommitUntil||0)) s*=BROKEN_SAINT_LIFT_SLOW_FACTOR;
+  if(time<(this.playerSpeedBoostUntil||0)){
+   s*=this.playerSpeedBoostFactor||1.35;
+  } else {
+   this.playerSpeedBoostFactor=1;
   }
 
   if(time<this.playerForcedUntil){
@@ -7692,6 +8588,15 @@ createAshFieldsEnvironment(objects,zone){
    // Story focus beats are a hard cinematic freeze: the hero can observe, but not move.
    vx=0;
    vy=0;
+<<<<<<< HEAD
+=======
+  }
+  // Spin is committed DPS: player input cannot move the hero during the channel,
+  // while enemy knockback/forced motion can still displace him.
+  if(time<(this.spinCommitUntil||0) && time>=(this.playerForcedUntil||0)){
+   vx=0;
+   vy=0;
+>>>>>>> c550486 (new changes)
   }
 
   this.player.body.setVelocity(vx,vy);
@@ -7822,6 +8727,10 @@ createAshFieldsEnvironment(objects,zone){
   // Spread A* work across frames. Direct line-of-sight chasers spend no budget;
   // only enemies whose route is actually blocked request a path.
   this.navigationPathfindBudget=1;
+<<<<<<< HEAD
+=======
+  this.navigationRescuePathfindBudget=1;
+>>>>>>> c550486 (new changes)
 
   traceSectionAt=this.beginSubsystemTrace();
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed
@@ -7911,7 +8820,7 @@ createAshFieldsEnvironment(objects,zone){
     e.pendingMeleeDamage=0;
     e.pendingMeleeRange=0;
     if(distance<=pendingRange && !(e.type==='champion'?this.devFlags?.championAttacksDisabled:this.devFlags?.enemyAttacksDisabled)){
-     if(this.damagePlayer(pendingDamage,`melee:${e.type}`)) return;
+     if(this.damagePlayer(pendingDamage,`melee:${e.type}`,e)) return;
     }
    }
 
@@ -8084,6 +8993,14 @@ createAshFieldsEnvironment(objects,zone){
     }
     e.visual.setRotation(liftRotation);
     e.visual.setPosition(e.x,e.y+liftOffset);
+    if(e.saintsNailMarkVisual?.active){
+     if(time>(e.saintsNailMarkedUntil||0)){
+      e.saintsNailMarkVisual.destroy();
+      e.saintsNailMarkVisual=null;
+     } else {
+      e.saintsNailMarkVisual.setPosition(e.x,e.y+liftOffset+4);
+     }
+    }
     const isBrokenSaint=e.type==='champion' && e.championKind==='brokenSaint';
     const anomalyFlee=e.storyAnomaly?.phase==='flee';
     e.dir=isBrokenSaint
@@ -8231,7 +9148,7 @@ createAshFieldsEnvironment(objects,zone){
    );
 
    if(projectileDistance<(this.player.hitRadius+10)){
-    const lethal=this.damagePlayer(projectile.damage,'mageProjectile');
+    const lethal=this.damagePlayer(projectile.damage,'mageProjectile',projectile.owner||null);
     projectile.destroy();
 
     if(lethal){
@@ -8831,36 +9748,55 @@ class HUDScene extends Phaser.Scene {
  buildChampionRewardOverlay(){
   this.championRewardVisible=false;
   this.championRewardData=[];
-  this.championRewardShade=this.add.rectangle(0,0,100,100,0x050403,0.62).setOrigin(0).setDepth(118).setVisible(false);
+  this.championRewardOptions={};
+  this.championRewardShade=this.add.rectangle(0,0,100,100,0x050403,0.72).setOrigin(0).setDepth(118).setVisible(false);
   this.championRewardPanel=this.addPanelGraphics(119).setVisible(false);
-  this.championRewardTitle=lkAddText(this,0,0,'CHAMPION DEFEATED',{fontFamily:'Arial, sans-serif',fontSize:'26px',fontStyle:'bold',color:'#f5d78f',stroke:'#111111',strokeThickness:4,align:'center'}).setOrigin(0.5).setDepth(120).setVisible(false);
-  this.championRewardSubtitle=lkAddText(this,0,0,'CHOOSE ONE CHAMPION RELIC',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5).setDepth(120).setVisible(false);
+  this.championRewardTitle=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'25px',fontStyle:'bold',color:'#f5d78f',stroke:'#111111',strokeThickness:4,align:'center'}).setOrigin(0.5).setDepth(120).setVisible(false);
+  this.championRewardSubtitle=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',fontStyle:'bold',color:'#ddd3bd',align:'center'}).setOrigin(0.5).setDepth(120).setVisible(false);
+  this.championRewardStep=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'11px',fontStyle:'bold',color:'#9f8d69'}).setOrigin(0.5).setDepth(120).setVisible(false);
   this.championRewardCards=[];
   for(let i=0;i<3;i++){
-   const card=this.add.rectangle(0,0,100,60,0x243323,0.96).setStrokeStyle(2,0x7f9b68,0.82).setDepth(120).setVisible(false).setInteractive({useHandCursor:true});
-   const name=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'17px',fontStyle:'bold',color:'#ffe8a8'}).setOrigin(0,0.5).setDepth(121).setVisible(false);
-   const desc=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#dbe8d7',wordWrap:{width:460,useAdvancedWrap:true}}).setOrigin(0,0.5).setDepth(121).setVisible(false);
-   card.on('pointerover',()=>{ if(this.championRewardVisible) card.setFillStyle(0x354b32,1); });
-   card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
+   const card=this.add.rectangle(0,0,100,70,0x171612,0.98).setStrokeStyle(2,0x8f7445,0.86).setDepth(120).setVisible(false).setInteractive({useHandCursor:true});
+   const iconBack=this.add.circle(0,0,28,0x090908,0.92).setStrokeStyle(1.5,0xb79452,0.74).setDepth(121).setVisible(false);
+   const icon=this.add.image(0,0,SKILL_ICON_KEYS.quake).setDepth(122).setVisible(false);
+   const glyph=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f0cf79',stroke:'#1b140b',strokeThickness:3}).setOrigin(0.5).setDepth(122).setVisible(false);
+   const name=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'16px',fontStyle:'bold',color:'#ffe7a1',stroke:'#16110a',strokeThickness:2}).setOrigin(0,0.5).setDepth(121).setVisible(false);
+   const desc=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'11px',color:'#ece5d8',wordWrap:{width:460,useAdvancedWrap:true}}).setOrigin(0,0.5).setDepth(121).setVisible(false);
+   const meta=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',color:'#b8a67e'}).setOrigin(0,0.5).setDepth(121).setVisible(false);
+   card.on('pointerover',()=>{ if(this.championRewardVisible) card.setFillStyle(0x25231b,1).setStrokeStyle(2,0xd2ae61,0.98); });
+   card.on('pointerout',()=>card.setFillStyle(0x171612,0.98).setStrokeStyle(2,0x8f7445,0.86));
    card.on('pointerdown',()=>this.mainScene?.selectChampionReward?.(i));
-   this.championRewardCards.push({card,name,desc});
+   this.championRewardCards.push({card,iconBack,icon,glyph,name,desc,meta});
   }
  }
 
- showChampionRewards(championName,rewardColor,choices=[]){
+ showChampionRewards(championName,rewardColor,choices=[],options={}){
   this.championRewardVisible=true;
   this.championRewardData=choices.slice(0,3);
-  this.championRewardTitle.setText(`${championName} DEFEATED`).setColor(rewardColor||'#f5d78f');
+  this.championRewardOptions=options||{};
+  const stepTitle=String(options?.stepTitle||'CHAMPION REWARD');
+  this.championRewardTitle.setText(`${championName} · ${stepTitle}`).setColor(rewardColor||'#f5d78f');
+  this.championRewardSubtitle.setText(String(options?.subtitle||'CHOOSE ONE'));
+  const total=Math.max(1,Number(options?.totalSteps)||1);
+  const current=Math.min(total,(Number(options?.stepIndex)||0)+1);
+  this.championRewardStep.setText(total>1?`${current} / ${total}`:'');
   this.championRewardShade.setVisible(true);
   this.championRewardPanel.setVisible(true);
   this.championRewardTitle.setVisible(true);
   this.championRewardSubtitle.setVisible(true);
+  this.championRewardStep.setVisible(total>1);
   this.championRewardCards.forEach((entry,i)=>{
    const c=this.championRewardData[i];
    const visible=Boolean(c);
-   entry.card.setVisible(visible).setFillStyle(0x243323,0.96);
-   entry.name.setVisible(visible).setText(c?.[0]||'');
-   entry.desc.setVisible(visible).setText(c?.[1]||'');
+   entry.card.setVisible(visible).setFillStyle(0x171612,0.98).setStrokeStyle(2,0x8f7445,0.86);
+   entry.iconBack.setVisible(visible);
+   entry.name.setVisible(visible).setText(c?.name||c?.[0]||'');
+   entry.desc.setVisible(visible).setText(c?.desc||c?.[1]||'');
+   entry.meta.setVisible(visible && Boolean(c?.meta)).setText(c?.meta||'');
+   const hasIcon=visible && Boolean(c?.iconKey) && this.textures.exists(c.iconKey);
+   entry.icon.setVisible(hasIcon);
+   if(hasIcon) entry.icon.setTexture(c.iconKey);
+   entry.glyph.setVisible(visible && !hasIcon).setText(c?.glyph||'✦');
   });
   this.layoutChampionRewardOverlay();
  }
@@ -8868,40 +9804,66 @@ class HUDScene extends Phaser.Scene {
  hideChampionRewards(){
   this.championRewardVisible=false;
   this.championRewardData=[];
+  this.championRewardOptions={};
   this.championRewardShade.setVisible(false);
   this.championRewardPanel.setVisible(false);
   this.championRewardTitle.setVisible(false);
   this.championRewardSubtitle.setVisible(false);
-  this.championRewardCards.forEach(({card,name,desc})=>{card.setVisible(false);name.setVisible(false);desc.setVisible(false);});
+  this.championRewardStep.setVisible(false);
+  this.championRewardCards.forEach(({card,iconBack,icon,glyph,name,desc,meta})=>{
+   card.setVisible(false);iconBack.setVisible(false);icon.setVisible(false);glyph.setVisible(false);name.setVisible(false);desc.setVisible(false);meta.setVisible(false);
+  });
  }
 
  layoutChampionRewardOverlay(){
   if(!this.championRewardVisible) return;
   const logical=lkLogicalSceneSize(this),w=logical.width,h=logical.height;
-  const mobile=Boolean(this.mainScene?.isTouchDevice || h<560 || w<900);
+  const compact=Boolean(this.mainScene?.isTouchDevice || h<520 || w<820);
+  const veryCompact=h<390;
   const cx=w/2,cy=h/2;
-  const panelW=Math.min(mobile?560:650,w-(mobile?28:64));
-  const cardH=mobile?58:66,gap=mobile?10:14;
-  const panelH=(mobile?116:132)+3*cardH+2*gap;
-  const x=cx-panelW/2,y=cy-panelH/2,r=mobile?10:12;
+  const sideMargin=compact?10:34;
+  // Reward choices are a major progression decision, so readability wins over
+  // leaving unused battlefield space around the modal.
+  const panelW=Math.min(compact?720:900,w-sideMargin*2);
+  const cardH=veryCompact?82:(compact?90:116);
+  const gap=veryCompact?6:(compact?8:12);
+  const headerH=veryCompact?62:(compact?72:94);
+  const bottomPad=veryCompact?10:(compact?14:24);
+  const panelH=Math.min(h-8,headerH+cardH*3+gap*2+bottomPad);
+  const x=cx-panelW/2,y=cy-panelH/2,r=compact?10:13;
   this.championRewardShade.setPosition(0,0).setSize(w,h).setDisplaySize(w,h);
   this.championRewardPanel.clear();
-  this.championRewardPanel.fillStyle(0x070605,0.46); this.championRewardPanel.fillRoundedRect(x+5,y+5,panelW,panelH,r);
-  this.championRewardPanel.fillStyle(0x11100d,0.96); this.championRewardPanel.fillRoundedRect(x,y,panelW,panelH,r);
-  this.championRewardPanel.lineStyle(mobile?2:2.5,0x9b7d47,0.94); this.championRewardPanel.strokeRoundedRect(x,y,panelW,panelH,r);
-  this.championRewardTitle.setPosition(cx,y+(mobile?27:32)).setFontSize(mobile?20:27);
-  this.championRewardSubtitle.setPosition(cx,y+(mobile?55:67)).setFontSize(mobile?11:14);
-  const cardW=panelW-(mobile?30:48),startY=y+(mobile?98:112);
+  this.championRewardPanel.fillStyle(0x060504,0.55); this.championRewardPanel.fillRoundedRect(x+5,y+5,panelW,panelH,r);
+  this.championRewardPanel.fillStyle(0x100f0c,0.985); this.championRewardPanel.fillRoundedRect(x,y,panelW,panelH,r);
+  this.championRewardPanel.lineStyle(compact?2:2.5,0x9b7d47,0.96); this.championRewardPanel.strokeRoundedRect(x,y,panelW,panelH,r);
+  this.championRewardTitle.setPosition(cx,y+(veryCompact?18:(compact?22:27))).setFontSize(veryCompact?17:(compact?20:27)).setWordWrapWidth(panelW-54,true);
+  this.championRewardSubtitle.setPosition(cx,y+(veryCompact?39:(compact?45:56))).setFontSize(veryCompact?9.5:(compact?11:13)).setWordWrapWidth(panelW-64,true);
+  this.championRewardStep.setPosition(cx,y+headerH-8).setFontSize(veryCompact?8.5:(compact?9.5:11));
+
+  const availableCardsH=Math.max(1,panelH-headerH-bottomPad-gap*2);
+  const actualCardH=Math.min(cardH,availableCardsH/3);
+  const cardW=panelW-(compact?18:30);
+  const startY=y+headerH+actualCardH/2;
   this.championRewardCards.forEach((entry,i)=>{
    const c=this.championRewardData[i];
    const visible=Boolean(c);
-   entry.card.setVisible(visible); entry.name.setVisible(visible); entry.desc.setVisible(visible);
-   if(!visible) return;
-   const yy=startY+i*(cardH+gap);
-   entry.card.setPosition(cx,yy).setSize(cardW,cardH).setDisplaySize(cardW,cardH);
-   const leftX=cx-cardW/2+(mobile?14:18);
-   entry.name.setPosition(leftX,yy-(mobile?13:16)).setFontSize(mobile?14:17);
-   entry.desc.setPosition(leftX,yy+(mobile?10:12)).setFontSize(mobile?10:12).setWordWrapWidth(cardW-(mobile?28:36),true);
+   entry.card.setVisible(visible); entry.iconBack.setVisible(visible); entry.name.setVisible(visible); entry.desc.setVisible(visible);
+   if(!visible){entry.icon.setVisible(false);entry.glyph.setVisible(false);entry.meta.setVisible(false);return;}
+   const yy=startY+i*(actualCardH+gap);
+   entry.card.setPosition(cx,yy).setSize(cardW,actualCardH).setDisplaySize(cardW,actualCardH);
+   const left=cx-cardW/2;
+   const iconRadius=veryCompact?25:(compact?30:38);
+   const iconX=left+(veryCompact?36:(compact?44:56));
+   entry.iconBack.setPosition(iconX,yy).setRadius(iconRadius);
+   const iconSize=iconRadius*1.66;
+   entry.icon.setPosition(iconX,yy).setDisplaySize(iconSize,iconSize);
+   entry.glyph.setPosition(iconX,yy).setFontSize(veryCompact?25:(compact?30:38));
+   const textX=left+(veryCompact?73:(compact?88:110));
+   const textRight=cx+cardW/2-(compact?10:16);
+   const textW=Math.max(120,textRight-textX);
+   entry.name.setPosition(textX,yy-actualCardH*0.29).setFontSize(veryCompact?14:(compact?16:19));
+   entry.desc.setPosition(textX,yy).setFontSize(veryCompact?10:(compact?11.5:13.5)).setWordWrapWidth(textW,true);
+   entry.meta.setPosition(textX,yy+actualCardH*0.32).setFontSize(veryCompact?8.5:(compact?9.5:10.5)).setVisible(Boolean(c?.meta));
   });
  }
 
@@ -9295,13 +10257,14 @@ class HUDScene extends Phaser.Scene {
 
   const mana=Phaser.Math.Clamp(m.mana??0,0,m.maxMana??3);
   this.manaGems.forEach((gem,i)=>{
-   const active=i<mana;
-   gem.setAlpha(active?1:0.22);
-   if(active) gem.clearTint();
+   const fill=Phaser.Math.Clamp(mana-i,0,1);
+   gem.setAlpha(0.22+fill*0.78);
+   if(fill>0.01) gem.clearTint();
    else gem.setTint(0x4a5560);
   });
-  const canCast=mana>0 && !m.gameOver;
   this.skills.forEach(skill=>{
+   const cost=typeof m.getSkillManaCost==='function'?m.getSkillManaCost(skill.index):1;
+   const canCast=mana+1e-6>=cost && !m.gameOver && !m.championRewardOpen && !m.brokenSaintDefeatSequenceActive;
    skill.back.setAlpha(canCast?1:0.62);
    skill.inner.setAlpha(canCast?1:0.50);
    skill.icon.setAlpha(canCast?1:0.46);
@@ -9331,8 +10294,11 @@ class HUDScene extends Phaser.Scene {
 
 const LK_INITIAL_CSS=lkCssViewport();
 try{
- const saved=Number(localStorage.getItem(LK_RENDER_SCALE_STORAGE_KEY));
- if(Number.isFinite(saved)&&saved>=1)LK_RENDER_SCALE=Phaser.Math.Clamp(saved,1,LK_RENDER_SCALE_MAX);
+ const mode=lkReadQualityMode();
+ const savedManual=Number(localStorage.getItem(LK_RENDER_SCALE_STORAGE_KEY));
+ const savedAuto=Number(localStorage.getItem(LK_QUALITY_PROFILE_STORAGE_KEY));
+ const candidate=mode==='auto'&&Number.isFinite(savedAuto)?savedAuto:savedManual;
+ if(Number.isFinite(candidate)&&candidate>=1)LK_RENDER_SCALE=Phaser.Math.Clamp(candidate,1,LK_RENDER_SCALE_MAX);
 }catch{}
 
 const game=new Phaser.Game({
@@ -9348,6 +10314,10 @@ const game=new Phaser.Game({
   height:Math.max(1,Math.round(LK_INITIAL_CSS.height*LK_RENDER_SCALE))
  },
  physics:{default:'arcade',arcade:{debug:false}},
+ // Phaser normally spends 120 frames in a post-panic timing cooldown after a
+ // tab switch / browser resume. On ~30 FPS hardware that can feel like several
+ // seconds of degraded responsiveness. Keep smoothing, but recover quickly.
+ fps:{panicMax:10,smoothStep:true,deltaHistory:10},
  scene:[BootScene,PreloadScene,CinematicScene,MainScene,HUDScene]
 });
 
@@ -9359,5 +10329,19 @@ function lkSyncViewport(){
 if(typeof window!=='undefined'){
  window.addEventListener('resize',lkSyncViewport,{passive:true});
  window.visualViewport?.addEventListener?.('resize',lkSyncViewport,{passive:true});
+ const lkRecordResumeRecovery=(reason)=>{
+  if(typeof document!=='undefined'&&document.hidden)return;
+  requestAnimationFrame(()=>{
+   const scene=game.scene?.getScene?.('main');
+   scene?.devTools?.recordTraceEvent?.('browser_resume_recovery',{
+    reason,
+    panicMax:game.loop?.panicMax??null,
+    coolDown:game.loop?._coolDown??null,
+    pauseDuration:Math.round(game.loop?.pauseDuration||0)
+   },{sample:true,dedupe:true,dedupeKey:`resume_recovery:${reason}`});
+  });
+ };
+ window.addEventListener('focus',()=>lkRecordResumeRecovery('focus'),{passive:true});
+ document?.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible')lkRecordResumeRecovery('visible');},{passive:true});
  window.setTimeout(()=>lkApplyRenderScale(game,LK_RENDER_SCALE,{remember:false}),120);
 }
