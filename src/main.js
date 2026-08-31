@@ -54,17 +54,19 @@ let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
 const LK_TEXT_RESOLUTION = 2;
 
 const STORY_ANOMALY_THOUGHTS=Object.freeze([
- 'Почему?..',
- 'Что это?..',
- 'Нет...',
- 'Стой...',
- 'Не так...',
- 'Куда?..',
- 'Бежать?..',
- 'Что со мной?..'
+ 'Он выжил...',
+ 'Этого не может быть...',
+ 'Он всё ещё здесь...',
+ 'Значит, это правда...',
+ 'Я видел его смерть...',
+ 'Нет... не может быть.',
+ 'Он должен был погибнуть...',
+ 'Так вот что случилось...',
+ 'Слишком поздно...'
 ]);
-const STORY_ANOMALY_PLAYER_SPEED_FACTOR=0.38;
 const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';
+const HERO_FOCUS_STANCE_FRAME_MS=330;
+const HERO_FOCUS_STANCE_STATE='hero_socket_focus_stance';
 
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
@@ -4694,6 +4696,62 @@ createAshFieldsEnvironment(objects,zone){
   })[dir] || fallback;
  }
 
+ setHeroFocusInteraction(reason,active=true){
+  const key=String(reason||'').trim();
+  if(!key)return false;
+  if(!this.heroFocusStanceReasons)this.heroFocusStanceReasons=new Set();
+  if(active)this.heroFocusStanceReasons.add(key);
+  else this.heroFocusStanceReasons.delete(key);
+  return this.heroFocusStanceReasons.size>0;
+ }
+
+ isHeroFocusInteractionActive(){
+  if(this.gameOver || !this.playerVisual?.active)return false;
+  return Boolean(
+   this.heroFocusStanceReasons?.size ||
+   this.storyAnomalyCueState?.enemy?.active ||
+   this.woundedKnightInteractions?.active ||
+   this.storyDirector?.isBusy?.()
+  );
+ }
+
+ updateHeroFocusInteractionStance(frameTime=0){
+  const active=this.isHeroFocusInteractionActive();
+  if(!active){
+   if(this.heroFocusStanceWasActive){
+    this.heroFocusStanceWasActive=false;
+    if(this.playerVisualState===HERO_FOCUS_STANCE_STATE)this.playerVisualState='';
+    if(this.meleeAttack)this.meleeAttack.lastAttack=this.time?.now||0;
+   }
+   return false;
+  }
+
+  const hero=this.playerVisual;
+  if(!hero?.active || this.playerVisualState==='hero_death')return false;
+
+  if(!this.heroFocusStanceWasActive){
+   this.heroFocusStanceWasActive=true;
+   this.playerAttackUntil=0;
+   if(this.activeAttackFx?.active){
+    try{this.activeAttackFx.destroy();}catch{}
+    this.activeAttackFx=null;
+   }
+   if(this.meleeAttack)this.meleeAttack.lastAttack=this.time?.now||0;
+  }
+
+  this.player?.body?.setVelocity?.(0,0);
+  hero.stop();
+  const frameIndex=(Math.floor(Math.max(0,Number(frameTime)||0)/HERO_FOCUS_STANCE_FRAME_MS)%2)+1;
+  const textureKey=`hero_socket_walk_s_${String(frameIndex).padStart(2,'0')}`;
+  if(hero.texture?.key!==textureKey)hero.setTexture(textureKey);
+  hero.setPosition(this.player.x,this.player.y);
+  this.playerVisualDir8='s';
+  this.playerDir='down';
+  this.playerVisualState=HERO_FOCUS_STANCE_STATE;
+  this.updateHeroWeaponAttachment();
+  return true;
+ }
+
  startHeroSpinAttack(duration=HERO_SOCKET_SPIN_DURATION_MS){
   this.playerAttackUntil=Math.max(this.playerAttackUntil||0,this.time.now+duration);
   if(this.playerVisual && this.playerVisual.active){
@@ -5116,6 +5174,11 @@ createAshFieldsEnvironment(objects,zone){
   if(this.devFlags?.godMode) return false;
   if(this.gameOver || amount<=0) return false;
   const now=this.time.now;
+  // A mage bolt that was already in flight must never punish the player while
+  // the five-second story anomaly has deliberately frozen the whole combat beat.
+  // The projectile loop also freezes the bolt in place; this guard is the hard
+  // damage firewall in case a projectile is already overlapping the hero.
+  if(source==='mageProjectile' && this.isStoryAnomalyMomentActive(now)) return false;
   if(now<(this.playerInvulnerableUntil||0)) return false;
 
   if(
@@ -5594,24 +5657,134 @@ createAshFieldsEnvironment(objects,zone){
 
  ensureStoryAnomalyVignetteTexture(){
   if(this.textures?.exists?.(STORY_ANOMALY_VIGNETTE_TEXTURE)) return STORY_ANOMALY_VIGNETTE_TEXTURE;
-  const size=512;
-  const texture=this.textures?.createCanvas?.(STORY_ANOMALY_VIGNETTE_TEXTURE,size,size);
-  const ctx=texture?.context;
-  if(!texture || !ctx) return null;
-
-  ctx.clearRect(0,0,size,size);
-  const c=size*0.5;
-  const gradient=ctx.createRadialGradient(c,c,size*0.055,c,c,size*0.50);
-  gradient.addColorStop(0.00,'rgba(0,0,0,0.00)');
-  gradient.addColorStop(0.16,'rgba(0,0,0,0.01)');
-  gradient.addColorStop(0.30,'rgba(0,0,0,0.12)');
-  gradient.addColorStop(0.46,'rgba(0,0,0,0.48)');
-  gradient.addColorStop(0.66,'rgba(0,0,0,0.72)');
-  gradient.addColorStop(1.00,'rgba(0,0,0,0.82)');
-  ctx.fillStyle=gradient;
-  ctx.fillRect(0,0,size,size);
+  // A deliberately modest canvas is enough because the texture is scaled over
+  // the camera view. It is only redrawn while the camera is settling, then it
+  // remains static for the rest of the five-second beat.
+  const width=320;
+  const height=180;
+  const texture=this.textures?.createCanvas?.(STORY_ANOMALY_VIGNETTE_TEXTURE,width,height);
+  if(!texture?.context) return null;
+  texture.context.clearRect(0,0,width,height);
   texture.refresh?.();
   return STORY_ANOMALY_VIGNETTE_TEXTURE;
+ }
+
+ updateStoryAnomalyVignette(state,cam=this.cameras?.main){
+  const vignette=state?.vignette;
+  const enemy=state?.enemy;
+  const texture=this.textures?.get?.(STORY_ANOMALY_VIGNETTE_TEXTURE)?.getSourceImage?.();
+  const canvas=texture?.getContext ? texture : null;
+  if(!vignette?.active || !enemy?.active || !cam?.worldView || !canvas) return;
+
+  const view=cam.worldView;
+  const width=canvas.width||320;
+  const height=canvas.height||180;
+  const nx=Phaser.Math.Clamp((enemy.x-view.left)/Math.max(1,view.width),0.02,0.98);
+  const ny=Phaser.Math.Clamp((enemy.y-view.top)/Math.max(1,view.height),0.02,0.98);
+
+  // Keep the texture aligned exactly with the visible camera world. Since the
+  // HUD lives in its own scene, this darkens only the world and never the HUD.
+  vignette
+   .setPosition(view.left,view.top)
+   .setDisplaySize(view.width,view.height);
+
+  // During the settled portion neither the hero nor the skeleton moves, so do
+  // not waste mobile CPU rebuilding an identical texture every frame.
+  const keyX=Math.round(nx*1000);
+  const keyY=Math.round(ny*1000);
+  const keyW=Math.round(view.width);
+  const keyH=Math.round(view.height);
+  if(state.vignetteKeyX===keyX && state.vignetteKeyY===keyY && state.vignetteKeyW===keyW && state.vignetteKeyH===keyH) return;
+  state.vignetteKeyX=keyX;
+  state.vignetteKeyY=keyY;
+  state.vignetteKeyW=keyW;
+  state.vignetteKeyH=keyH;
+
+  const ctx=canvas.getContext('2d');
+  const image=ctx.createImageData(width,height);
+  const data=image.data;
+  const cx=nx*(width-1);
+  const cy=ny*(height-1);
+  // Keep the anomalous skeleton itself at normal world brightness, but let the
+  // vignette bite in a little closer than before so the eye is pulled toward it.
+  // There is still no ring or spotlight edge: the fade remains continuous.
+  const clearCore=0.075;
+  const maxEdgeAlpha=0.52;
+  const vignetteFocusCurve=0.82;
+  const invFade=1/Math.max(0.001,1-clearCore);
+
+  let offset=0;
+  for(let y=0;y<height;y++){
+   const dy=y-cy;
+   const ry=dy<0 ? Math.max(1,cy) : Math.max(1,(height-1)-cy);
+   const uy=Math.abs(dy)/ry;
+   for(let x=0;x<width;x++){
+    const dx=x-cx;
+    const rx=dx<0 ? Math.max(1,cx) : Math.max(1,(width-1)-cx);
+    const ux=Math.abs(dx)/rx;
+
+    // Side-normalized Euclidean distance: every edge reaches full vignette
+    // strength, while contours stay soft/rounded instead of looking boxy.
+    const distance=Math.min(1,Math.hypot(ux,uy));
+    let t=Phaser.Math.Clamp((distance-clearCore)*invFade,0,1);
+    // Smoothstep removes any visible circular boundary around the clear center.
+    // A sub-linear focus curve makes the darkening become noticeable closer to
+    // the skeleton without changing the maximum edge darkness.
+    t=t*t*(3-2*t);
+    t=Math.pow(t,vignetteFocusCurve);
+    const alpha=Math.round(255*maxEdgeAlpha*t);
+
+    data[offset++]=0;
+    data[offset++]=0;
+    data[offset++]=0;
+    data[offset++]=alpha;
+   }
+  }
+  ctx.putImageData(image,0,0);
+  this.textures?.get?.(STORY_ANOMALY_VIGNETTE_TEXTURE)?.refresh?.();
+ }
+
+ createStoryAnomalyOutline(enemy){
+  const source=enemy?.visual;
+  if(!source?.active || !source.texture?.key) return null;
+
+  // Renderer-independent silhouette outline: a slightly enlarged, flat-tinted
+  // copy sits directly behind the real sprite. The original sprite covers the
+  // middle, leaving only a thin contour that follows the current animation frame.
+  const outline=this.add.sprite(
+   source.x,source.y,source.texture.key,source.frame?.name
+  )
+   .setOrigin(source.originX,source.originY)
+   .setDepth((source.depth||15)-0.05)
+   .setAlpha(0);
+
+  if(typeof outline.setTintFill==='function') outline.setTintFill(0xf4d47a);
+  else outline.setTint(0xf4d47a);
+
+  outline.storyOutlineGrow=1.085;
+  this.syncStoryAnomalyOutline({enemy,outline});
+  return outline;
+ }
+
+ syncStoryAnomalyOutline(state){
+  const source=state?.enemy?.visual;
+  const outline=state?.outline;
+  if(!source?.active || !outline?.active) return;
+
+  const frameName=source.frame?.name;
+  if(source.texture?.key && (outline.texture?.key!==source.texture.key || outline.frame?.name!==frameName)){
+   outline.setTexture(source.texture.key,frameName);
+  }
+
+  const grow=outline.storyOutlineGrow||1.085;
+  outline
+   .setPosition(source.x,source.y)
+   .setOrigin(source.originX,source.originY)
+   .setScale(source.scaleX*grow,source.scaleY*grow)
+   .setRotation(source.rotation||0)
+   .setFlip(Boolean(source.flipX),Boolean(source.flipY))
+   .setDepth((source.depth||15)-0.05)
+   .setVisible(source.visible!==false);
  }
 
  getStoryAnomalyThought(enemy){
@@ -5637,17 +5810,18 @@ createAshFieldsEnvironment(objects,zone){
   const focusMs=Phaser.Math.Clamp(Math.floor(durationMs)||5000,4800,5200);
   const restoreZoom=cam.zoom;
   const vignetteTexture=this.ensureStoryAnomalyVignetteTexture();
-  const vignetteSpan=Math.max(cam.worldView.width,cam.worldView.height)*2.20;
+  // One layer only: a true edge vignette. The anomalous skeleton remains at
+  // normal brightness and darkness increases smoothly toward every screen edge.
   const vignette=vignetteTexture
-   ? this.add.image(enemy.x,enemy.y,vignetteTexture)
+   ? this.add.image(cam.worldView.left,cam.worldView.top,vignetteTexture)
+      .setOrigin(0)
       .setDepth(219)
-      .setDisplaySize(vignetteSpan,vignetteSpan)
+      .setDisplaySize(cam.worldView.width,cam.worldView.height)
       .setAlpha(0)
    : null;
 
-  const ring=this.add.circle(enemy.x,enemy.y+2,34,0xffe08a,0.12)
-   .setDepth(220)
-   .setStrokeStyle(3,0xfff1a8,0.94);
+  const outline=this.createStoryAnomalyOutline(enemy);
+
   const label=lkAddText(this,enemy.x,enemy.y-68,this.getStoryAnomalyThought(enemy),{
    fontSize:'22px',
    color:'#fff2b5',
@@ -5655,20 +5829,22 @@ createAshFieldsEnvironment(objects,zone){
    strokeThickness:4
   }).setOrigin(0.5).setDepth(221);
 
-  ring.setScale(0.86);
   label.setAlpha(0);
-
-  if(vignette){
-   this.tweens.add({targets:vignette,alpha:1,duration:280,ease:'Sine.easeOut'});
-  }
-  this.tweens.add({targets:ring,scale:1.18,alpha:0.26,duration:360,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
-  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:190,delay:110,ease:'Sine.easeOut'});
 
   const focusZoom=Math.min(restoreZoom*1.08,restoreZoom+0.14);
   this.storyAnomalyCueState={
-   enemy,vignette,ring,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
-   cameraSettledAt:this.time.now+320
+   enemy,vignette,outline,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
+   cameraSettledAt:this.time.now+320,
+   vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
   };
+  this.updateStoryAnomalyVignette(this.storyAnomalyCueState,cam);
+  if(vignette){
+   this.tweens.add({targets:vignette,alpha:1,duration:280,ease:'Sine.easeOut'});
+  }
+  if(outline){
+   this.tweens.add({targets:outline,alpha:0.88,duration:180,delay:70,ease:'Sine.easeOut'});
+  }
+  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:190,delay:110,ease:'Sine.easeOut'});
 
   // Cancel the hero's current auto-attack presentation immediately. No new
   // sword attacks or skills can start until the focus beat ends.
@@ -5681,8 +5857,8 @@ createAshFieldsEnvironment(objects,zone){
    this.meleeAttack.lastAttack=this.time.now;
   }
 
-  // Cancel ordinary enemy windups. During the five-second anomaly beat they may
-  // keep moving slowly, but they cannot start or complete attacks.
+  // Cancel every other enemy windup. During the five-second line they are
+  // completely frozen: no walking, attacking, knockback drift, or crowd separation.
   for(const other of this.enemies||[]){
    if(!other?.active || other.type==='champion')continue;
    other.pendingMeleeHitAt=0;
@@ -5691,6 +5867,21 @@ createAshFieldsEnvironment(objects,zone){
    other.attackAnimUntil=0;
    other.lastAttack=Math.max(other.lastAttack||0,this.time.now);
    other.lastShot=Math.max(other.lastShot||0,this.time.now);
+  }
+
+  // Existing mage shots join the cinematic freeze immediately. Cache their
+  // motion so they can resume after the five-second story beat instead of
+  // crossing the frozen hero while the player cannot react.
+  for(const projectile of this.projectiles||[]){
+   if(!projectile?.active)continue;
+   if(!projectile.storyAnomalyFrozenAt){
+    projectile.storyAnomalyFrozenAt=this.time.now;
+    projectile.storyAnomalyFreezeVX=projectile.body?.velocity?.x||0;
+    projectile.storyAnomalyFreezeVY=projectile.body?.velocity?.y||0;
+    projectile.storyAnomalyFreezeAnim=Boolean(projectile.anims?.isPlaying);
+   }
+   projectile.body?.setVelocity?.(0,0);
+   if(projectile.anims?.isPlaying)projectile.anims.pause();
   }
 
   cam.stopFollow();
@@ -5716,15 +5907,15 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   const bob=Math.sin(time*0.01)*4;
-  state.vignette?.setPosition(enemy.x,enemy.y);
-  state.ring?.setPosition(enemy.x,enemy.y+2);
+  const cam=this.cameras.main;
+  this.updateStoryAnomalyVignette(state,cam);
+  this.syncStoryAnomalyOutline(state);
   state.label?.setPosition(enemy.x,enemy.y-68+bob);
 
   // Once the opening pan settles, keep the camera composed between the hero and
   // the confused enemy. This avoids invisible screen-edge walls while keeping
-  // both actors readable even if the player keeps moving.
+  // both actors readable while the cinematic beat is frozen.
   if(time>=state.cameraSettledAt && this.player?.active){
-   const cam=this.cameras.main;
    cam.centerOn((this.player.x+enemy.x)*0.5,(this.player.y+enemy.y)*0.5-18);
   }
  }
@@ -5737,7 +5928,7 @@ createAshFieldsEnvironment(objects,zone){
 
   // The thought vanishes first and the soft vignette opens back up just before
   // the skeleton enters its short release beat and bolts away.
-  const fadeTargets=[state.vignette,state.ring,state.label].filter(object=>object?.active);
+  const fadeTargets=[state.vignette,state.outline,state.label].filter(object=>object?.active);
   if(fadeTargets.length){
    this.tweens.add({
     targets:fadeTargets,alpha:0,duration:120,ease:'Sine.easeIn',
@@ -5749,6 +5940,15 @@ createAshFieldsEnvironment(objects,zone){
 
   // Prevent an auto-sword swing from firing on the exact frame control returns.
   if(this.meleeAttack)this.meleeAttack.lastAttack=this.time.now;
+
+  // A shot that was frozen on top of the hero would otherwise deal unavoidable
+  // damage on the first frame after control returns. Dispel only that small
+  // unsafe bubble; farther shots resume their original flight normally.
+  for(const projectile of this.projectiles||[]){
+   if(!projectile?.active || !projectile.storyAnomalyFrozenAt)continue;
+   const distance=Phaser.Math.Distance.Between(projectile.x,projectile.y,this.player.x,this.player.y);
+   if(distance<(this.player.hitRadius||16)+54)projectile.destroy();
+  }
 
   const cam=this.cameras.main;
   const restoreZoom=state.restoreZoom||cam.zoom;
@@ -6170,7 +6370,12 @@ createAshFieldsEnvironment(objects,zone){
   this.devTools?.update();
   this.woundedKnightInteractions?.update(time);
   this.updateStoryAnomalyCue(time);
-  if(this.storyDirector?.update(time)) return;
+  this.updateHeroFocusInteractionStance(time);
+  if(this.storyDirector?.update(time)){
+   // A story event may enter dialogue/cinematic focus on this exact frame.
+   this.updateHeroFocusInteractionStance(time);
+   return;
+  }
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
 
   // Scene Clock pauses with gameplay overlays, unlike the global update timestamp.
@@ -6222,8 +6427,9 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   if(this.isStoryAnomalyMomentActive(time)){
-   vx*=STORY_ANOMALY_PLAYER_SPEED_FACTOR;
-   vy*=STORY_ANOMALY_PLAYER_SPEED_FACTOR;
+   // The anomaly beat is a hard cinematic freeze: the hero can observe, but not move.
+   vx=0;
+   vy=0;
   }
 
   this.player.body.setVelocity(vx,vy);
@@ -6242,29 +6448,36 @@ createAshFieldsEnvironment(objects,zone){
 
   this.updateReadabilityLayers();
 
+  const heroFocusInteractionActive=this.isHeroFocusInteractionActive();
   const playerMoving=Math.abs(vx)+Math.abs(vy)>0;
-  this.playerDir=this.getDirectionFromVector(
-   vx,
-   vy,
-   this.playerDir
-  );
-  this.playerVisualDir8=this.getHeroSocketDirectionFromVector(
-   vx,
-   vy,
-   this.playerVisualDir8||'s'
-  );
+  if(heroFocusInteractionActive){
+   // Story focus / dialogue always uses the same calm south-facing two-frame
+   // sword stance instead of freezing whatever attack/walk frame happened to be active.
+   this.updateHeroFocusInteractionStance(time);
+  }else{
+   this.playerDir=this.getDirectionFromVector(
+    vx,
+    vy,
+    this.playerDir
+   );
+   this.playerVisualDir8=this.getHeroSocketDirectionFromVector(
+    vx,
+    vy,
+    this.playerVisualDir8||'s'
+   );
 
-  if(time>=this.playerAttackUntil){
-   const nextPlayerKey=`hero_socket_${
-    playerMoving ? 'walk' : 'idle'
-   }_${this.playerVisualDir8}`;
+   if(time>=this.playerAttackUntil){
+    const nextPlayerKey=`hero_socket_${
+     playerMoving ? 'walk' : 'idle'
+    }_${this.playerVisualDir8}`;
 
-   if(this.playerVisualState!==nextPlayerKey){
-    this.playerVisualState=nextPlayerKey;
-    this.playerVisual.play(nextPlayerKey,true);
+    if(this.playerVisualState!==nextPlayerKey){
+     this.playerVisualState=nextPlayerKey;
+     this.playerVisual.play(nextPlayerKey,true);
+    }
    }
+   this.updateHeroWeaponAttachment();
   }
-  this.updateHeroWeaponAttachment();
 
   this.updateWorldRegion();
   this.updateWorldStreaming();
@@ -6346,9 +6559,7 @@ createAshFieldsEnvironment(objects,zone){
    );
 
    let pursuitSpeed=this.getEnemyMovementSpeed(e);
-   if(storyMomentActive && e!==focusedStoryEnemy && e.type!=='champion'){
-    pursuitSpeed*=0.28;
-   }
+   const storyCinematicFrozen=Boolean(storyMomentActive && e!==focusedStoryEnemy);
    const devFreezeAI=e.type==='champion' ? this.devFlags?.championFrozen : this.devFlags?.enemyAiFrozen;
    const devFreezeMove=e.type==='champion' ? this.devFlags?.championMovementFrozen : this.devFlags?.enemyMovementFrozen;
    const storyAnomaly=!devFreezeAI
@@ -6369,11 +6580,12 @@ createAshFieldsEnvironment(objects,zone){
     }
    }
 
-   if(storyMomentActive && e!==focusedStoryEnemy && e.type!=='champion'){
+   if(storyCinematicFrozen){
     e.pendingMeleeHitAt=0;
     e.pendingMeleeDamage=0;
     e.pendingMeleeRange=0;
     e.attackAnimUntil=0;
+    if(e.body)e.body.setVelocity(0,0);
    }
 
    if(devFreezeAI){
@@ -6392,7 +6604,7 @@ createAshFieldsEnvironment(objects,zone){
     }
    }
 
-   if(!devFreezeAI && !storyAnomaly){
+   if(!devFreezeAI && !storyAnomaly && !storyCinematicFrozen){
     if(time<(e.skillTremorUntil||0)){
      e.body.setVelocity(e.skillTremorVX||0,e.skillTremorVY||0);
     } else if(time<(e.skillLiftUntil||0)){
@@ -6615,6 +6827,15 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   this.applyEnemySoftSeparation(time);
+  // Soft separation adds velocity after the AI loop; override it as well so the
+  // cinematic freeze is physically absolute for every non-focused enemy.
+  if(storyMomentActive){
+   for(const enemy of this.enemies||[]){
+    if(enemy?.active && enemy!==focusedStoryEnemy && enemy.body){
+     enemy.body.setVelocity(0,0);
+    }
+   }
+  }
 
   for(const o of this.orbs){
    if(o.active && Phaser.Math.Distance.Between(o.x,o.y,this.player.x,this.player.y)<40){
@@ -6660,8 +6881,34 @@ createAshFieldsEnvironment(objects,zone){
    }
   }
 
+  const storyProjectileFreeze=this.isStoryAnomalyMomentActive(time);
   for(const projectile of this.projectiles){
    if(!projectile.active) continue;
+
+   if(storyProjectileFreeze){
+    if(!projectile.storyAnomalyFrozenAt){
+     projectile.storyAnomalyFrozenAt=time;
+     projectile.storyAnomalyFreezeVX=projectile.body?.velocity?.x||0;
+     projectile.storyAnomalyFreezeVY=projectile.body?.velocity?.y||0;
+     projectile.storyAnomalyFreezeAnim=Boolean(projectile.anims?.isPlaying);
+    }
+    projectile.body?.setVelocity?.(0,0);
+    if(projectile.anims?.isPlaying)projectile.anims.pause();
+    continue;
+   }
+
+   if(projectile.storyAnomalyFrozenAt){
+    const frozenFor=Math.max(0,time-projectile.storyAnomalyFrozenAt);
+    projectile.born=(projectile.born||time)+frozenFor;
+    projectile.body?.setVelocity?.(projectile.storyAnomalyFreezeVX||0,projectile.storyAnomalyFreezeVY||0);
+    if(projectile.storyAnomalyFreezeAnim)projectile.anims?.resume?.();
+    projectile.storyAnomalyFrozenAt=0;
+    projectile.storyAnomalyFreezeVX=0;
+    projectile.storyAnomalyFreezeVY=0;
+    projectile.storyAnomalyFreezeAnim=false;
+    projectile.lastWorldX=projectile.x;
+    projectile.lastWorldY=projectile.y;
+   }
 
    const lastProjectileX=Number.isFinite(projectile.lastWorldX)?projectile.lastWorldX:projectile.x;
    const lastProjectileY=Number.isFinite(projectile.lastWorldY)?projectile.lastWorldY:projectile.y;

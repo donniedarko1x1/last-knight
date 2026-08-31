@@ -246,7 +246,7 @@ for(const [label,source,needle] of [
  ['declarative objective action',storyDirectorSource,"OBJECTIVE:'objective'"],
  ['MainScene StoryDirector import',main,"import StoryDirector from './story/StoryDirector.js';"],
  ['MainScene StoryDirector install',main,'this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();'],
- ['MainScene StoryDirector update',main,'if(this.storyDirector?.update(time)) return;'],
+ ['MainScene StoryDirector update',main,'if(this.storyDirector?.update(time)){'],
  ['runtime cinematic mode',main,"this.cinematicMode=data?.mode==='story' ? 'story' : 'prologue';"],
  ['shared prologue story data',storyEventsSource,'const PROLOGUE_STORY_PAGES=Object.freeze([']
 ]){
@@ -339,7 +339,7 @@ if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')
 // only after the ordinary fifth wave has been cleared.
 for(const [label,source,needle] of [
  ['enemy anomaly module',storyEnemyAnomalySource,'class StoryEnemyAnomalySystem'],
- ['wave anomaly counts',storyEnemyAnomalySource,'const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:2,3:3,4:2,5:3})'],
+ ['wave anomaly counts',storyEnemyAnomalySource,'const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:1,3:2,4:1,5:2})'],
  ['distributed wave selection',storyEnemyAnomalySource,'this.selectedOrdinals.add(ordinal);'],
  ['hesitation phase',storyEnemyAnomalySource,"state.phase='hesitate';"],
  ['release beat before flee',storyEnemyAnomalySource,"state.phase='release';"],
@@ -352,18 +352,40 @@ for(const [label,source,needle] of [
  ['spawn registration hook',main,'this.storyEnemyAnomalies?.registerEnemy(e,{'],
  ['AI anomaly override',main,'const storyAnomaly=!devFreezeAI'],
  ['five-second anomaly focus',main,'highlightStoryAnomaly(enemy,{durationMs=5000}={})'],
- ['anomaly slow-motion gate',main,'isStoryAnomalyMomentActive(time=this.time?.now||0)'],
+ ['anomaly cinematic gate',main,'isStoryAnomalyMomentActive(time=this.time?.now||0)'],
  ['soft anomaly vignette',main,"const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';"],
- ['anomaly thought fragments',main,"'Что со мной?..'"],
+ ['edge-normalized anomaly vignette',main,'const maxEdgeAlpha=0.52;'],
+ ['anomaly tighter clear center',main,'const clearCore=0.075;'],
+ ['anomaly focus curve',main,'const vignetteFocusCurve=0.82;'],
+ ['anomaly silhouette outline',main,'createStoryAnomalyOutline(enemy)'],
+ ['anomaly outline frame sync',main,'syncStoryAnomalyOutline(state)'],
+ ['anomaly ambiguous survival thought',main,"'Он выжил...'"],
+ ['anomaly thought impossible',main,"'Этого не может быть...'"],
+ ['anomaly thought still here',main,"'Он всё ещё здесь...'"],
+ ['anomaly thought truth',main,"'Значит, это правда...'"],
+ ['anomaly thought saw death',main,"'Я видел его смерть...'"],
+ ['anomaly thought denial',main,"'Нет... не может быть.'"],
+ ['anomaly thought should be dead',main,"'Он должен был погибнуть...'"],
+ ['anomaly thought realization',main,"'Так вот что случилось...'"],
+ ['anomaly thought too late',main,"'Слишком поздно...'"],
  ['hero skill lock during anomaly',main,'if(this.isStoryAnomalyMomentActive(this.time.now)) return;'],
- ['player anomaly heavy slow motion',main,'const STORY_ANOMALY_PLAYER_SPEED_FACTOR=0.38;'],
- ['player anomaly slow motion application',main,'vx*=STORY_ANOMALY_PLAYER_SPEED_FACTOR;'],
- ['enemy anomaly slow motion',main,'pursuitSpeed*=0.28;'],
+ ['player anomaly hard freeze',main,'vx=0;'],
+ ['enemy anomaly cinematic freeze',main,'const storyCinematicFrozen=Boolean(storyMomentActive && e!==focusedStoryEnemy);'],
+ ['enemy anomaly separation override',main,'cinematic freeze is physically absolute for every non-focused enemy'],
+ ['mage projectile anomaly freeze',main,'const storyProjectileFreeze=this.isStoryAnomalyMomentActive(time);'],
+ ['mage projectile anomaly damage firewall',main,"if(source==='mageProjectile' && this.isStoryAnomalyMomentActive(now)) return false;"],
+ ['mage projectile motion restore',main,'projectile.storyAnomalyFreezeVX||0'],
+ ['universal hero focus stance API',main,'setHeroFocusInteraction(reason,active=true)'],
+ ['hero focus stance active gate',main,'isHeroFocusInteractionActive()'],
+ ['hero focus stance frame updater',main,'updateHeroFocusInteractionStance(frameTime=0)'],
+ ['hero focus stance south frame one',main,"hero_socket_walk_s_${String(frameIndex).padStart(2,'0')}"],
+ ['hero focus stance weapon sync',main,'this.updateHeroWeaponAttachment();'],
  ['post-wave Broken Saint state',main,'this.postWaveChampionKind=isPostWaveBrokenSaint?championKind:null;'],
  ['post-wave Broken Saint spawn',main,'if(this.postWaveChampionKind){']
 ]){
  if(!source.includes(needle)) fail(`Missing Act-I wave pacing contract: ${label}`);
 }
+if(!gameplayConfig.includes('MAGE_PROJECTILE_DAMAGE:8')) fail('Mage projectile base damage must match ordinary skeleton base damage (8)');
 try{
  const fakeScene={time:{now:1000}};
  const anomaly=new StoryEnemyAnomalySystem(fakeScene).install();

@@ -1,6 +1,6 @@
-const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:2,3:3,4:2,5:3});
+const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:1,3:2,4:1,5:2});
+const ONE_EVENT_FRACTIONS=Object.freeze([0.52]);
 const TWO_EVENT_FRACTIONS=Object.freeze([0.30,0.72]);
-const THREE_EVENT_FRACTIONS=Object.freeze([0.20,0.50,0.80]);
 const ANOMALY_RELEASE_MS=120;
 
 function deterministicSeed(wave,ordinal){
@@ -39,7 +39,7 @@ class StoryEnemyAnomalySystem {
   const count=STORY_WAVE_ANOMALY_COUNTS[this.currentWave]||0;
   if(count<=0 || this.waveTarget<=0)return;
 
-  const fractions=count===2?TWO_EVENT_FRACTIONS:THREE_EVENT_FRACTIONS;
+  const fractions=count===1?ONE_EVENT_FRACTIONS:TWO_EVENT_FRACTIONS;
   for(const fraction of fractions){
    let ordinal=Math.round(this.waveTarget*fraction);
    ordinal=Math.max(1,Math.min(this.waveTarget,ordinal));
