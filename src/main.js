@@ -544,6 +544,21 @@ class LastKnightDevTools {
   this.hideGameUi=false;
   this.lastInfoAt=0;
   this.lastUpdateReal=performance.now();
+
+  // Low-overhead performance trace. Samples are aggregated at 4 Hz while
+  // browser/page lifecycle transitions are recorded immediately, including
+  // periods where Phaser's own update loop is throttled or suspended.
+  this.performanceTrace=null;
+  this.traceSampleIntervalMs=250;
+  this.traceMaxSamples=14400; // ~60 minutes at 4 Hz
+  this.traceMaxEvents=8000;
+  this.traceLastSampleAt=0;
+  this.traceFrameBucket=this.createTraceFrameBucket();
+  this.traceBrowserHandlers=null;
+  this.traceGameHandlers=null;
+  this.traceScaleResizeHandler=null;
+  this.traceContextLostHandler=null;
+  this.traceContextRestoredHandler=null;
   this.savedLayout=this.readSavedLayout();
   this.uiEditor=new LastKnightUiLayoutEditor(this);
   this.root=null;
@@ -574,6 +589,7 @@ class LastKnightDevTools {
   this.scene.input.on('wheel',this.wheelHandler);
   this.scene.game?.canvas?.addEventListener?.('contextmenu',this.contextMenuHandler);
   document.addEventListener('keydown',this.keyHandler);
+  this.installTraceListeners();
   for(const object of this.scene.devEnvironmentObjects||[]) this.applySavedOverrideToObject(object);
   this.restoreCreatedObjectsFromSaved();
   // Saved environment layout must never reopen the game with an editor selection.
@@ -581,6 +597,7 @@ class LastKnightDevTools {
   this.applyAllEnvironmentVisibility();
   this.refreshSelectedPanel();
   this.refreshStateButtons();
+  this.refreshTraceUi();
   this.uiEditor.refreshPanel();
   window.__LK_DEV=this;
  }
@@ -593,6 +610,7 @@ class LastKnightDevTools {
   try{this.scene.input.off('wheel',this.wheelHandler);}catch{}
   try{this.scene.game?.canvas?.removeEventListener?.('contextmenu',this.contextMenuHandler);}catch{}
   document.removeEventListener('keydown',this.keyHandler);
+  this.removeTraceListeners();
   this.uiEditor?.destroy();
   this.graphics?.destroy();
   this.root?.remove();
@@ -710,6 +728,12 @@ class LastKnightDevTools {
      <div class="lkdev-row"><button data-action="uiResetSelected">Reset Selected</button><button data-action="uiResetProfile">Reset Profile</button><button data-action="uiResetAll" class="danger">Reset All UI</button></div>
      <div class="lkdev-row"><button data-action="uiSaveLocal" class="good">Save Local</button><button data-action="uiLoadLocal">Load Local</button><button data-action="uiCopyLayout">Copy UI JSON</button><button data-action="uiDownload">Download JSON</button></div>
      <textarea id="lkdev-ui-output" class="lkdev-output" readonly placeholder="UI layout JSON appears here"></textarea>
+    </div></details>
+
+    <details class="lkdev-section" open><summary>PERFORMANCE TRACE</summary><div class="lkdev-body">
+     <div class="lkdev-label">Record FPS, frame stalls, game/story state, browser visibility, camera FX, HiDPI/backing canvas, WebGL, audio and scene load.</div>
+     <div class="lkdev-row"><button data-action="traceStart" class="good">START TRACE</button><button data-action="traceStop">STOP</button><button data-action="traceExport">EXPORT JSON</button><button data-action="traceClear" class="danger">CLEAR</button></div>
+     <div id="lkdev-trace-info" class="lkdev-info">Trace idle</div>
     </div></details>
 
     <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
@@ -862,8 +886,12 @@ class LastKnightDevTools {
    case 'stress':this.runStress(Number(value));break;
    case 'hideUi':this.setGameUiHidden(!this.hideGameUi);break;
    case 'screenshot':this.captureScreenshot();break;
+   case 'traceStart':this.startPerformanceTrace();break;
+   case 'traceStop':this.stopPerformanceTrace();break;
+   case 'traceExport':this.exportPerformanceTrace();break;
+   case 'traceClear':this.clearPerformanceTrace();break;
   }
-  this.refreshStateButtons();this.refreshSelectedPanel();this.updateInfo(true);
+  this.refreshStateButtons();this.refreshSelectedPanel();this.refreshTraceUi();this.updateInfo(true);
  }
 
  setTimeScale(scale){
@@ -1031,7 +1059,9 @@ class LastKnightDevTools {
  lockCamera(){const c=this.scene.cameras.main;this.freeCamera=false;this.cameraLocked=true;this.cameraPan=null;c.stopFollow();}
  toggleFreeCamera(){this.freeCamera=!this.freeCamera;this.cameraLocked=false;this.cameraPan=null;const c=this.scene.cameras.main;if(this.freeCamera)c.stopFollow();else this.followCamera();}
  setRenderScale(value){
+  const before=LK_RENDER_SCALE;
   const applied=lkApplyRenderScale(this.scene.game,value);
+  this.recordTraceEvent('render_scale_changed',{requested:String(value),before,after:applied},{sample:true});
   this.refreshStateButtons();this.updateRenderInfo(true);this.updateInfo(true);
   return applied;
  }
@@ -1058,6 +1088,365 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
 
  setGameUiHidden(hidden){this.hideGameUi=Boolean(hidden);const hud=this.scene.scene.get('HUDScene');if(this.scene.scene?.setVisible)this.scene.scene.setVisible(!hidden,'HUDScene');else if(hud?.sys?.setVisible)hud.sys.setVisible(!hidden);this.scene.hud?.setVisible(!hidden);this.scene.waveText?.setVisible(!hidden);this.scene.waveSubText?.setVisible(!hidden);this.scene.regionText?.setVisible(!hidden);}
  captureScreenshot(){const previous=this.hideGameUi,wasOpen=this.open,wasDevPaused=this.scene.gameplayPauseReasons?.has('devPanel'),overlayVisible=this.graphics?.visible!==false;this.scene.setGameplayPaused('devPanel',true);this.setGameUiHidden(true);if(this.graphics)this.graphics.setVisible(false);this.togglePanel(false);if(this.button)this.button.style.display='none';const restore=()=>{this.setGameUiHidden(previous);if(this.graphics)this.graphics.setVisible(overlayVisible);if(!wasDevPaused)this.scene.setGameplayPaused('devPanel',false);if(wasOpen)this.togglePanel(true);else if(this.button)this.button.style.display='';};setTimeout(()=>{try{this.scene.game.renderer.snapshot(image=>{const link=document.createElement('a');link.download=`last-knight-x${Math.round(this.scene.player.x)}-${Date.now()}.png`;link.href=image.src;link.click();restore();});}catch{restore();}},80);}
+
+ createTraceFrameBucket(){
+  return {frames:0,deltaSum:0,deltaMax:0,wallGapMax:0,rawDeltaMax:0,slow33:0,slow50:0,slow100:0};
+ }
+
+ isPerformanceTraceActive(){return Boolean(this.performanceTrace?.active);}
+
+ traceElapsedMs(nowPerf=performance.now()){
+  return this.performanceTrace ? Math.max(0,Math.round((nowPerf-this.performanceTrace.startedPerf)*10)/10) : 0;
+ }
+
+ boundedTracePush(list,value,max,key){
+  if(!Array.isArray(list))return;
+  list.push(value);
+  if(list.length>max){
+   const drop=Math.max(1,list.length-max);
+   list.splice(0,drop);
+   if(this.performanceTrace)this.performanceTrace[key]=(this.performanceTrace[key]||0)+drop;
+  }
+ }
+
+ recordTraceFrame(delta,wallGapMs){
+  if(!this.isPerformanceTraceActive())return;
+  const b=this.traceFrameBucket;
+  const d=Math.max(0,Number(delta)||0);
+  const gap=Math.max(0,Number(wallGapMs)||0);
+  const raw=Math.max(0,Number(this.scene?.game?.loop?.rawDelta)||0);
+  b.frames++;
+  b.deltaSum+=d;
+  b.deltaMax=Math.max(b.deltaMax,d);
+  b.wallGapMax=Math.max(b.wallGapMax,gap);
+  b.rawDeltaMax=Math.max(b.rawDeltaMax,raw);
+  if(gap>=33.34)b.slow33++;
+  if(gap>=50)b.slow50++;
+  if(gap>=100)b.slow100++;
+ }
+
+ getTraceRenderState(){
+  const game=this.scene?.game;
+  const canvas=game?.canvas;
+  const rect=canvas?.getBoundingClientRect?.();
+  const css=lkCssViewport();
+  const gl=game?.renderer?.gl||null;
+  const rendererType=game?.renderer?.type===Phaser.WEBGL?'WEBGL':(game?.renderer?.type===Phaser.CANVAS?'CANVAS':String(game?.renderer?.type||'?'));
+  return {
+   activeRenderScale:Math.round(LK_RENDER_SCALE*100)/100,
+   devicePixelRatio:Math.round(Number(window.devicePixelRatio||1)*100)/100,
+   cssViewport:{w:css.width,h:css.height},
+   windowInner:{w:window.innerWidth||0,h:window.innerHeight||0},
+   visualViewport:window.visualViewport?{
+    w:Math.round(window.visualViewport.width||0),h:Math.round(window.visualViewport.height||0),
+    scale:Math.round((window.visualViewport.scale||1)*100)/100,
+    offsetLeft:Math.round(window.visualViewport.offsetLeft||0),offsetTop:Math.round(window.visualViewport.offsetTop||0)
+   }:null,
+   canvasBacking:{w:canvas?.width||0,h:canvas?.height||0},
+   canvasCss:{w:Math.round(rect?.width||canvas?.clientWidth||0),h:Math.round(rect?.height||canvas?.clientHeight||0)},
+   backingRatio:{
+    x:rect?.width?Math.round((canvas.width/rect.width)*100)/100:null,
+    y:rect?.height?Math.round((canvas.height/rect.height)*100)/100:null
+   },
+   scaleGameSize:{w:game?.scale?.gameSize?.width||0,h:game?.scale?.gameSize?.height||0},
+   renderer:rendererType,
+   drawCount:Number(game?.renderer?.drawCount)||0,
+   drawingBuffer:gl?{w:gl.drawingBufferWidth||0,h:gl.drawingBufferHeight||0}:null,
+   contextLost:Boolean(gl?.isContextLost?.()),
+   textureCount:Object.keys(this.scene?.textures?.list||{}).length
+  };
+ }
+
+ getTraceCameraState(){
+  const cam=this.scene?.cameras?.main;
+  const view=cam?.worldView;
+  return {
+   zoom:cam?Math.round(cam.zoom*1000)/1000:null,
+   scrollX:cam?Math.round(cam.scrollX*10)/10:null,
+   scrollY:cam?Math.round(cam.scrollY*10)/10:null,
+   centerX:view?Math.round(view.centerX*10)/10:null,
+   centerY:view?Math.round(view.centerY*10)/10:null,
+   viewW:view?Math.round(view.width*10)/10:null,
+   viewH:view?Math.round(view.height*10)/10:null,
+   following:Boolean(cam?._follow),
+   panRunning:Boolean(cam?.panEffect?.isRunning),
+   zoomRunning:Boolean(cam?.zoomEffect?.isRunning),
+   shakeRunning:Boolean(cam?.shakeEffect?.isRunning),
+   fadeRunning:Boolean(cam?.fadeEffect?.isRunning)
+  };
+ }
+
+ getTraceLoadState(){
+  const s=this.scene;
+  const enemies=(s.enemies||[]).filter(e=>e?.active&&e.hp>0);
+  const countType=(type)=>enemies.filter(e=>e.type===type).length;
+  const ordinary=enemies.filter(e=>e.type!=='champion');
+  const navPaths=enemies.filter(e=>Array.isArray(e.navPath)&&e.navPath.length>0).length;
+  const windups=enemies.filter(e=>(e.pendingMeleeHitAt||0)>0).length;
+  let activeTweens=null,timers=null;
+  try{activeTweens=s.tweens?.getTweens?.().length??s.tweens?._active?.length??null;}catch{}
+  try{timers=s.time?.getAllEvents?.().length??null;}catch{}
+  const sounds=s.sound?.sounds||s.game?.sound?.sounds||[];
+  const children=s.children?.list||[];
+  const memory=performance?.memory?{
+   usedJSHeapSize:performance.memory.usedJSHeapSize||0,
+   totalJSHeapSize:performance.memory.totalJSHeapSize||0,
+   jsHeapSizeLimit:performance.memory.jsHeapSizeLimit||0
+  }:null;
+  return {
+   displayObjects:children.length,
+   activeVisibleObjects:children.filter(o=>o?.active&&o.visible!==false).length,
+   activeTweens,
+   timers,
+   physicsBodies:s.physics?.world?.bodies?.entries?.length??null,
+   staticBodies:s.physics?.world?.staticBodies?.entries?.length??null,
+   enemies:{total:enemies.length,ordinary:ordinary.length,skeleton:countType('skeleton'),mage:countType('mage'),shield:countType('shield'),champion:countType('champion'),windups,navPaths},
+   projectiles:(s.projectiles||[]).filter(p=>p?.active).length,
+   championHazards:(s.championHazards||[]).filter(h=>h && (h.visual?.active||h.beamVisual?.active||h.active!==false)).length,
+   hearts:(s.hearts||[]).filter(h=>h?.active).length,
+   activeAttackFx:Boolean(s.activeAttackFx?.active),
+   sounds:{total:sounds.length,playing:sounds.filter(sound=>sound?.isPlaying).length,paused:sounds.filter(sound=>sound?.isPaused).length},
+   memory
+  };
+ }
+
+ buildTraceSnapshot(nowPerf=performance.now()){
+  const s=this.scene;
+  const loop=s.game?.loop;
+  const player=s.player;
+  const melee=s.meleeAttack;
+  const champ=s.activeChampion?.active?s.activeChampion:null;
+  const frame=this.traceFrameBucket;
+  const frameSummary={
+   count:frame.frames,
+   avgDelta:frame.frames?Math.round((frame.deltaSum/frame.frames)*100)/100:null,
+   maxDelta:Math.round(frame.deltaMax*100)/100,
+   maxWallGap:Math.round(frame.wallGapMax*100)/100,
+   maxRawDelta:Math.round(frame.rawDeltaMax*100)/100,
+   slow33:frame.slow33,slow50:frame.slow50,slow100:frame.slow100
+  };
+  this.traceFrameBucket=this.createTraceFrameBucket();
+
+  const orientation=screen?.orientation?{type:screen.orientation.type||null,angle:screen.orientation.angle||0}:{type:null,angle:window.orientation||0};
+  return {
+   t:this.traceElapsedMs(nowPerf),
+   wall:new Date().toISOString(),
+   fps:Math.round((Number(loop?.actualFps)||0)*10)/10,
+   loop:{delta:Math.round((Number(loop?.delta)||0)*100)/100,rawDelta:Math.round((Number(loop?.rawDelta)||0)*100)/100,targetFps:Number(loop?.targetFps)||null},
+   frame:frameSummary,
+   browser:{
+    visibility:document.visibilityState||null,hidden:Boolean(document.hidden),hasFocus:Boolean(document.hasFocus?.()),
+    online:navigator.onLine!==false,orientation
+   },
+   pause:{
+    gameplayPaused:Boolean(s.gameplayPaused),reasons:Array.from(s.gameplayPauseReasons||[]),
+    sceneTimePaused:Boolean(s.time?.paused),physicsPaused:Boolean(s.physics?.world?.isPaused)
+   },
+   render:this.getTraceRenderState(),
+   camera:this.getTraceCameraState(),
+   player:{
+    x:player?Math.round(player.x*10)/10:null,y:player?Math.round(player.y*10)/10:null,
+    vx:player?.body?Math.round(player.body.velocity.x*10)/10:null,vy:player?.body?Math.round(player.body.velocity.y*10)/10:null,
+    hp:player?.hp??null,mana:s.mana??null,
+    visualState:s.playerVisualState||null,
+    combatActive:Boolean(melee?.combatActive),attackTargets:melee?.attackTargetCount??0,nearbyTargets:melee?.nearbyTargetCount??0,
+    nearestTargetDistance:melee?.nearestTargetDistance??null,attackCounter:melee?.attackCounter??0,
+    attackAnimationActive:Boolean((s.playerAttackUntil||0)>(s.time?.now||0))
+   },
+   wave:{wave:s.wave,spawned:s.spawned,target:s.waveTarget,intermission:Boolean(s.waveIntermission),autoSpawnsDisabled:Boolean(s.devFlags?.autoSpawnsDisabled)},
+   champion:champ?{
+    kind:champ.championKind||null,hp:Math.round(champ.hp*10)/10,maxHp:champ.maxHp,x:Math.round(champ.x),y:Math.round(champ.y),
+    dormant:Boolean(champ.storyDormant),ignoreAltar:Boolean(champ.ignoreAshAltarCollision),phase2:Boolean(s.brokenSaintAltarReleased)
+   }:null,
+   story:{
+    director:s.storyDirector?.getState?.()||null,objective:s.storyDirector?.getActiveObjective?.()?.id||null,
+    focusOwner:s.storyFocusLockOwner||null,
+    anomaly:Boolean(s.storyAnomalyCueState),anomalyVignette:Boolean(s.storyAnomalyCueState?.vignette?.active),anomalyCameraLocked:Boolean(s.storyAnomalyCueState?.cameraLocked),
+    championReveal:Boolean(s.ashChampionIntroState),championVignette:Boolean(s.ashChampionIntroState?.vignette?.active),championCameraLocked:Boolean(s.ashChampionIntroState?.cameraLocked),
+    woundedDialogue:Boolean(s.woundedKnightInteractions?.active)
+   },
+   load:this.getTraceLoadState()
+  };
+ }
+
+ samplePerformanceTrace(force=false){
+  if(!this.isPerformanceTraceActive())return null;
+  const now=performance.now();
+  if(!force && now-this.traceLastSampleAt<this.traceSampleIntervalMs)return null;
+  this.traceLastSampleAt=now;
+  const sample=this.buildTraceSnapshot(now);
+  this.boundedTracePush(this.performanceTrace.samples,sample,this.traceMaxSamples,'droppedSamples');
+  this.refreshTraceUi();
+  return sample;
+ }
+
+ recordTraceEvent(type,data={},options={}){
+  if(!this.isPerformanceTraceActive())return false;
+  const now=performance.now();
+  const event={t:this.traceElapsedMs(now),wall:new Date().toISOString(),type:String(type||'event'),data:data&&typeof data==='object'?data:{value:data}};
+  this.boundedTracePush(this.performanceTrace.events,event,this.traceMaxEvents,'droppedEvents');
+  if(options?.sample)this.samplePerformanceTrace(true);
+  this.refreshTraceUi();
+  return true;
+ }
+
+ getTraceMetadata(){
+  const game=this.scene?.game;
+  return {
+   schema:'last-knight-performance-trace-v1',
+   build:'v10.5-performance-trace',
+   createdAt:new Date().toISOString(),
+   userAgent:navigator.userAgent||null,
+   platform:navigator.platform||null,
+   language:navigator.language||null,
+   hardwareConcurrency:navigator.hardwareConcurrency||null,
+   deviceMemory:navigator.deviceMemory||null,
+   maxTouchPoints:navigator.maxTouchPoints||0,
+   renderer:game?.renderer?.type===Phaser.WEBGL?'WEBGL':(game?.renderer?.type===Phaser.CANVAS?'CANVAS':String(game?.renderer?.type||'?')),
+   renderAtStart:this.getTraceRenderState()
+  };
+ }
+
+ startPerformanceTrace(){
+  const now=performance.now();
+  this.performanceTrace={
+   active:true,startedPerf:now,startedWall:Date.now(),stoppedWall:null,
+   meta:this.getTraceMetadata(),samples:[],events:[],droppedSamples:0,droppedEvents:0
+  };
+  this.traceLastSampleAt=0;
+  this.traceFrameBucket=this.createTraceFrameBucket();
+  this.recordTraceEvent('trace_started',{visibility:document.visibilityState,hasFocus:Boolean(document.hasFocus?.())});
+  this.samplePerformanceTrace(true);
+  this.refreshTraceUi();
+ }
+
+ stopPerformanceTrace(){
+  if(!this.performanceTrace)return;
+  if(this.performanceTrace.active){
+   this.samplePerformanceTrace(true);
+   this.recordTraceEvent('trace_stopped',{});
+   this.performanceTrace.active=false;
+   this.performanceTrace.stoppedWall=Date.now();
+  }
+  this.refreshTraceUi();
+ }
+
+ clearPerformanceTrace(){
+  this.performanceTrace=null;
+  this.traceLastSampleAt=0;
+  this.traceFrameBucket=this.createTraceFrameBucket();
+  this.refreshTraceUi();
+ }
+
+ exportPerformanceTrace(){
+  if(!this.performanceTrace)return false;
+  this.samplePerformanceTrace(true);
+  const trace=this.performanceTrace;
+  const payload={
+   ...trace.meta,
+   exportedAt:new Date().toISOString(),
+   trace:{
+    startedAt:new Date(trace.startedWall).toISOString(),
+    stoppedAt:trace.stoppedWall?new Date(trace.stoppedWall).toISOString():null,
+    active:Boolean(trace.active),durationMs:Math.round((trace.active?performance.now()-trace.startedPerf:(trace.stoppedWall-trace.startedWall))*10)/10,
+    sampleIntervalMs:this.traceSampleIntervalMs,droppedSamples:trace.droppedSamples||0,droppedEvents:trace.droppedEvents||0
+   },
+   finalState:this.buildTraceSnapshot(performance.now()),
+   events:trace.events,
+   samples:trace.samples
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement('a');
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  link.download=`last-knight-performance-trace-${stamp}.json`;
+  link.href=url;
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  return true;
+ }
+
+ refreshTraceUi(){
+  const el=document.getElementById('lkdev-trace-info');
+  if(!el)return;
+  const t=this.performanceTrace;
+  if(!t){el.textContent='Trace idle';return;}
+  const duration=t.active?performance.now()-t.startedPerf:(t.stoppedWall-t.startedWall);
+  const status=t.active?'RECORDING':'stopped';
+  const latest=t.samples[t.samples.length-1];
+  el.textContent=`${status} · ${(Math.max(0,duration)/1000).toFixed(1)}s\nSamples ${t.samples.length} · Events ${t.events.length} · dropped ${t.droppedSamples||0}/${t.droppedEvents||0}\nFPS ${latest?.fps??'-'} · frame max ${latest?.frame?.maxWallGap??'-'}ms · DPR ${latest?.render?.devicePixelRatio??'-'} · render ${latest?.render?.activeRenderScale??LK_RENDER_SCALE}×\nVisibility ${document.visibilityState} · focus ${document.hasFocus?.()?'yes':'no'}`;
+ }
+
+ installTraceListeners(){
+  if(typeof window==='undefined' || typeof document==='undefined' || this.traceBrowserHandlers)return;
+  const browserEvent=(type,extra={})=>()=>this.recordTraceEvent(type,{
+   visibility:document.visibilityState,hidden:Boolean(document.hidden),hasFocus:Boolean(document.hasFocus?.()),
+   dpr:Number(window.devicePixelRatio||1),innerWidth:window.innerWidth,innerHeight:window.innerHeight,...extra
+  },{sample:true});
+  this.traceBrowserHandlers={
+   visibility:browserEvent('browser_visibilitychange'),
+   blur:browserEvent('window_blur'),
+   focus:browserEvent('window_focus'),
+   pagehide:(event)=>this.recordTraceEvent('pagehide',{persisted:Boolean(event?.persisted),visibility:document.visibilityState},{sample:true}),
+   pageshow:(event)=>this.recordTraceEvent('pageshow',{persisted:Boolean(event?.persisted),visibility:document.visibilityState},{sample:true}),
+   freeze:browserEvent('page_freeze'),
+   resume:browserEvent('page_resume'),
+   resize:browserEvent('window_resize'),
+   vvresize:browserEvent('visual_viewport_resize'),
+   orientation:browserEvent('orientationchange'),
+   online:browserEvent('online'),
+   offline:browserEvent('offline')
+  };
+  document.addEventListener('visibilitychange',this.traceBrowserHandlers.visibility);
+  window.addEventListener('blur',this.traceBrowserHandlers.blur);
+  window.addEventListener('focus',this.traceBrowserHandlers.focus);
+  window.addEventListener('pagehide',this.traceBrowserHandlers.pagehide);
+  window.addEventListener('pageshow',this.traceBrowserHandlers.pageshow);
+  document.addEventListener('freeze',this.traceBrowserHandlers.freeze);
+  document.addEventListener('resume',this.traceBrowserHandlers.resume);
+  window.addEventListener('resize',this.traceBrowserHandlers.resize,{passive:true});
+  window.visualViewport?.addEventListener?.('resize',this.traceBrowserHandlers.vvresize,{passive:true});
+  window.addEventListener('orientationchange',this.traceBrowserHandlers.orientation,{passive:true});
+  window.addEventListener('online',this.traceBrowserHandlers.online);
+  window.addEventListener('offline',this.traceBrowserHandlers.offline);
+
+  this.traceScaleResizeHandler=()=>this.recordTraceEvent('phaser_scale_resize',{renderScale:LK_RENDER_SCALE},{sample:true});
+  this.scene.scale?.on?.('resize',this.traceScaleResizeHandler);
+
+  const canvas=this.scene.game?.canvas;
+  this.traceContextLostHandler=(event)=>this.recordTraceEvent('webgl_context_lost',{statusMessage:event?.statusMessage||null},{sample:true});
+  this.traceContextRestoredHandler=()=>this.recordTraceEvent('webgl_context_restored',{}, {sample:true});
+  canvas?.addEventListener?.('webglcontextlost',this.traceContextLostHandler);
+  canvas?.addEventListener?.('webglcontextrestored',this.traceContextRestoredHandler);
+
+  const gameEvents=this.scene.game?.events;
+  this.traceGameHandlers={};
+  for(const name of ['blur','focus','hidden','visible','pause','resume']){
+   const handler=()=>this.recordTraceEvent(`phaser_${name}`,{visibility:document.visibilityState},{sample:true});
+   this.traceGameHandlers[name]=handler;
+   gameEvents?.on?.(name,handler);
+  }
+ }
+
+ removeTraceListeners(){
+  if(typeof window==='undefined' || typeof document==='undefined')return;
+  const h=this.traceBrowserHandlers;
+  if(h){
+   document.removeEventListener('visibilitychange',h.visibility);
+   window.removeEventListener('blur',h.blur);window.removeEventListener('focus',h.focus);
+   window.removeEventListener('pagehide',h.pagehide);window.removeEventListener('pageshow',h.pageshow);
+   document.removeEventListener('freeze',h.freeze);document.removeEventListener('resume',h.resume);
+   window.removeEventListener('resize',h.resize);window.visualViewport?.removeEventListener?.('resize',h.vvresize);
+   window.removeEventListener('orientationchange',h.orientation);window.removeEventListener('online',h.online);window.removeEventListener('offline',h.offline);
+  }
+  if(this.traceScaleResizeHandler)this.scene.scale?.off?.('resize',this.traceScaleResizeHandler);
+  const canvas=this.scene.game?.canvas;
+  if(this.traceContextLostHandler)canvas?.removeEventListener?.('webglcontextlost',this.traceContextLostHandler);
+  if(this.traceContextRestoredHandler)canvas?.removeEventListener?.('webglcontextrestored',this.traceContextRestoredHandler);
+  const gameEvents=this.scene.game?.events;
+  for(const [name,handler] of Object.entries(this.traceGameHandlers||{}))gameEvents?.off?.(name,handler);
+  this.traceBrowserHandlers=null;this.traceGameHandlers=null;
+ }
 
  refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
 
@@ -1111,8 +1500,10 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   return this.editMode || Object.values(this.overlayFlags||{}).some(Boolean);
  }
 
- update(){
-  const now=performance.now(),dt=Math.min(50,now-this.lastUpdateReal);this.lastUpdateReal=now;
+ update(_time=0,delta=0){
+  const now=performance.now(),wallGap=Math.max(0,now-this.lastUpdateReal),dt=Math.min(50,wallGap);this.lastUpdateReal=now;
+  this.recordTraceFrame(delta,wallGap);
+  this.samplePerformanceTrace(false);
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
 
@@ -2452,6 +2843,7 @@ class MainScene extends Phaser.Scene {
   else this.gameplayPauseReasons.delete(reason);
 
   const nextPaused=this.gameplayPauseReasons.size>0;
+  this.devTools?.recordTraceEvent?.('gameplay_pause_reason',{reason:String(reason),shouldPause:Boolean(shouldPause),paused:nextPaused,reasons:Array.from(this.gameplayPauseReasons)},{sample:true});
   if(nextPaused===this.gameplayPaused) return;
   this.gameplayPaused=nextPaused;
 
@@ -6207,6 +6599,7 @@ createAshFieldsEnvironment(objects,zone){
    .setDisplaySize(view.width,view.height)
    .setAlpha(0);
   state.vignette=vignette;
+  this.devTools?.recordTraceEvent?.('story_vignette_created',{kind:state.enemy?'anomaly':'champion',cameraZoom:cam.zoom,centerX:Math.round(cam.worldView.centerX),centerY:Math.round(cam.worldView.centerY),cameraLocked:Boolean(state.cameraLocked)},{sample:true});
   state.vignetteKeyX=null;
   state.vignetteKeyY=null;
   state.vignetteKeyW=null;
@@ -6979,10 +7372,10 @@ createAshFieldsEnvironment(objects,zone){
   });
  }
 
- update(time){
+ update(time,delta){
   this.syncOrientationPause();
   this.updateLowHealthState();
-  this.devTools?.update();
+  this.devTools?.update(time,delta);
   this.woundedKnightInteractions?.update(time);
   this.updateStoryAnomalyCue(time);
   this.updateAshAltarChampionStory(this.time.now);
