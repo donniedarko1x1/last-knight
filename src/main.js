@@ -1084,13 +1084,13 @@ class LastKnightDevTools {
    index:0,
    originalScale:LK_RENDER_SCALE,
    stageStartedAt:now,
-   settleUntil:now+1000,
-   measureUntil:now+11000,
-   fpsSum:0,fpsCount:0,fpsMin:Infinity,fpsMax:0,
-   frameGapSum:0,frameGapCount:0,frameGapMax:0,slow33:0,slow50:0,slow100:0
+   settleUntil:now+1500,
+   measureUntil:now+11500,
+   fpsSum:0,fpsCount:0,fpsMin:Infinity,fpsMax:0,fpsSamples:[],
+   frameGapSum:0,frameGapCount:0,frameGapMax:0,frameGapSamples:[],slow33:0,slow50:0,slow100:0
   };
   lkApplyRenderScale(this.scene.game,1,{remember:false});
-  this.recordTraceEvent('render_benchmark_started',{scales:this.renderBenchmark.scales,secondsPerScale:10,settleSeconds:1,originalScale:this.renderBenchmark.originalScale},{sample:true});
+  this.recordTraceEvent('render_benchmark_started',{scales:this.renderBenchmark.scales,secondsPerScale:10,settleSeconds:1.5,originalScale:this.renderBenchmark.originalScale},{sample:true});
   this.recordTraceEvent('render_benchmark_stage',{scale:1,index:0},{sample:true});
   this.refreshRenderBenchmarkUi();
   return true;
@@ -1098,20 +1098,33 @@ class LastKnightDevTools {
 
  resetRenderBenchmarkStage(now){
   const b=this.renderBenchmark;if(!b)return;
-  b.stageStartedAt=now;b.settleUntil=now+1000;b.measureUntil=now+11000;
-  b.fpsSum=0;b.fpsCount=0;b.fpsMin=Infinity;b.fpsMax=0;
-  b.frameGapSum=0;b.frameGapCount=0;b.frameGapMax=0;b.slow33=0;b.slow50=0;b.slow100=0;
+  b.stageStartedAt=now;b.settleUntil=now+1500;b.measureUntil=now+11500;
+  b.fpsSum=0;b.fpsCount=0;b.fpsMin=Infinity;b.fpsMax=0;b.fpsSamples=[];
+  b.frameGapSum=0;b.frameGapCount=0;b.frameGapMax=0;b.frameGapSamples=[];b.slow33=0;b.slow50=0;b.slow100=0;
  }
 
  finishRenderBenchmarkStage(now){
   const b=this.renderBenchmark;if(!b?.active)return;
   const scale=b.scales[b.index];
+  const percentile=(values,p)=>{
+   if(!values?.length)return null;
+   const sorted=[...values].sort((a,b)=>a-b);
+   const pos=(sorted.length-1)*Phaser.Math.Clamp(p,0,1);
+   const lo=Math.floor(pos),hi=Math.ceil(pos);
+   const value=lo===hi?sorted[lo]:sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo);
+   return Math.round(value*100)/100;
+  };
   const result={
    scale,
    avgFps:b.fpsCount?Math.round((b.fpsSum/b.fpsCount)*10)/10:null,
+   medianFps:percentile(b.fpsSamples,0.5),
+   p05Fps:percentile(b.fpsSamples,0.05),
    minFps:Number.isFinite(b.fpsMin)?Math.round(b.fpsMin*10)/10:null,
    maxFps:b.fpsCount?Math.round(b.fpsMax*10)/10:null,
    avgFrameGapMs:b.frameGapCount?Math.round((b.frameGapSum/b.frameGapCount)*100)/100:null,
+   medianFrameGapMs:percentile(b.frameGapSamples,0.5),
+   p95FrameGapMs:percentile(b.frameGapSamples,0.95),
+   p99FrameGapMs:percentile(b.frameGapSamples,0.99),
    maxFrameGapMs:Math.round(b.frameGapMax*100)/100,
    slow33:b.slow33,slow50:b.slow50,slow100:b.slow100,
    sampleCount:b.fpsCount,
@@ -1143,15 +1156,15 @@ class LastKnightDevTools {
   if(now>=b.measureUntil){this.finishRenderBenchmarkStage(now);return;}
   if(now<b.settleUntil)return;
   const fps=Math.max(0,Number(this.scene?.game?.loop?.actualFps)||0);
-  if(fps>0){b.fpsSum+=fps;b.fpsCount++;b.fpsMin=Math.min(b.fpsMin,fps);b.fpsMax=Math.max(b.fpsMax,fps);}
+  if(fps>0){b.fpsSum+=fps;b.fpsCount++;b.fpsMin=Math.min(b.fpsMin,fps);b.fpsMax=Math.max(b.fpsMax,fps);b.fpsSamples.push(fps);}
   const gap=Math.max(0,Number(wallGap)||0);
-  if(gap>0){b.frameGapSum+=gap;b.frameGapCount++;b.frameGapMax=Math.max(b.frameGapMax,gap);if(gap>=33.34)b.slow33++;if(gap>=50)b.slow50++;if(gap>=100)b.slow100++;}
+  if(gap>0){b.frameGapSum+=gap;b.frameGapCount++;b.frameGapMax=Math.max(b.frameGapMax,gap);b.frameGapSamples.push(gap);if(gap>=33.34)b.slow33++;if(gap>=50)b.slow50++;if(gap>=100)b.slow100++;}
  }
 
  refreshRenderBenchmarkUi(){
   const el=document.getElementById('lkdev-render-benchmark');if(!el)return;
   const b=this.renderBenchmark;
-  const lines=this.renderBenchmarkResults.map(r=>`${r.scale.toFixed(2)}×: ${r.avgFps??'-'} FPS · ${r.avgFrameGapMs??'-'}ms avg · max ${r.maxFrameGapMs??'-'}ms`);
+  const lines=this.renderBenchmarkResults.map(r=>`${r.scale.toFixed(2)}×: ${r.avgFps??'-'} FPS · med ${r.medianFps??'-'} · p95 ${r.p95FrameGapMs??'-'}ms · max ${r.maxFrameGapMs??'-'}ms`);
   if(b?.active){
    const scale=b.scales[b.index];
    const now=performance.now();
@@ -1317,6 +1330,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   return {
    displayObjects:children.length,
    activeVisibleObjects:children.filter(o=>o?.active&&o.visible!==false).length,
+   runtimeCulledObjects:(s.devEnvironmentObjects||[]).filter(o=>o?.active&&o.runtimeCulled).length,
    activeTweens,
    timers,
    physicsBodies:s.physics?.world?.bodies?.entries?.length??null,
@@ -3457,10 +3471,25 @@ class MainScene extends Phaser.Scene {
   this.updateEnemyStuckState(enemy,time,speed);
 
   const radius=(enemy.hitRadius||14)+5;
-  let desiredAngle=Math.atan2(vy,vx);
+  const inputAngle=Math.atan2(vy,vx);
+  let desiredAngle=inputAngle;
   const toPlayerX=(this.player?.x??enemy.x)-enemy.x;
   const toPlayerY=(this.player?.y??enemy.y)-enemy.y;
   const towardPlayer=(vx*toPlayerX+vy*toPlayerY)>0;
+
+  // Local obstacle/A* probing is substantially more expensive than assigning a
+  // velocity. Reuse a proven steering decision for a very short window before
+  // even entering navigation. Physics keeps movement smooth between decisions.
+  const previousAngle=Number.isFinite(enemy.cachedSteerAngle)?enemy.cachedSteerAngle:null;
+  const inputAngleDelta=previousAngle===null?Math.PI:Math.abs(Phaser.Math.Angle.Wrap(inputAngle-(enemy.cachedInputAngle??inputAngle)));
+  const closeToPlayer=(toPlayerX*toPlayerX+toPlayerY*toPlayerY)<360*360;
+  const probeInterval=closeToPlayer?50:90;
+  const canReuse=previousAngle!==null && !enemy.navForceRepath && time<(enemy.localSteerProbeAt||0) && inputAngleDelta<0.26;
+  if(canReuse){
+   enemy.body.setVelocity(Math.cos(previousAngle)*speed,Math.sin(previousAngle)*speed);
+   return;
+  }
+  enemy.cachedInputAngle=inputAngle;
 
   // Global A* routing is used only while pursuing the player. Retreating mages
   // keep their direct/local-steering behaviour and do not try to path back toward him.
@@ -3478,6 +3507,8 @@ class MainScene extends Phaser.Scene {
 
   if(!this.isAshPathBlocked(enemy.x,enemy.y,probeX,probeY,radius,enemy)){
    enemy.obstacleSteerUntil=0;
+   enemy.cachedSteerAngle=desiredAngle;
+   enemy.localSteerProbeAt=time+probeInterval;
    enemy.body.setVelocity(Math.cos(desiredAngle)*speed,Math.sin(desiredAngle)*speed);
    return;
   }
@@ -3506,6 +3537,8 @@ class MainScene extends Phaser.Scene {
     const ty=enemy.y+Math.sin(angle)*probeDistance;
     if(this.isAshPathBlocked(enemy.x,enemy.y,tx,ty,radius,enemy)) continue;
     enemy.obstacleTurnSign=direction;
+    enemy.cachedSteerAngle=angle;
+    enemy.localSteerProbeAt=time+probeInterval;
     enemy.body.setVelocity(Math.cos(angle)*speed,Math.sin(angle)*speed);
     return;
    }
@@ -3514,6 +3547,8 @@ class MainScene extends Phaser.Scene {
   // Hard stop only as a last resort; the stuck detector will force a fresh A* path.
   enemy.navForceRepath=true;
   enemy.navNextRepathAt=0;
+  enemy.cachedSteerAngle=null;
+  enemy.localSteerProbeAt=time+35;
   enemy.body.setVelocity(0,0);
   }finally{
    if(traceNavigationAt)this.devTools?.recordSubsystemTime?.('navigation',performance.now()-traceNavigationAt);
@@ -4178,6 +4213,55 @@ createAshFieldsEnvironment(objects,zone){
    'The journey continues forward',
    '#c8d0c2'
   );
+ }
+
+ updateRuntimeEnvironmentCulling(time=0){
+  // Pure visibility optimisation: no props are removed and no collision or
+  // navigation geometry changes. A generous off-camera margin makes the switch
+  // impossible to see during normal movement, while far Ash Fields art is not
+  // submitted to the renderer.
+  if(time<(this.nextEnvironmentCullAt||0)) return;
+  this.nextEnvironmentCullAt=time+180;
+
+  const objects=this.devEnvironmentObjects||[];
+  if(!objects.length) return;
+  const tools=this.devTools;
+  if(tools?.editMode){
+   if(this.runtimeEnvironmentCullingActive){
+    for(const object of objects){
+     if(!object) continue;
+     const baseVisible=tools?.isObjectVisibleByFilters?.(object)??(!object.devDeleted);
+     object.runtimeCulled=false;
+     object.setVisible(baseVisible);
+     for(const shadow of object.devLinkedShadows||[]) shadow?.setVisible?.(baseVisible && (tools?.envVisibility?.shadows!==false));
+    }
+    this.runtimeEnvironmentCullingActive=false;
+   }
+   return;
+  }
+
+  const view=this.cameras?.main?.worldView;
+  if(!view) return;
+  const marginX=Math.max(420,view.width*0.32);
+  const marginY=Math.max(300,view.height*0.45);
+  const left=view.left-marginX,right=view.right+marginX,top=view.top-marginY,bottom=view.bottom+marginY;
+  const shadowsAllowed=tools?.envVisibility?.shadows!==false;
+  for(const object of objects){
+   if(!object?.active || object.devDeleted) continue;
+   const baseVisible=tools?.isObjectVisibleByFilters?.(object)??true;
+   const halfW=Math.max(8,(object.displayWidth||object.width||16)*0.5);
+   const halfH=Math.max(8,(object.displayHeight||object.height||16)*0.5);
+   const inRange=(object.x+halfW>=left && object.x-halfW<=right && object.y+halfH>=top && object.y-halfH<=bottom);
+   const visible=Boolean(baseVisible && inRange);
+   const culled=Boolean(baseVisible && !inRange);
+   if(object.visible!==visible) object.setVisible(visible);
+   object.runtimeCulled=culled;
+   for(const shadow of object.devLinkedShadows||[]){
+    const shadowVisible=visible && shadowsAllowed;
+    if(shadow?.visible!==shadowVisible) shadow?.setVisible?.(shadowVisible);
+   }
+  }
+  this.runtimeEnvironmentCullingActive=true;
  }
 
  updateWorldStreaming(){
@@ -7660,6 +7744,7 @@ createAshFieldsEnvironment(objects,zone){
   traceSectionAt=this.beginSubsystemTrace();
   this.updateWorldRegion();
   this.updateWorldStreaming();
+  this.updateRuntimeEnvironmentCulling(time);
   traceSectionAt=this.endSubsystemTrace('worldStreaming',traceSectionAt);
 
   if(this.waveIntermission){
@@ -7740,17 +7825,30 @@ createAshFieldsEnvironment(objects,zone){
 
   traceSectionAt=this.beginSubsystemTrace();
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed
-  // to deal contact damage at once. The rest still chase and surround the player.
-  // This keeps a mob dangerous without turning a full surround into instant death.
-  const skeletonAttackSlots=new Set(
-   this.enemies
-    .filter(e=>e.active && e.hp>0 && e.type==='skeleton')
-    .sort((a,b)=>
-     Phaser.Math.Distance.Squared(a.x,a.y,this.player.x,this.player.y)-
-     Phaser.Math.Distance.Squared(b.x,b.y,this.player.x,this.player.y)
-    )
-    .slice(0,4)
-  );
+  // to deal contact damage at once. Rebuilding/sorting this list every render
+  // frame is unnecessary; 10Hz is responsive enough for slot hand-offs while
+  // keeping the exact same four-attacker gameplay rule.
+  if(!this.skeletonAttackSlots || time>=(this.nextSkeletonAttackSlotRefreshAt||0)){
+   this.nextSkeletonAttackSlotRefreshAt=time+100;
+   this.skeletonAttackSlots=new Set(
+    this.enemies
+     .filter(e=>e.active && e.hp>0 && e.type==='skeleton')
+     .sort((a,b)=>
+      Phaser.Math.Distance.Squared(a.x,a.y,this.player.x,this.player.y)-
+      Phaser.Math.Distance.Squared(b.x,b.y,this.player.x,this.player.y)
+     )
+     .slice(0,4)
+   );
+  }
+  const skeletonAttackSlots=this.skeletonAttackSlots;
+
+  // Count owned mage projectiles once per frame instead of filtering the entire
+  // projectile list separately for every mage.
+  const activeMageShotsByOwner=new Map();
+  for(const projectile of this.projectiles){
+   if(!projectile?.active || !projectile.owner) continue;
+   activeMageShotsByOwner.set(projectile.owner,(activeMageShotsByOwner.get(projectile.owner)||0)+1);
+  }
 
   const storyMomentActive=this.isStoryAnomalyMomentActive(time);
   const focusedStoryEnemy=this.storyAnomalyCueState?.enemy||null;
@@ -7837,9 +7935,7 @@ createAshFieldsEnvironment(objects,zone){
       e.body.setVelocity(0,0);
      }
 
-     const activeMageShots=this.projectiles.filter(
-      projectile=>projectile.active && projectile.owner===e
-     ).length;
+     const activeMageShots=activeMageShotsByOwner.get(e)||0;
 
      if(!storyMomentActive && !this.devFlags?.enemyAttacksDisabled && time-e.lastShot>1700 && activeMageShots<2){
       e.lastShot=time;

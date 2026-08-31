@@ -257,7 +257,33 @@ class NavigationSystem {
  getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){
   if(!enemy || !this.player?.active) return null;
   this.ensureNavigationGrid();
-  const directBlocked=this.isNavigationLineBlocked(enemy.x,enemy.y,targetX,targetY);
+
+  // Navigation probe caching: line-of-sight through the coarse grid used to be
+  // sampled for every enemy every frame. The result is stable for a short
+  // window, while physics keeps the already chosen velocity smooth between AI
+  // ticks. Close enemies refresh more often; distant enemies refresh less often.
+  enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
+  const cellSize=this.navigationCellSize||56;
+  const tx0=enemy.navProbeTargetX??targetX;
+  const ty0=enemy.navProbeTargetY??targetY;
+  const probeTargetDx=targetX-tx0;
+  const probeTargetDy=targetY-ty0;
+  const probeTargetMovedSq=probeTargetDx*probeTargetDx+probeTargetDy*probeTargetDy;
+  const targetDx=targetX-enemy.x;
+  const targetDy=targetY-enemy.y;
+  const targetDistanceSq=targetDx*targetDx+targetDy*targetDy;
+  const probeInterval=targetDistanceSq>700*700?260:(targetDistanceSq>340*340?160:90);
+  const probeJitter=enemy.navSeed%31;
+  const mustProbe=enemy.navForceRepath || enemy.navGridVersion!==this.navigationGridVersion || !Number.isFinite(enemy.navProbeAt) || time>=enemy.navProbeAt || probeTargetMovedSq>(cellSize*0.7)*(cellSize*0.7);
+  let directBlocked=Boolean(enemy.navProbeBlocked);
+  if(mustProbe){
+   directBlocked=this.isNavigationLineBlocked(enemy.x,enemy.y,targetX,targetY);
+   enemy.navProbeBlocked=directBlocked;
+   enemy.navProbeAt=time+probeInterval+probeJitter;
+   enemy.navProbeTargetX=targetX;
+   enemy.navProbeTargetY=targetY;
+  }
+
   if(!directBlocked){
    enemy.navPath=null;
    enemy.navPathIndex=0;
@@ -265,26 +291,31 @@ class NavigationSystem {
    return null;
   }
 
-  const targetMoved=Phaser.Math.Distance.Between(targetX,targetY,enemy.navTargetX??targetX,enemy.navTargetY??targetY)>(this.navigationCellSize||56)*1.5;
+  const targetMoveDx=targetX-(enemy.navTargetX??targetX);
+  const targetMoveDy=targetY-(enemy.navTargetY??targetY);
+  const targetMoved=(targetMoveDx*targetMoveDx+targetMoveDy*targetMoveDy)>(cellSize*1.5)*(cellSize*1.5);
   const pathFinished=Boolean(enemy.navPath?.length) && (enemy.navPathIndex||0)>=enemy.navPath.length-1;
   const periodicRefresh=pathFinished && time>=(enemy.navNextRepathAt||0);
   const needsPath=!enemy.navPath?.length || enemy.navGridVersion!==this.navigationGridVersion || targetMoved || periodicRefresh || enemy.navForceRepath;
   if(needsPath && this.navigationPathfindBudget>0){
    this.navigationPathfindBudget--;
-   enemy.navSeed=enemy.navSeed??Phaser.Math.Between(0,65535);
    enemy.navPath=this.findNavigationPath(enemy.x,enemy.y,targetX,targetY,enemy);
    enemy.navPathIndex=0;
    enemy.navTargetX=targetX;
    enemy.navTargetY=targetY;
    enemy.navGridVersion=this.navigationGridVersion;
    enemy.navForceRepath=false;
-   enemy.navNextRepathAt=time+900+(enemy.navSeed%420);
+   enemy.navNextRepathAt=time+1050+(enemy.navSeed%520);
   }
 
   const path=enemy.navPath;
   if(!path?.length) return null;
   let index=Phaser.Math.Clamp(enemy.navPathIndex||0,0,path.length-1);
-  while(index<path.length-1 && Phaser.Math.Distance.Between(enemy.x,enemy.y,path[index].x,path[index].y)<(this.navigationCellSize||56)*0.48){
+  const waypointAdvanceSq=(cellSize*0.48)*(cellSize*0.48);
+  while(index<path.length-1){
+   const dx=enemy.x-path[index].x;
+   const dy=enemy.y-path[index].y;
+   if(dx*dx+dy*dy>=waypointAdvanceSq) break;
    index++;
   }
   enemy.navPathIndex=index;
@@ -293,6 +324,11 @@ class NavigationSystem {
 
  applyEnemySoftSeparation(time){
   if(this.devFlags?.noCollision) return;
+  // Separation is a correction force, not core locomotion. Running it at 20Hz
+  // keeps the same visible crowd behaviour while avoiding O(n²) pair checks on
+  // every render frame.
+  if(time<(this.enemySeparationNextAt||0)) return;
+  this.enemySeparationNextAt=time+50;
   const list=(this.enemies||[]).filter(e=>e?.active && e.hp>0 && e.body && e.body.enable!==false);
   for(let i=0;i<list.length;i++){
    const a=list[i];

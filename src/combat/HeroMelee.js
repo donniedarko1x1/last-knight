@@ -45,21 +45,32 @@ export default class HeroMelee {
     const owner=this.owner;
     const attackRadius=this.radius;
     const nearbyRadius=attackRadius+this.disengagePadding;
+    const attackRadiusSq=attackRadius*attackRadius;
+    const nearbyRadiusSq=nearbyRadius*nearbyRadius;
     let attackTargets=0;
     let nearbyTargets=0;
-    let nearest=Infinity;
+    let nearestSq=Infinity;
+    const candidates=[];
 
+    // Broad phase: squared-distance filtering avoids sqrt work for every enemy,
+    // and the exact same candidate list is reused by the damage pass below.
     for(const enemy of enemies||[]){
       if(!enemy?.active || enemy.hp<=0) continue;
-      const d=Phaser.Math.Distance.Between(owner.x,owner.y,enemy.x,enemy.y);
-      if(d<nearest) nearest=d;
-      if(d<=nearbyRadius) nearbyTargets++;
-      if(d<=attackRadius) attackTargets++;
+      const dx=enemy.x-owner.x;
+      const dy=enemy.y-owner.y;
+      const d2=dx*dx+dy*dy;
+      if(d2<nearestSq) nearestSq=d2;
+      if(d2<=nearbyRadiusSq) nearbyTargets++;
+      if(d2<=attackRadiusSq){
+        attackTargets++;
+        candidates.push(enemy);
+      }
     }
 
+    this.attackCandidates=candidates;
     this.attackTargetCount=attackTargets;
     this.nearbyTargetCount=nearbyTargets;
-    this.nearestTargetDistance=Number.isFinite(nearest)?Math.round(nearest*10)/10:null;
+    this.nearestTargetDistance=Number.isFinite(nearestSq)?Math.round(Math.sqrt(nearestSq)*10)/10:null;
     this.combatActive=nearbyTargets>0;
     return attackTargets>0;
   }
@@ -137,17 +148,13 @@ export default class HeroMelee {
 
     let swordImpactSfxNeeded=false;
 
-    for(const enemy of enemies){
-      if(!enemy.active || enemy.hp<=0) continue;
-
-      const d = Phaser.Math.Distance.Between(
-        this.owner.x,
-        this.owner.y,
-        enemy.x,
-        enemy.y
-      );
-
-      if(d <= this.radius){
+    for(const enemy of this.attackCandidates||[]){
+      if(!enemy?.active || enemy.hp<=0) continue;
+      // Candidate membership was computed at the start of this same update;
+      // re-check with squared distance only in case another hit moved the target.
+      const dx=enemy.x-this.owner.x;
+      const dy=enemy.y-this.owner.y;
+      if(dx*dx+dy*dy <= this.radius*this.radius){
         swordImpactSfxNeeded=true;
         if(this.scene.consumeShieldBlock && this.scene.consumeShieldBlock(enemy)){
           this.createHitBurst(enemy.x, enemy.y - 16, 0xffffff);

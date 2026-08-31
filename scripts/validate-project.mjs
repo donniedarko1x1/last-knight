@@ -477,7 +477,7 @@ for(const [label,source,needle] of [
 if(main.includes('this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS')) fail('Mage predictive lead aiming must be removed');
 if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.startsWith('Missing altar/champion encounter contract:')||e.includes('Mage predictive lead'))) pass('Act-I anomalies + wave-4 altar reveal + concurrent first champion contracts present');
 
-// 16) Performance Diagnostics v2 + proximity-gated hero auto-melee.
+// 16) Performance Diagnostics v3 + free CPU optimisation pass.
 for(const [label,source,needle] of [
  ['trace v2 schema',main,"schema:'last-knight-performance-trace-v2'"],
  ['pause trace transition guard',main,'const hadReason=this.gameplayPauseReasons.has(reason);'],
@@ -485,7 +485,9 @@ for(const [label,source,needle] of [
  ['live render scale 1.25 preset',main,'data-action=\"renderScale\" data-value=\"1.25\"'],
  ['render scale capped at 1.75',main,'const LK_RENDER_SCALE_MAX = 1.75;'],
  ['automatic four-scale benchmark',main,'startRenderBenchmark(){'],
- ['benchmark 10 second measurement',main,'measureUntil:now+11000'],
+ ['benchmark 10 second measurement after 1.5s settle',main,'measureUntil:now+11500'],
+ ['benchmark median FPS',main,'medianFps:percentile(b.fpsSamples,0.5)'],
+ ['benchmark p95 frame gap',main,'p95FrameGapMs:percentile(b.frameGapSamples,0.95)'],
  ['subsystem timing accumulator',main,'recordSubsystemTime(name,ms){'],
  ['story subsystem timing',main,"endSubsystemTrace('story'"],
  ['world streaming subsystem timing',main,"endSubsystemTrace('worldStreaming'"],
@@ -495,13 +497,22 @@ for(const [label,source,needle] of [
  ['projectile subsystem timing',main,"endSubsystemTrace('projectiles'"],
  ['vignette subsystem timing',main,"recordSubsystemTime?.('vignette'"],
  ['HUD subsystem timing',main,"recordSubsystemTime?.('HUD'"],
+ ['navigation probe cache',navigation,'enemy.navProbeAt=time+probeInterval+probeJitter;'],
+ ['local steering cache',main,'enemy.localSteerProbeAt=time+probeInterval;'],
+ ['20Hz crowd separation',navigation,'this.enemySeparationNextAt=time+50;'],
+ ['10Hz skeleton attack slot cache',main,'this.nextSkeletonAttackSlotRefreshAt=time+100;'],
+ ['mage projectile owner count cache',main,'const activeMageShotsByOwner=new Map();'],
+ ['runtime environment culling',main,'updateRuntimeEnvironmentCulling(time=0){'],
+ ['runtime culling keeps colliders untouched',main,'Pure visibility optimisation: no props are removed and no collision or'],
+ ['melee squared-distance broad phase',heroMeleeSource,'const attackRadiusSq=attackRadius*attackRadius;'],
+ ['melee candidate reuse',heroMeleeSource,'for(const enemy of this.attackCandidates||[])'],
  ['hero melee proximity state',heroMeleeSource,'updateTargetState(enemies){'],
  ['hero does not swing without target',heroMeleeSource,'if(!hasAttackTarget) return;'],
  ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;']
 ]){
- if(!source.includes(needle)) fail(`Missing Performance Diagnostics v2 contract: ${label}`);
+ if(!source.includes(needle)) fail(`Missing Performance Diagnostics v3 contract: ${label}`);
 }
-if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v2 contract:'))) pass('Performance Diagnostics v2 + proximity-gated hero melee contracts present');
+if(!errors.some(e=>e.startsWith('Missing Performance Diagnostics v3 contract:'))) pass('Performance Diagnostics v3 + CPU optimisation contracts present');
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');
