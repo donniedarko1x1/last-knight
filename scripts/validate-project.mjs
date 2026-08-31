@@ -9,7 +9,7 @@ import {
 } from '../src/config/assetManifest.mjs';
 import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
 import StoryEnemyAnomalySystem,{STORY_WAVE_ANOMALY_COUNTS} from '../src/story/StoryEnemyAnomalySystem.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from '../src/story/storyEvents.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY} from '../src/story/storyEvents.js';
 
 const root=process.cwd();
 const errors=[];
@@ -201,6 +201,23 @@ if(main.includes(`this.physics.add.collider(
 }
 if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.startsWith('Hard enemy-enemy'))) pass('World Navigation v2 contracts present');
 
+// 9b) Dialogue safety + runtime performance pass.
+for(const [label,source,needle] of [
+ ['dialogue actor avoidance',woundedInteractionSource,'dialogueOverlapArea(a,b){'],
+ ['dialogue candidate layout',woundedInteractionSource,'const candidates=['],
+ ['dialogue safe viewport',woundedInteractionSource,'const safe=scene.isTouchDevice'],
+ ['dialogue zoom compensation',woundedInteractionSource,'const dialogueScale=1/Math.max(1,cam.zoom||1);'],
+ ['dialogue camera context',woundedInteractionSource,'cam.zoom*1.18'],
+ ['single A* route budget per frame',main,'this.navigationPathfindBudget=1;'],
+ ['sleeping DEV overlays',main,'hasActiveOverlay(){'],
+ ['DEV live-info throttle',main,'now-this.lastInfoAt<500'],
+ ['lighter anomaly vignette canvas',main,'const width=192;'],
+ ['balanced default render scale',main,'const LK_DEFAULT_RENDER_SCALE = 1.5;']
+]){
+ if(!source.includes(needle)) fail(`Missing dialogue/performance contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing dialogue/performance contract:'))) pass('Dialogue collision avoidance + performance contracts present');
+
 // 10) Stability contracts added by Technical Stability v1.
 for(const [label,source,needle] of [
  ['unified champion hazard cleanup',main,'clearChampionHazards(){'],
@@ -318,7 +335,11 @@ for(const [label,source,needle] of [
  ['existing-knight registration backfill',woundedInteractionSource,'this.registerExistingKnightsFromScene();'],
  ['first objective definition',storyEventsSource,'const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({'],
  ['first objective exact wave 3 trigger',storyEventsSource,'waveExact:3'],
- ['first objective mid-wave pacing trigger',storyEventsSource,'spawnedMin:3'],
+ ['first objective post-wave clear flag trigger',storyEventsSource,'flag:ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag'],
+ ['wave-3 clear flag definition',storyEventsSource,"waveClearedFlag:'ash_story_wave_3_cleared'"],
+ ['wave-3 clear flag set after full clear',main,'this.storyDirector?.setFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,true);'],
+ ['wave-4 story gate',main,'const woundedStoryGateActive=Boolean('],
+ ['wave-4 gate waits for dialogue met flag',main,'!this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)'],
  ['first objective declarative action',storyEventsSource,"type:'objective'"]
 ]){
  if(!source.includes(needle)) fail(`Missing story-objective interaction contract: ${label}`);
@@ -327,13 +348,14 @@ const firstObjectiveEvent=STORY_EVENTS.find(event=>event?.action?.type==='object
 if(!firstObjectiveEvent) fail('No declarative first story objective event found');
 else{
  if(firstObjectiveEvent.trigger?.waveExact!==3) fail('First story objective must unlock during wave 3');
- if(firstObjectiveEvent.trigger?.spawnedMin!==3) fail('First story objective must unlock after the first 3 wave-3 spawns');
+ if(firstObjectiveEvent.trigger?.flag!==ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag) fail('First story objective must unlock from the wave-3-cleared story flag');
+ if(firstObjectiveEvent.trigger?.spawnedMin!==undefined) fail('First story objective must not unlock mid-wave from spawnedMin');
  if(firstObjectiveEvent.trigger?.xMin!==undefined || firstObjectiveEvent.trigger?.kills!==undefined) fail('First story objective must not depend on old x/kills triggers');
  if(!firstObjectiveEvent.action?.objective?.targetId) fail('First story objective has no targetId');
 }
 if(main.includes('ash_campfire_01_')) fail('Rejected Ash Fields campfire is still referenced by runtime code');
 if(ASSET_MANIFEST.some(entry=>String(entry.key).startsWith('ash_campfire_01_'))) fail('Rejected Ash Fields campfire is still present in AssetManifest');
-if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')||e.includes('First story objective')||e.includes('No declarative first story objective')||e.includes('Rejected Ash Fields campfire'))) pass('Reusable objective marker + wave-3 gated wounded-knight story objective contracts present; rejected campfire removed');
+if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')||e.includes('First story objective')||e.includes('No declarative first story objective')||e.includes('Rejected Ash Fields campfire'))) pass('Reusable objective marker + post-wave-3 wounded-knight gate contracts present; rejected campfire removed');
 
 // 14) Act-I wave pacing: subtle enemy hesitation from waves 2-5, then Broken Saint
 // only after the ordinary fifth wave has been cleared.
@@ -368,6 +390,9 @@ for(const [label,source,needle] of [
  ['anomaly thought should be dead',main,"'Он должен был погибнуть...'"],
  ['anomaly thought realization',main,"'Так вот что случилось...'"],
  ['anomaly thought too late',main,"'Слишком поздно...'"],
+ ['expanded anomaly thought pool',main,"'Кто тогда погиб?..'"],
+ ['anomaly recent-thought anti-repeat window',main,'const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;'],
+ ['anomaly thought random choice',main,'Math.floor(Math.random()*pool.length)'],
  ['hero skill lock during anomaly',main,'if(this.isStoryAnomalyMomentActive(this.time.now)) return;'],
  ['player anomaly hard freeze',main,'vx=0;'],
  ['enemy anomaly cinematic freeze',main,'const storyCinematicFrozen=Boolean(storyMomentActive && e!==focusedStoryEnemy);'],

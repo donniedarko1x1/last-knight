@@ -23,14 +23,15 @@ const PROLOGUE_STORY_PAGES=Object.freeze([
 
 // First reusable in-world objective. The target exists physically from the
 // start, but it is NOT interactable until StoryDirector activates this objective.
-// The story beat belongs to wave 3: the wave begins normally, then after the
-// first three ordinary spawns the objective is unlocked and the compass appears.
+// Wave 3 must be completely cleared first. Only then does the objective/marker
+// unlock, and wave 4 remains gated until this dialogue is fully completed.
 const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({
  characterId:'ash:wounded_knight:3',
  objectiveId:'ash_find_wounded_knight',
  objectiveEventId:'ash_unlock_wounded_knight_objective',
  dialogueEventId:'ash_story_wounded_knight',
  metFlag:'ash_story_wounded_knight_met',
+ waveClearedFlag:'ash_story_wave_3_cleared',
  label:'Поговорить с раненым рыцарем'
 });
 
@@ -41,7 +42,7 @@ const STORY_EVENTS=Object.freeze([
   trigger:Object.freeze({
    regionIndex:0,
    waveExact:3,
-   spawnedMin:3,
+   flag:ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,
    notFlag:ASH_WOUNDED_KNIGHT_STORY.metFlag
   }),
   action:Object.freeze({

@@ -29,7 +29,7 @@ import AudioManager from './audio/AudioManager.js';
 import StoryDirector from './story/StoryDirector.js';
 import WoundedKnightInteractionSystem from './story/WoundedKnightInteractionSystem.js';
 import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS} from './story/storyEvents.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY} from './story/storyEvents.js';
 import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
@@ -47,7 +47,7 @@ const DEV_BUILD=true;
 // option, so this build renders a larger backing canvas and lets ScaleManager FIT it
 // into the CSS viewport. World cameras naturally compensate via their height-based
 // zoom; HUD cameras explicitly zoom by the same factor to keep CSS-logical sizing.
-const LK_DEFAULT_RENDER_SCALE = 1.75;
+const LK_DEFAULT_RENDER_SCALE = 1.5;
 const LK_RENDER_SCALE_MAX = 2;
 const LK_RENDER_SCALE_STORAGE_KEY = 'lastKnight.dev.renderScale.v2';
 let LK_RENDER_SCALE = LK_DEFAULT_RENDER_SCALE;
@@ -62,8 +62,19 @@ const STORY_ANOMALY_THOUGHTS=Object.freeze([
  'Нет... не может быть.',
  'Он должен был погибнуть...',
  'Так вот что случилось...',
- 'Слишком поздно...'
+ 'Слишком поздно...',
+ 'Как он смог?..',
+ 'Я не ошибся...',
+ 'Это действительно он?..',
+ 'Мы опоздали...',
+ 'После всего этого...',
+ 'Нас предупреждали...',
+ 'Всё начинается снова...',
+ 'Значит, это ещё не конец...',
+ 'Почему именно сейчас?..',
+ 'Кто тогда погиб?..'
 ]);
+const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;
 const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';
 const HERO_FOCUS_STANCE_FRAME_MS=330;
 const HERO_FOCUS_STANCE_STATE='hero_socket_focus_stance';
@@ -1040,7 +1051,7 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
  refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='renderScale'){const target=v==='dpr'?Math.min(Math.max(window.devicePixelRatio||1,1),LK_RENDER_SCALE_MAX):Number(v);on=Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
 
  getCurrentSegment(){const x=this.scene.player?.x||0;return ASH_FIELDS_SEGMENTS.find(seg=>x>=seg.start&&x<seg.end)?.id||'-';}
- updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<200)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
+ updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
 Player ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Mana ${s.mana}/${s.maxMana}
 Wave ${s.wave}   Level ${s.level}   XP ${s.xp}/${s.getXpRequiredForLevel()}
 Enemies ${e.filter(x=>x.active&&x.type!=='champion').length}   Projectiles ${s.projectiles.length}
@@ -1085,11 +1096,34 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   if(this.editMode&&this.selected?.active&&!this.selected.devDeleted){const b=this.selected.getBounds();g.lineStyle(3,0xffe169,0.95);g.strokeRect(b.x,b.y,b.width,b.height);g.fillStyle(0xffe169,0.8);g.fillCircle(this.selected.x,this.selected.y,5);}
  }
 
+ hasActiveOverlay(){
+  return this.editMode || Object.values(this.overlayFlags||{}).some(Boolean);
+ }
+
  update(){
   const now=performance.now(),dt=Math.min(50,now-this.lastUpdateReal);this.lastUpdateReal=now;
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
-  this.drawOverlays();this.uiEditor?.update();this.updateInfo(false);
+
+  // DEV rendering is opt-in. Previously both graphics layers were cleared and
+  // redrawn every game frame even when the panel and every overlay were off.
+  const overlayActive=this.hasActiveOverlay();
+  if(overlayActive){
+   this.graphics?.setVisible(true);
+   this.drawOverlays();
+  }else if(this.graphics?.visible){
+   this.graphics.clear();
+   this.graphics.setVisible(false);
+  }
+
+  const uiEditorActive=Boolean(this.uiEditor?.editMode);
+  if(uiEditorActive){
+   this.uiEditor?.graphics?.setVisible?.(true);
+   this.uiEditor?.update();
+  }else this.uiEditor?.graphics?.setVisible?.(false);
+
+  // DOM/layout reads are useful only while the DEV panel is actually visible.
+  if(this.open) this.updateInfo(false);
  }
 }
 
@@ -2067,6 +2101,8 @@ class MainScene extends Phaser.Scene {
   this.devTools=null;
   this.storyDirector=null;
   this.storyEnemyAnomalies=null;
+  this.storyAnomalyRecentThoughts=[];
+  this.storyWaveGateWasActive=false;
   this.postWaveChampionKind=null;
   this.devFlags={
    autoSpawnsDisabled:false,
@@ -5660,8 +5696,8 @@ createAshFieldsEnvironment(objects,zone){
   // A deliberately modest canvas is enough because the texture is scaled over
   // the camera view. It is only redrawn while the camera is settling, then it
   // remains static for the rest of the five-second beat.
-  const width=320;
-  const height=180;
+  const width=192;
+  const height=108;
   const texture=this.textures?.createCanvas?.(STORY_ANOMALY_VIGNETTE_TEXTURE,width,height);
   if(!texture?.context) return null;
   texture.context.clearRect(0,0,width,height);
@@ -5677,8 +5713,8 @@ createAshFieldsEnvironment(objects,zone){
   if(!vignette?.active || !enemy?.active || !cam?.worldView || !canvas) return;
 
   const view=cam.worldView;
-  const width=canvas.width||320;
-  const height=canvas.height||180;
+  const width=canvas.width||192;
+  const height=canvas.height||108;
   const nx=Phaser.Math.Clamp((enemy.x-view.left)/Math.max(1,view.width),0.02,0.98);
   const ny=Phaser.Math.Clamp((enemy.y-view.top)/Math.max(1,view.height),0.02,0.98);
 
@@ -5787,9 +5823,17 @@ createAshFieldsEnvironment(objects,zone){
    .setVisible(source.visible!==false);
  }
 
- getStoryAnomalyThought(enemy){
-  const seed=Math.abs(Number(enemy?.storyAnomaly?.seed)||0);
-  return STORY_ANOMALY_THOUGHTS[seed%STORY_ANOMALY_THOUGHTS.length];
+ getStoryAnomalyThought(){
+  if(!Array.isArray(this.storyAnomalyRecentThoughts)) this.storyAnomalyRecentThoughts=[];
+  const recent=new Set(this.storyAnomalyRecentThoughts);
+  const available=STORY_ANOMALY_THOUGHTS.filter(line=>!recent.has(line));
+  const pool=available.length?available:STORY_ANOMALY_THOUGHTS;
+  const thought=pool[Math.floor(Math.random()*pool.length)]||STORY_ANOMALY_THOUGHTS[0];
+  this.storyAnomalyRecentThoughts.push(thought);
+  if(this.storyAnomalyRecentThoughts.length>STORY_ANOMALY_RECENT_THOUGHT_LIMIT){
+   this.storyAnomalyRecentThoughts.splice(0,this.storyAnomalyRecentThoughts.length-STORY_ANOMALY_RECENT_THOUGHT_LIMIT);
+  }
+  return thought;
  }
 
  highlightStoryAnomaly(enemy,{durationMs=5000}={}){
@@ -6028,9 +6072,20 @@ createAshFieldsEnvironment(objects,zone){
  beginWaveIntermission(time){
   if(this.waveIntermission) return;
   this.waveIntermission=true;
-  this.nextWaveAt=time+2200;
-  this.waveSubText.setText('BREATHER');
-  this.showWaveBanner('WAVE CLEARED','Next assault in 2 seconds','#bfe8ff');
+  const woundedStoryGate=Boolean(
+   this.wave===3 &&
+   this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
+   !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
+  );
+  this.nextWaveAt=woundedStoryGate?Number.POSITIVE_INFINITY:time+2200;
+  this.storyWaveGateWasActive=woundedStoryGate;
+  if(woundedStoryGate){
+   this.waveSubText.setText('STORY');
+   this.showWaveBanner('WAVE CLEARED','Find the wounded knight','#e7c96b');
+  }else{
+   this.waveSubText.setText('BREATHER');
+   this.showWaveBanner('WAVE CLEARED','Next assault in 2 seconds','#bfe8ff');
+  }
  }
 
  applyEnemyHitReaction(enemy,angle,baseForce=120){
@@ -6485,8 +6540,24 @@ createAshFieldsEnvironment(objects,zone){
   if(this.waveIntermission){
    if(this.awaitingWorldAdvance){
     this.updateWorldTravel(time);
-   } else if(time>=this.nextWaveAt){
-    this.startWave(this.wave+1);
+   } else {
+    const woundedStoryGateActive=Boolean(
+     this.wave===3 &&
+     this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
+     !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
+    );
+    if(woundedStoryGateActive){
+     this.storyWaveGateWasActive=true;
+     this.nextWaveAt=Number.POSITIVE_INFINITY;
+    } else {
+     if(this.storyWaveGateWasActive){
+      this.storyWaveGateWasActive=false;
+      this.nextWaveAt=time+800;
+      this.waveSubText.setText('STORY COMPLETE');
+      this.showWaveBanner('PATH FORWARD','The next assault is coming','#d9e6c5');
+     }
+     if(time>=this.nextWaveAt)this.startWave(this.wave+1);
+    }
    }
   } else {
    if(!this.devFlags?.autoSpawnsDisabled && this.spawned<this.waveTarget && time-this.lastSpawn>this.waveSpawnInterval){
@@ -6508,6 +6579,9 @@ createAshFieldsEnvironment(objects,zone){
     } else if(this.pendingWorldAdvance){
      this.beginWorldTravel();
     } else {
+     if(this.wave===3){
+      this.storyDirector?.setFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,true);
+     }
      this.beginWaveIntermission(time);
     }
    }
@@ -6524,7 +6598,7 @@ createAshFieldsEnvironment(objects,zone){
 
   // Spread A* work across frames. Direct line-of-sight chasers spend no budget;
   // only enemies whose route is actually blocked request a path.
-  this.navigationPathfindBudget=2;
+  this.navigationPathfindBudget=1;
 
   // Crowd melee rule: at most the four closest ordinary skeletons are allowed
   // to deal contact damage at once. The rest still chase and surround the player.

@@ -104,7 +104,7 @@ Expected proof of the original blur hypothesis: at 2×, Phaser-rendered HUD/worl
 
 ## Render scale baseline
 
-Mobile default render scale is **1.75×**. DEV still allows 1× / 1.5× / 1.75× / 2× / Auto DPR (capped at 2×).
+Default render scale is **1.5×** for a better gameplay/performance balance. DEV still allows 1× / 1.5× / 1.75× / 2× / Auto DPR (capped at 2×).
 
 ## Regional combat progression (Build 1.0.5)
 

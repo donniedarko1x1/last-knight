@@ -385,7 +385,9 @@ class WoundedKnightInteractionSystem {
   const midpointY=(scene.player.y+entry.sprite.y)*0.5-18;
   let focusX=midpointX;
   let focusY=midpointY;
-  let targetZoom=Math.min(cam.zoom*1.52,cam.zoom+0.85);
+  // Keep enough context around both actors so long dialogue panels have real
+  // screen space to avoid the hero/NPC instead of filling the whole camera.
+  let targetZoom=Math.min(cam.zoom*1.18,cam.zoom+0.20);
 
   if(scene.isTouchDevice){
    // Keep both actors inside the unobstructed middle-right gameplay area rather
@@ -417,6 +419,30 @@ class WoundedKnightInteractionSystem {
   this.positionDialogueUi();
  }
 
+ getDialogueActorBounds(actor){
+  const scene=this.scene;
+  if(!actor || !scene)return null;
+  const visual=actor===scene.player ? scene.playerVisual : actor;
+  const bounds=visual?.getBounds?.() || actor?.getBounds?.();
+  if(bounds){
+   return {left:bounds.left,right:bounds.right,top:bounds.top,bottom:bounds.bottom,centerX:bounds.centerX,centerY:bounds.centerY};
+  }
+  const radius=Math.max(18,actor.hitRadius||18);
+  return {left:actor.x-radius,right:actor.x+radius,top:actor.y-radius*1.6,bottom:actor.y+radius,centerX:actor.x,centerY:actor.y-radius*0.3};
+ }
+
+ expandDialogueAvoidRect(rect,pad=28){
+  if(!rect)return null;
+  return {left:rect.left-pad,right:rect.right+pad,top:rect.top-pad,bottom:rect.bottom+pad};
+ }
+
+ dialogueOverlapArea(a,b){
+  if(!a||!b)return 0;
+  const w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));
+  const h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+  return w*h;
+ }
+
  positionDialogueUi(){
   if(!this.active || !this.scene)return;
   const scene=this.scene;
@@ -424,32 +450,65 @@ class WoundedKnightInteractionSystem {
   const knight=this.active.entry.sprite;
   const actor=line?.speaker==='hero'?scene.player:knight;
   if(actor && this.dialogueText){
-   const yOffset=line?.speaker==='hero'?74:Math.max(54,(knight.displayHeight||60)*0.54);
-   let x=actor.x;
-   let y=actor.y-yOffset;
+   const cam=scene.cameras.main;
+   const view=cam.worldView;
+   // Dialogue is a world object, but it should read like UI. Compensate only
+   // zoom-in so camera focus never inflates the panel over the characters.
+   const dialogueScale=1/Math.max(1,cam.zoom||1);
+   this.dialogueText.setScale(dialogueScale);
+   const wrapWidth=scene.isTouchDevice
+    ? Math.min(300,Math.max(220,view.width*0.30))
+    : Math.min(390,Math.max(300,view.width*0.34));
+   this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
 
-   if(scene.isTouchDevice){
-    const cam=scene.cameras.main;
-    const view=cam.worldView;
-    const safe={
-     left:view.left+view.width*0.20,
-     right:view.left+view.width*0.82,
-     top:view.top+view.height*0.22,
-     bottom:view.top+view.height*0.76
-    };
-    const wrapWidth=Math.min(300,Math.max(220,view.width*0.30));
-    this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
-    this.dialogueText.setPosition(x,y);
-    const halfW=Math.min((this.dialogueText.displayWidth||wrapWidth)*0.5,Math.max(20,(safe.right-safe.left)*0.48));
-    const bubbleH=Math.min(this.dialogueText.displayHeight||70,Math.max(40,(safe.bottom-safe.top)*0.72));
-    x=Phaser.Math.Clamp(x,safe.left+halfW+8,safe.right-halfW-8);
-    // dialogueText origin is (0.5,1), so y is the lower edge of the bubble.
-    y=Phaser.Math.Clamp(y,safe.top+bubbleH+8,safe.bottom-8);
-   }else{
-    this.dialogueText.setWordWrapWidth?.(360,true);
+   // Measure after wrapping. The text uses origin (0.5, 1), therefore each
+   // candidate stores the lower-center anchor of the speech panel.
+   const bubbleW=Math.max(120,this.dialogueText.displayWidth||wrapWidth);
+   const bubbleH=Math.max(42,this.dialogueText.displayHeight||70);
+   const halfW=bubbleW*0.5;
+   const margin=scene.isTouchDevice?12:18;
+   const safe=scene.isTouchDevice
+    ? {left:view.left+view.width*0.19,right:view.left+view.width*0.83,top:view.top+view.height*0.18,bottom:view.top+view.height*0.78}
+    : {left:view.left+view.width*0.035,right:view.right-view.width*0.035,top:view.top+view.height*0.12,bottom:view.bottom-view.height*0.07};
+
+   const actorBounds=this.getDialogueActorBounds(actor);
+   const heroBounds=this.expandDialogueAvoidRect(this.getDialogueActorBounds(scene.player),34);
+   const knightBounds=this.expandDialogueAvoidRect(this.getDialogueActorBounds(knight),32);
+   const other=line?.speaker==='hero'?knightBounds:heroBounds;
+   const speakerAvoid=line?.speaker==='hero'?heroBounds:knightBounds;
+   const pairCenterX=((scene.player?.x||actor.x)+(knight?.x||actor.x))*0.5;
+   const topOfPair=Math.min(heroBounds?.top??actor.y,knightBounds?.top??actor.y);
+   const gap=18;
+
+   const candidates=[
+    {x:actorBounds?.centerX??actor.x,y:(actorBounds?.top??actor.y)-gap,bias:0},
+    {x:pairCenterX,y:topOfPair-gap,bias:90},
+    {x:(actorBounds?.right??actor.x)+halfW+26,y:(actorBounds?.centerY??actor.y)+bubbleH*0.45,bias:180},
+    {x:(actorBounds?.left??actor.x)-halfW-26,y:(actorBounds?.centerY??actor.y)+bubbleH*0.45,bias:180},
+    {x:safe.left+halfW+margin,y:safe.top+bubbleH+margin,bias:320},
+    {x:safe.right-halfW-margin,y:safe.top+bubbleH+margin,bias:320},
+    {x:(safe.left+safe.right)*0.5,y:safe.top+bubbleH+margin,bias:360}
+   ];
+
+   let best=null;
+   for(const candidate of candidates){
+    const x=Phaser.Math.Clamp(candidate.x,safe.left+halfW+margin,safe.right-halfW-margin);
+    const y=Phaser.Math.Clamp(candidate.y,safe.top+bubbleH+margin,safe.bottom-margin);
+    const rect={left:x-halfW,right:x+halfW,top:y-bubbleH,bottom:y};
+    const outside=
+     Math.max(0,safe.left-rect.left)+Math.max(0,rect.right-safe.right)+
+     Math.max(0,safe.top-rect.top)+Math.max(0,rect.bottom-safe.bottom);
+    // Never cover either actor when another viable slot exists. Covering the
+    // current speaker is penalized too: long lines should move away instead of
+    // expanding down over the character model.
+    const actorOverlap=this.dialogueOverlapArea(rect,speakerAvoid);
+    const otherOverlap=this.dialogueOverlapArea(rect,other);
+    const distance=Math.hypot(x-(actorBounds?.centerX??actor.x),y-(actorBounds?.top??actor.y));
+    const score=candidate.bias+outside*5000+actorOverlap*35+otherOverlap*55+distance*0.08;
+    if(!best || score<best.score)best={x,y,score};
    }
 
-   this.dialogueText.setPosition(x,y);
+   if(best)this.dialogueText.setPosition(best.x,best.y);
   }
   if(this.continueHint){
    const metrics=scene.getUiMetrics?.()||{cx:400,height:720};
