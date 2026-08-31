@@ -1,13 +1,16 @@
 import Phaser from 'phaser';
+import StoryObjectiveMarker from './StoryObjectiveMarker.js';
+import {ASH_WOUNDED_KNIGHT_STORY} from './storyEvents.js';
 
 const INTERACTION_DISTANCE=112;
 const CAMERA_IN_MS=300;
 const CAMERA_OUT_MS=300;
 const DIALOGUE_INPUT_LOCK_MS=220;
-const STORY_KNIGHT_ID='ash:wounded_knight:3';
-const STORY_EVENT_ID='ash_story_wounded_knight';
-const STORY_OBJECTIVE_ID='ash_find_wounded_knight';
-const STORY_FLAG='ash_story_wounded_knight_met';
+
+const STORY_KNIGHT_ID=ASH_WOUNDED_KNIGHT_STORY.characterId;
+const STORY_EVENT_ID=ASH_WOUNDED_KNIGHT_STORY.dialogueEventId;
+const STORY_OBJECTIVE_ID=ASH_WOUNDED_KNIGHT_STORY.objectiveId;
+const STORY_FLAG=ASH_WOUNDED_KNIGHT_STORY.metFlag;
 
 const STORY_DIALOGUE=Object.freeze([
  Object.freeze({speaker:'knight',text:'Воды...'}),
@@ -61,10 +64,17 @@ class WoundedKnightInteractionSystem {
   this.dialogueInputLockUntil=0;
   this.closeAt=0;
   this.cameraRestore=null;
+  this.activeStoryTargetId=null;
+  this.objectiveMarker=null;
 
   this._onKeyDown=this.onKeyDown.bind(this);
   this._onPointerDown=this.onPointerDown.bind(this);
+  this._onMobileWorldInteract=this.onMobileWorldInteract.bind(this);
   this._onDialogueStart=this.onDialogueStart.bind(this);
+  this._onObjectiveActivated=this.onObjectiveActivated.bind(this);
+  this._onObjectiveUpdated=this.onObjectiveActivated.bind(this);
+  this._onObjectiveCompleted=this.onObjectiveCompleted.bind(this);
+  this._onObjectiveCleared=this.onObjectiveCleared.bind(this);
  }
 
  install(){
@@ -90,33 +100,25 @@ class WoundedKnightInteractionSystem {
    padding:{x:8,y:4},align:'center'
   }).setOrigin(0.5,1).setScrollFactor(0).setDepth(641).setVisible(false);
 
-  this.storyWorldMarker=addUiText(scene,0,0,'◆',{
-   fontFamily:'Georgia, serif',fontSize:'27px',color:'#ffd66b',
-   stroke:'#211607',strokeThickness:4
-  }).setOrigin(0.5).setDepth(625).setVisible(false);
-
-  const markerGraphics=scene.add.graphics();
-  markerGraphics.fillStyle(0x4b3514,0.78);
-  markerGraphics.fillCircle(0,0,18);
-  markerGraphics.lineStyle(2,0xffd66b,0.95);
-  markerGraphics.strokeCircle(0,0,17);
-  markerGraphics.fillStyle(0xffd66b,1);
-  markerGraphics.fillPoints([
-   new Phaser.Geom.Point(0,-11),new Phaser.Geom.Point(9,0),
-   new Phaser.Geom.Point(0,11),new Phaser.Geom.Point(-9,0)
-  ],true);
-  markerGraphics.fillTriangle(-5,-19,5,-19,0,-28);
-  this.edgeMarker=scene.add.container(0,0,[markerGraphics])
-   .setScrollFactor(0).setDepth(626).setVisible(false);
+  // Generic reusable objective compass. It is deliberately separate from
+  // wounded-knight dialogue logic so later story NPCs/items/bosses can use the
+  // same strict 10%-inset screen-frame navigation.
+  this.objectiveMarker=new StoryObjectiveMarker(scene,{insetRatio:0.10}).install();
 
   scene.input.keyboard?.on('keydown',this._onKeyDown);
+  // Desktop mouse keeps its old dialogue-advance behavior. Touch interaction is
+  // routed by HUDScene so the left movement half can never trigger an NPC.
   scene.input.on('pointerdown',this._onPointerDown);
+  scene.events.on('mobile-world-interact',this._onMobileWorldInteract);
   scene.events.on('story-dialogue-start',this._onDialogueStart);
+  scene.events.on('story-objective-activated',this._onObjectiveActivated);
+  scene.events.on('story-objective-updated',this._onObjectiveUpdated);
+  scene.events.on('story-objective-completed',this._onObjectiveCompleted);
+  scene.events.on('story-objective-cleared',this._onObjectiveCleared);
 
-  // The starting Ash Fields chunk is created before this system is installed.
-  // Register any wounded knights that already exist, otherwise their optional
-  // registration call was missed and interaction silently never becomes active.
+  // The starting Ash Fields chunk can exist before this system is installed.
   this.registerExistingKnightsFromScene();
+  this.syncStoryObjectiveFromDirector();
   return this;
  }
 
@@ -143,13 +145,21 @@ class WoundedKnightInteractionSystem {
   const scene=this.scene;
   scene?.input?.keyboard?.off('keydown',this._onKeyDown);
   scene?.input?.off('pointerdown',this._onPointerDown);
+  scene?.events?.off('mobile-world-interact',this._onMobileWorldInteract);
   scene?.events?.off('story-dialogue-start',this._onDialogueStart);
-  for(const object of [this.promptText,this.dialogueText,this.continueHint,this.storyWorldMarker,this.edgeMarker]){
+  scene?.events?.off('story-objective-activated',this._onObjectiveActivated);
+  scene?.events?.off('story-objective-updated',this._onObjectiveUpdated);
+  scene?.events?.off('story-objective-completed',this._onObjectiveCompleted);
+  scene?.events?.off('story-objective-cleared',this._onObjectiveCleared);
+  for(const object of [this.promptText,this.dialogueText,this.continueHint]){
    try{object?.destroy();}catch{}
   }
+  this.objectiveMarker?.destroy();
+  this.objectiveMarker=null;
   this.knights.clear();
   this.active=null;
   this.nearest=null;
+  this.activeStoryTargetId=null;
   this.installed=false;
   this.scene=null;
   this.storyDirector=null;
@@ -163,6 +173,13 @@ class WoundedKnightInteractionSystem {
   };
   this.knights.set(entry.id,entry);
   sprite.woundedKnightInteractionId=entry.id;
+
+  // Objective activation may have happened before streamed/late-created target
+  // registration. Resolve it as soon as the entity becomes available.
+  const objective=this.storyDirector?.getActiveObjective?.();
+  if(entry.story && objective?.id===STORY_OBJECTIVE_ID && objective.targetId===entry.id){
+   this.activateStoryTarget(entry.id);
+  }
   return entry;
  }
 
@@ -170,10 +187,61 @@ class WoundedKnightInteractionSystem {
   return Boolean(entry && this.storyDirector?.hasCompleted?.(entry.eventId));
  }
 
+ isStoryEntryUnlocked(entry){
+  if(!entry?.story)return true;
+  return Boolean(
+   this.activeStoryTargetId===entry.id &&
+   this.storyDirector?.isObjectiveActive?.(STORY_OBJECTIVE_ID)
+  );
+ }
+
  getDialogue(entry){
   if(entry?.story)return STORY_DIALOGUE;
   const nonStoryIndex=entry.index>3?entry.index-1:entry.index;
   return AMBIENT_DIALOGUES[Math.abs(nonStoryIndex)%AMBIENT_DIALOGUES.length];
+ }
+
+ syncStoryObjectiveFromDirector(){
+  const objective=this.storyDirector?.getActiveObjective?.();
+  if(objective?.id===STORY_OBJECTIVE_ID && objective.targetId===STORY_KNIGHT_ID){
+   this.onObjectiveActivated(objective);
+  }else{
+   this.deactivateStoryTarget();
+  }
+ }
+
+ onObjectiveActivated(objective){
+  if(!objective || objective.id!==STORY_OBJECTIVE_ID || objective.targetId!==STORY_KNIGHT_ID)return;
+  this.activateStoryTarget(objective.targetId);
+ }
+
+ onObjectiveCompleted(objective){
+  if(objective?.id!==STORY_OBJECTIVE_ID)return;
+  this.deactivateStoryTarget();
+ }
+
+ onObjectiveCleared(objective){
+  if(objective?.id!==STORY_OBJECTIVE_ID)return;
+  this.deactivateStoryTarget();
+ }
+
+ activateStoryTarget(targetId){
+  const id=String(targetId||'');
+  if(!id)return false;
+  this.activeStoryTargetId=id;
+  const entry=this.knights.get(id);
+  this.objectiveMarker?.setTarget(entry?.sprite||null);
+  return Boolean(entry);
+ }
+
+ deactivateStoryTarget(){
+  const previous=this.activeStoryTargetId;
+  this.activeStoryTargetId=null;
+  this.objectiveMarker?.clearTarget();
+  if(this.nearest?.id===previous){
+   this.nearest=null;
+   this.promptText?.setVisible(false);
+  }
  }
 
  update(time=0){
@@ -197,20 +265,6 @@ class WoundedKnightInteractionSystem {
   this.updateObjectiveMarker(time,false);
  }
 
-
- isStoryKnightObjectiveActive(entry){
-  if(!entry?.story)return true;
-  const objective=this.storyDirector?.getActiveObjective?.();
-  if(!objective)return false;
-  return String(objective.id||'')===STORY_OBJECTIVE_ID && String(objective.targetId||'')===entry.id;
- }
-
- canInteractWithEntry(entry){
-  if(!entry || this.isCompleted(entry))return false;
-  if(entry.story && !this.isStoryKnightObjectiveActive(entry))return false;
-  return Boolean(entry.sprite?.active && entry.sprite.visible);
- }
-
  findNearestAvailableKnight(){
   const player=this.scene?.player;
   if(!player)return null;
@@ -218,7 +272,10 @@ class WoundedKnightInteractionSystem {
   let bestDistance=INTERACTION_DISTANCE;
   for(const entry of this.knights.values()){
    const sprite=entry.sprite;
-   if(!this.canInteractWithEntry(entry))continue;
+   if(!sprite?.active || !sprite.visible || this.isCompleted(entry))continue;
+   // A potential story NPC is intentionally inert until StoryDirector says the
+   // player currently needs to talk to it.
+   if(entry.story && !this.isStoryEntryUnlocked(entry))continue;
    const distance=Phaser.Math.Distance.Between(player.x,player.y,sprite.x,sprite.y);
    if(distance<=bestDistance){best=entry;bestDistance=distance;}
   }
@@ -231,11 +288,11 @@ class WoundedKnightInteractionSystem {
   if(!prompt)return;
   if(!this.nearest || !scene?.player){prompt.setVisible(false);return;}
   const touch=Boolean(scene.isTouchDevice);
-  const target=this.nearest.sprite;
-  const targetHeight=Math.max(60,target?.displayHeight||60);
-  prompt.setText(touch?'Коснитесь, чтобы поговорить':'Нажмите E, чтобы поговорить');
+  prompt.setText('Нажмите для взаимодействия');
   prompt.setFontSize(touch?16:15);
-  prompt.setPosition(target.x,target.y-Math.max(58,targetHeight*0.62)).setVisible(true);
+  const target=this.nearest.sprite;
+  const promptOffset=Math.max(58,(target?.displayHeight||60)*0.60);
+  prompt.setPosition(target.x,target.y-promptOffset).setVisible(true);
  }
 
  onKeyDown(event){
@@ -250,20 +307,25 @@ class WoundedKnightInteractionSystem {
   }
  }
 
- onPointerDown(pointer){
-  if(!this.scene)return;
+ onPointerDown(){
+  if(!this.scene || this.scene.isTouchDevice)return;
+  const now=this.scene.game?.loop?.time||0;
+  if(this.active)this.advanceDialogue(now);
+ }
+
+ onMobileWorldInteract(){
+  if(!this.scene?.isTouchDevice)return;
   const now=this.scene.game?.loop?.time||0;
   if(this.active){
    this.advanceDialogue(now);
    return;
   }
-  if(this.scene.isTouchDevice && this.nearest){
-   this.startInteraction(this.nearest,now);
-  }
+  if(this.nearest)this.startInteraction(this.nearest,now);
  }
 
  startInteraction(entry,now=0){
-  if(!entry || this.active || this.storyDirector?.isBusy?.() || !this.canInteractWithEntry(entry))return false;
+  if(!entry || this.active || this.isCompleted(entry) || this.storyDirector?.isBusy?.())return false;
+  if(entry.story && !this.isStoryEntryUnlocked(entry))return false;
   const lines=this.getDialogue(entry);
   if(!Array.isArray(lines) || !lines.length)return false;
 
@@ -283,28 +345,45 @@ class WoundedKnightInteractionSystem {
  onDialogueStart(payload,controls){
   if(payload?.kind!=='wounded-knight')return;
   const entry=this.knights.get(String(payload.entryId));
-  if(!entry?.sprite?.active){controls?.cancel?.();return;}
+  if(!entry?.sprite?.active || (entry.story && !this.isStoryEntryUnlocked(entry))){
+   controls?.cancel?.();
+   return;
+  }
 
   this.active={entry,lines:payload.lines||[],closing:false};
   this.dialogueControls=controls||null;
   this.dialogueLineIndex=0;
   this.closeAt=0;
   this.promptText?.setVisible(false);
-  this.edgeMarker?.setVisible(false);
-  this.storyWorldMarker?.setVisible(false);
+  this.objectiveMarker?.hide();
 
   const scene=this.scene;
   const cam=scene.cameras.main;
   this.cameraRestore={zoom:cam.zoom};
   cam.stopFollow();
-  const focusX=(scene.player.x+entry.sprite.x)*0.5;
-  const focusY=(scene.player.y+entry.sprite.y)*0.5-18;
-  const targetZoom=Math.min(cam.zoom*1.52,cam.zoom+0.85);
+
+  const midpointX=(scene.player.x+entry.sprite.x)*0.5;
+  const midpointY=(scene.player.y+entry.sprite.y)*0.5-18;
+  let focusX=midpointX;
+  let focusY=midpointY;
+  let targetZoom=Math.min(cam.zoom*1.52,cam.zoom+0.85);
+
+  if(scene.isTouchDevice){
+   // Keep both actors inside the unobstructed middle-right gameplay area rather
+   // than under HP/Wave panels or the bottom touch controls. A light zoom is
+   // enough on phones; the old 1.52x close-up made speech bubbles enormous.
+   targetZoom=Math.min(cam.zoom*1.08,cam.zoom+0.12);
+   const targetViewW=cam.width/Math.max(0.01,targetZoom);
+   const targetViewH=cam.height/Math.max(0.01,targetZoom);
+   focusX=midpointX-targetViewW*0.06; // actors appear ~6% right of screen center
+   focusY=midpointY-targetViewH*0.05; // actors appear ~5% below screen center
+  }
+
   cam.pan(focusX,focusY,CAMERA_IN_MS,'Sine.easeOut',true);
   cam.zoomTo(targetZoom,CAMERA_IN_MS,'Sine.easeOut',true);
 
   this.continueHint
-   ?.setText(scene.isTouchDevice?'Коснитесь экрана':'Любая клавиша — продолжить')
+   ?.setText(scene.isTouchDevice?'Коснитесь справа — продолжить':'Любая клавиша — продолжить')
    .setVisible(true);
   this.showDialogueLine();
  }
@@ -313,22 +392,49 @@ class WoundedKnightInteractionSystem {
   if(!this.active || !this.dialogueText)return;
   const line=this.active.lines[this.dialogueLineIndex];
   if(!line)return;
-  this.dialogueText.setText(line.text||'').setVisible(true);
+  const speakerLabel=line.speaker==='hero'?'Ты':'Раненый рыцарь';
+  const spokenText=String(line.text||'').trim();
+  this.dialogueText.setText(`${speakerLabel}: «${spokenText}»`).setVisible(true);
   this.positionDialogueUi();
  }
 
  positionDialogueUi(){
   if(!this.active || !this.scene)return;
+  const scene=this.scene;
   const line=this.active.lines[this.dialogueLineIndex];
   const knight=this.active.entry.sprite;
-  const actor=line?.speaker==='hero'?this.scene.player:knight;
+  const actor=line?.speaker==='hero'?scene.player:knight;
   if(actor && this.dialogueText){
    const yOffset=line?.speaker==='hero'?74:Math.max(54,(knight.displayHeight||60)*0.54);
-   this.dialogueText.setPosition(actor.x,actor.y-yOffset);
+   let x=actor.x;
+   let y=actor.y-yOffset;
+
+   if(scene.isTouchDevice){
+    const cam=scene.cameras.main;
+    const view=cam.worldView;
+    const safe={
+     left:view.left+view.width*0.20,
+     right:view.left+view.width*0.82,
+     top:view.top+view.height*0.22,
+     bottom:view.top+view.height*0.76
+    };
+    const wrapWidth=Math.min(300,Math.max(220,view.width*0.30));
+    this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
+    this.dialogueText.setPosition(x,y);
+    const halfW=Math.min((this.dialogueText.displayWidth||wrapWidth)*0.5,Math.max(20,(safe.right-safe.left)*0.48));
+    const bubbleH=Math.min(this.dialogueText.displayHeight||70,Math.max(40,(safe.bottom-safe.top)*0.72));
+    x=Phaser.Math.Clamp(x,safe.left+halfW+8,safe.right-halfW-8);
+    // dialogueText origin is (0.5,1), so y is the lower edge of the bubble.
+    y=Phaser.Math.Clamp(y,safe.top+bubbleH+8,safe.bottom-8);
+   }else{
+    this.dialogueText.setWordWrapWidth?.(360,true);
+   }
+
+   this.dialogueText.setPosition(x,y);
   }
   if(this.continueHint){
-   const metrics=this.scene.getUiMetrics?.()||{cx:400,height:720};
-   this.continueHint.setPosition(metrics.cx,metrics.height-18);
+   const metrics=scene.getUiMetrics?.()||{cx:400,height:720};
+   this.continueHint.setPosition(metrics.cx,metrics.height-(scene.isTouchDevice?46:18));
   }
  }
 
@@ -390,46 +496,15 @@ class WoundedKnightInteractionSystem {
  }
 
  updateObjectiveMarker(time=0,forceHide=false){
-  const scene=this.scene;
-  if(!scene || !this.edgeMarker || !this.storyWorldMarker)return;
-  const entry=this.knights.get(STORY_KNIGHT_ID);
-  if(forceHide || !entry?.sprite?.active || this.isCompleted(entry) || !this.isStoryKnightObjectiveActive(entry)){
-   this.edgeMarker.setVisible(false);
-   this.storyWorldMarker.setVisible(false);
+  if(!this.objectiveMarker)return;
+  const entry=this.activeStoryTargetId?this.knights.get(this.activeStoryTargetId):null;
+  const objectiveActive=this.storyDirector?.isObjectiveActive?.(STORY_OBJECTIVE_ID);
+  if(!objectiveActive || !entry?.sprite?.active || this.isCompleted(entry)){
+   this.objectiveMarker.hide();
    return;
   }
-
-  const cam=scene.cameras.main;
-  const view=cam.worldView;
-  const metrics=scene.getUiMetrics?.()||{width:view.width,height:view.height,cx:view.width*0.5,cy:view.height*0.5};
-  const sx=entry.sprite.x-view.left;
-  const sy=entry.sprite.y-view.top;
-  const inset=36;
-  const onScreen=sx>=inset && sx<=metrics.width-inset && sy>=inset && sy<=metrics.height-inset;
-
-  if(onScreen){
-   this.edgeMarker.setVisible(false);
-   const floatY=Math.sin(time*0.006)*4;
-   this.storyWorldMarker.setPosition(entry.sprite.x,entry.sprite.y-58+floatY).setVisible(true);
-   return;
-  }
-
-  this.storyWorldMarker.setVisible(false);
-  const dx=entry.sprite.x-(view.left+view.width*0.5);
-  const dy=entry.sprite.y-(view.top+view.height*0.5);
-  const len=Math.max(0.001,Math.hypot(dx,dy));
-  const ux=dx/len,uy=dy/len;
-  const halfW=Math.max(1,metrics.width*0.5-inset);
-  const halfH=Math.max(1,metrics.height*0.5-inset);
-  const tx=Math.abs(ux)>0.0001?halfW/Math.abs(ux):Infinity;
-  const ty=Math.abs(uy)>0.0001?halfH/Math.abs(uy):Infinity;
-  const t=Math.min(tx,ty);
-  const x=metrics.cx+ux*t;
-  const y=metrics.cy+uy*t;
-  this.edgeMarker
-   .setPosition(x,y)
-   .setRotation(Math.atan2(dy,dx)+Math.PI/2)
-   .setVisible(true);
+  if(this.objectiveMarker.target!==entry.sprite)this.objectiveMarker.setTarget(entry.sprite);
+  this.objectiveMarker.update(time,{forceHide});
  }
 }
 

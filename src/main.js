@@ -3873,7 +3873,14 @@ createAshFieldsEnvironment(objects,zone){
   const cameraZoomMultiplier=mobileCamera ? 1.35 : 1;
   cam.setZoom(Math.max(0.01,baseZoom*cameraZoomMultiplier));
   const metrics=this.getUiMetrics();
-  cam.setDeadzone(metrics.width*STAGE0.CAMERA_DEADZONE_WIDTH,metrics.height*STAGE0.CAMERA_DEADZONE_HEIGHT);
+  // Mobile UX safe gameplay area: the player may still travel anywhere in the
+  // world, but the camera starts following sooner so the hero cannot drift under
+  // the top HUD, joystick or skill cluster. Desktop keeps the original deadzone.
+  if(mobileCamera){
+   cam.setDeadzone(metrics.width*0.36,metrics.height*0.30);
+  }else{
+   cam.setDeadzone(metrics.width*STAGE0.CAMERA_DEADZONE_WIDTH,metrics.height*STAGE0.CAMERA_DEADZONE_HEIGHT);
+  }
   this.layoutScreenUI();
   this.layoutMobileControls();
  }
@@ -7542,13 +7549,25 @@ class HUDScene extends Phaser.Scene {
   this.applyDevUiLayoutOverrides();
  }
 
- onPointerDown(pointer){
+ onPointerDown(pointer,gameObjects=[]){
   if(this.mainScene?.devTools?.uiEditor?.editMode){this.mainScene.devTools.uiEditor.handlePointerDown(pointer);return;}
-  if(!this.mainScene?.isTouchDevice || !this.joyCenter || this.movePointerId!==null || this.levelChoiceVisible || this.championRewardVisible || this.mainScene?.gameOver) return;
+  if(!this.mainScene?.isTouchDevice || !this.joyCenter || this.levelChoiceVisible || this.championRewardVisible || this.mainScene?.gameOver) return;
   const logical=lkLogicalSceneSize(this),w=logical.width;
   const pp=lkUiPointer(this,pointer);
-  // Any press that STARTS on the left half becomes the movement pointer.
-  if(pp.x>w*0.5) return;
+
+  // Mobile input contract:
+  //   LEFT HALF  = movement only.
+  //   RIGHT HALF = world interaction / dialogue advance, unless the finger hit
+  //                an actual HUD control (skill/fullscreen/etc.).
+  if(pp.x>w*0.5){
+   const hitHudControl=Array.isArray(gameObjects) && gameObjects.some(obj=>Boolean(obj?.input && obj.input.enabled!==false));
+   if(!hitHudControl){
+    this.mainScene?.events?.emit?.('mobile-world-interact',pointer);
+   }
+   return;
+  }
+
+  if(this.movePointerId!==null) return;
   this.movePointerId=pointer.id;
   this.joyTouchOrigin={x:pp.x,y:pp.y};
   this.mainScene.mobileMoveX=0;
