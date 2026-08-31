@@ -35,6 +35,23 @@ const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({
  label:'Поговорить с раненым рыцарем'
 });
 
+
+
+// After wave 4, combat pauses and the player is led to the Ash Fields altar.
+// The first champion materializes only when the player reaches the landmark;
+// its combat phase (music + ordinary wave pressure) begins after the reveal beat.
+const ASH_ALTAR_CHAMPION_STORY=Object.freeze({
+ landmarkKey:'ash_landmark_altar',
+ targetId:'ash_landmark_altar',
+ objectiveId:'ash_reach_landmark_altar',
+ waveClearedFlag:'ash_story_wave_4_cleared',
+ encounterStartedFlag:'ash_story_first_champion_reveal_started',
+ fightStartedFlag:'ash_story_first_champion_fight_started',
+ championKind:'brokenSaint',
+ label:'Добраться до алтаря',
+ approachRadius:285
+});
+
 const STORY_EVENTS=Object.freeze([
  Object.freeze({
   id:ASH_WOUNDED_KNIGHT_STORY.objectiveEventId,
@@ -57,4 +74,4 @@ const STORY_EVENTS=Object.freeze([
  })
 ]);
 
-export {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY};
+export {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY};

@@ -149,6 +149,8 @@ for(const [key,url] of Object.entries({
  sfx_broken_saint_spawn:'/assets/audio/broken_saint_spawn.ogg'
 })) audio(REGION_ASH,R,key,url);
 
+for(let i=0;i<5;i++) image(REGION_ASH,R,`ash_champion_smoke_${pad2(i)}`,`/assets/effects/ash_champion_smoke/ash_champion_smoke_${pad2(i)}.png`);
+
 for(const [name,count] of Object.entries({holy_mark:4,holy_impact:4,holy_beam:3,reflect_shield:4,reflect_spark:2})){
  for(let i=0;i<count;i++) image(REGION_ASH,R,`broken_saint_${name}_${pad2(i)}`,`/assets/effects/broken_saint/broken_saint_${name}_${pad2(i)}.png`);
 }

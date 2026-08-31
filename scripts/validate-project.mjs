@@ -9,7 +9,7 @@ import {
 } from '../src/config/assetManifest.mjs';
 import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
 import StoryEnemyAnomalySystem,{STORY_WAVE_ANOMALY_COUNTS} from '../src/story/StoryEnemyAnomalySystem.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY} from '../src/story/storyEvents.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from '../src/story/storyEvents.js';
 
 const root=process.cwd();
 const errors=[];
@@ -168,7 +168,8 @@ if(!main.includes("const initialTexture=isBrokenSaint ? 'broken_saint_down_walk_
 // 8) World Physics v1 contracts.
 for(const [label,needle] of [
  ['decorative/blocking classification',"getAshPropPhysicsClass(prop,kind='grass')"],
- ['enemy/world collider','this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup);'],
+ ['enemy/world collider','this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup,null,this.shouldEnemyCollideWithAshLandmark,this);'],
+ ['selective Broken Saint altar collision','shouldEnemyCollideWithAshLandmark(objectA,objectB){'],
  ['obstacle steering','setEnemySteeredVelocity(enemy,vx,vy,time){'],
  ['safe enemy spawn','findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){'],
  ['mage projectile obstacle collision','this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)'],
@@ -177,6 +178,20 @@ for(const [label,needle] of [
  if(!main.includes(needle)) fail(`Missing world-physics contract: ${label}`);
 }
 if(!errors.some(e=>e.startsWith('Missing world-physics contract:'))) pass('World Physics v1 contracts present');
+
+// 8b) Broken Saint altar encounter v2 contracts.
+for(const [label,needle] of [
+ ['figure-sized champion smoke','const outerW=Math.min(238,figureW*1.48);'],
+ ['three-second post-materialize hold','const ASH_CHAMPION_POST_REVEAL_HOLD_MS=3000;'],
+ ['smoke clears before combat','smokeFadeAt:materializeCompleteAt-220'],
+ ['escort clear detector','isBrokenSaintEscortWaveCleared(){'],
+ ['altar release phase','releaseBrokenSaintFromAltar(){'],
+ ['Broken Saint altar-only filter',"startsWith('ash_landmark_altar_')"],
+ ['released champion bypasses altar navigation',"const bypassAltarNavigation=Boolean(enemy?.type==='champion' && enemy.championKind==='brokenSaint' && enemy.ignoreAshAltarCollision);"]
+]){
+ if(!main.includes(needle)) fail(`Missing Broken Saint altar phase contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) pass('Broken Saint local smoke + 3s reveal hold + altar release phase contracts present');
 
 // 9) World Navigation v2 contracts. Architecture Refactor v1 moves the
 // global A*/grid implementation into src/world/NavigationSystem.js while the
@@ -200,6 +215,18 @@ if(main.includes(`this.physics.add.collider(
  fail('Hard enemy-enemy Arcade collider returned; World Navigation v2 requires soft separation');
 }
 if(!errors.some(e=>e.startsWith('Missing World Navigation v2 contract:')||e.startsWith('Hard enemy-enemy'))) pass('World Navigation v2 contracts present');
+
+// 9a2) Story marker + settled-camera vignette contracts.
+for(const [label,source,needle] of [
+ ['stable Ash altar marker proxy',main,'getAshStoryMarkerTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){'],
+ ['Ash altar marker uses stable target',main,'this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});'],
+ ['settled-camera vignette factory',main,'createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){'],
+ ['skeleton vignette waits for camera lock',main,'state.cameraLocked=true;\n    this.createSettledStoryVignette(state,cam,{fadeMs:280});'],
+ ['champion vignette waits for camera lock',main,'this.createSettledStoryVignette(state,cam,{fadeMs:300});']
+]){
+ if(!source.includes(needle)) fail(`Missing story marker/vignette contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing story marker/vignette contract:'))) pass('Stable altar marker + settled-camera vignette contracts present');
 
 // 9b) Dialogue safety + runtime performance pass.
 for(const [label,source,needle] of [
@@ -313,7 +340,7 @@ for(const [label,source,needle] of [
  ['marker direction from player to target',objectiveMarkerSource,'const dx=target.x-player.x;'],
  ['marker direction from player to target Y',objectiveMarkerSource,'const dy=target.y-player.y;'],
  ['interaction system module',woundedInteractionSource,'class WoundedKnightInteractionSystem'],
- ['interaction prompt',woundedInteractionSource,"Нажмите для взаимодействия"],
+ ['desktop interaction prompt',woundedInteractionSource,"Нажмите E для взаимодействия"],
  ['dialogue wounded-knight speaker label',woundedInteractionSource,"'Раненый рыцарь'"],
  ['dialogue hero speaker label',woundedInteractionSource,"'Ты'"],
  ['story knight dialogue route hook',woundedInteractionSource,'Наш командир повёл уцелевших на север. К старой часовне у тракта.'],
@@ -356,6 +383,8 @@ else{
 if(main.includes('ash_campfire_01_')) fail('Rejected Ash Fields campfire is still referenced by runtime code');
 if(ASSET_MANIFEST.some(entry=>String(entry.key).startsWith('ash_campfire_01_'))) fail('Rejected Ash Fields campfire is still present in AssetManifest');
 if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')||e.includes('First story objective')||e.includes('No declarative first story objective')||e.includes('Rejected Ash Fields campfire'))) pass('Reusable objective marker + post-wave-3 wounded-knight gate contracts present; rejected campfire removed');
+if(woundedInteractionSource.includes('Любая клавиша — продолжить')) fail('Desktop dialogue continue plaque must be removed');
+else pass('Desktop E interaction prompt present; continue plaque removed');
 
 // 14) Act-I wave pacing: subtle enemy hesitation from waves 2-5, then Broken Saint
 // only after the ordinary fifth wave has been cleared.
@@ -393,12 +422,12 @@ for(const [label,source,needle] of [
  ['expanded anomaly thought pool',main,"'Кто тогда погиб?..'"],
  ['anomaly recent-thought anti-repeat window',main,'const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;'],
  ['anomaly thought random choice',main,'Math.floor(Math.random()*pool.length)'],
- ['hero skill lock during anomaly',main,'if(this.isStoryAnomalyMomentActive(this.time.now)) return;'],
+ ['hero skill lock during anomaly',main,'if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;'],
  ['player anomaly hard freeze',main,'vx=0;'],
- ['enemy anomaly cinematic freeze',main,'const storyCinematicFrozen=Boolean(storyMomentActive && e!==focusedStoryEnemy);'],
+ ['enemy anomaly cinematic freeze',main,'const storyCinematicFrozen=Boolean((storyMomentActive && e!==focusedStoryEnemy) || e.storyDormant);'],
  ['enemy anomaly separation override',main,'cinematic freeze is physically absolute for every non-focused enemy'],
  ['mage projectile anomaly freeze',main,'const storyProjectileFreeze=this.isStoryAnomalyMomentActive(time);'],
- ['mage projectile anomaly damage firewall',main,"if(source==='mageProjectile' && this.isStoryAnomalyMomentActive(now)) return false;"],
+ ['mage projectile anomaly damage firewall',main,"if(source==='mageProjectile' && (this.isStoryAnomalyMomentActive(now) || this.isAshChampionIntroActive())) return false;"],
  ['mage projectile motion restore',main,'projectile.storyAnomalyFreezeVX||0'],
  ['universal hero focus stance API',main,'setHeroFocusInteraction(reason,active=true)'],
  ['hero focus stance active gate',main,'isHeroFocusInteractionActive()'],
@@ -425,9 +454,27 @@ try{
 }catch(error){
  fail(`Act-I enemy anomaly smoke test failed: ${error.message}`);
 }
-if(!main.includes("const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint';")) fail('Broken Saint wave 5 must use a full ordinary-wave population target');
-if(!main.includes("const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint';")) fail('Broken Saint must be deferred until after wave 5');
-if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.includes('Broken Saint'))) pass('Act-I waves 2-5 anomaly pacing + post-wave Broken Saint contracts present');
+for(const [label,source,needle] of [
+ ['wave-4 altar story definition',storyEventsSource,'const ASH_ALTAR_CHAMPION_STORY=Object.freeze({'],
+ ['wave-4 clear story flag',storyEventsSource,"waveClearedFlag:'ash_story_wave_4_cleared'"],
+ ['altar target key',storyEventsSource,"landmarkKey:'ash_landmark_altar'"],
+ ['altar objective marker',main,'this.ashAltarObjectiveMarker=new StoryObjectiveMarker(this,{insetRatio:0.10}).install();'],
+ ['altar wave gate',main,'isAshAltarStoryGateActive()'],
+ ['champion reveal entry',main,'beginAshChampionReveal()'],
+ ['champion reveal dormant spawn',main,'dormant:true'],
+ ['champion reveal deferred music',main,'deferMusic:true'],
+ ['champion reveal vignette target',main,'target:champion'],
+ ['champion combat release',main,'releaseAshChampionFight()'],
+ ['pre-spawned champion wave five',main,"this.startWave(5,false,{preSpawnedChampion:true,suppressBanner:true});"],
+ ['champion music starts on combat release',main,'this.startBrokenSaintMusic();'],
+ ['wave 5 concurrent champion population',main,'{concurrentChampion:preSpawnedChampion}'],
+ ['mage aims at current hero position',main,'const shotX=this.clampWorldX(this.player.x,20);'],
+ ['mage aims at current hero Y',main,'const shotY=this.clampWorldY(this.player.y,20);']
+]){
+ if(!source.includes(needle)) fail(`Missing altar/champion encounter contract: ${label}`);
+}
+if(main.includes('this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS')) fail('Mage predictive lead aiming must be removed');
+if(!errors.some(e=>e.startsWith('Missing Act-I wave pacing contract:')||e.startsWith('Act-I enemy anomaly')||e.startsWith('Missing altar/champion encounter contract:')||e.includes('Mage predictive lead'))) pass('Act-I anomalies + wave-4 altar reveal + concurrent first champion contracts present');
 
 console.log('\nLAST KNIGHT project validation');
 console.log('==============================');

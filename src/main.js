@@ -29,7 +29,8 @@ import AudioManager from './audio/AudioManager.js';
 import StoryDirector from './story/StoryDirector.js';
 import WoundedKnightInteractionSystem from './story/WoundedKnightInteractionSystem.js';
 import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY} from './story/storyEvents.js';
+import StoryObjectiveMarker from './story/StoryObjectiveMarker.js';
+import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from './story/storyEvents.js';
 import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
@@ -78,6 +79,16 @@ const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;
 const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';
 const HERO_FOCUS_STANCE_FRAME_MS=330;
 const HERO_FOCUS_STANCE_STATE='hero_socket_focus_stance';
+const ASH_CHAMPION_REVEAL_MS=4600;
+const ASH_CHAMPION_MATERIALIZE_DELAY_MS=260;
+const ASH_CHAMPION_MATERIALIZE_MS=1450;
+const ASH_CHAMPION_VIGNETTE_FADE_MS=300;
+const ASH_CHAMPION_POST_REVEAL_HOLD_MS=3000;
+const ASH_CHAMPION_SMOKE_FADE_MS=650;
+const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
+const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
+const ASH_CHAMPION_SMOKE_TEXTURE_PREFIX='ash_champion_smoke_';
+const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
 
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
@@ -2104,6 +2115,9 @@ class MainScene extends Phaser.Scene {
   this.storyAnomalyRecentThoughts=[];
   this.storyWaveGateWasActive=false;
   this.postWaveChampionKind=null;
+  this.ashAltarObjectiveMarker=null;
+  this.ashAltarStoryTarget=null;
+  this.ashChampionIntroState=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -2220,7 +2234,12 @@ class MainScene extends Phaser.Scene {
   this.devEnvironmentShadows=[];
   this.devEnvironmentColliders=[];
   this.storyEnemyAnomalies=null;
+  this.storyAnomalyRecentThoughts=[];
+  this.storyWaveGateWasActive=false;
   this.postWaveChampionKind=null;
+  this.ashAltarObjectiveMarker=null;
+  this.ashAltarStoryTarget=null;
+  this.ashChampionIntroState=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -2351,7 +2370,7 @@ class MainScene extends Phaser.Scene {
 
   this.playerEnemyCollider=this.physics.add.collider(this.player,this.enemyGroup);
   this.playerAshCollider=this.physics.add.collider(this.player,this.ashLandmarkColliderGroup);
-  this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup);
+  this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup,null,this.shouldEnemyCollideWithAshLandmark,this);
 
   // Enemy/enemy hard Arcade collision was intentionally removed in World Navigation v2.
   // A soft-separation pass keeps the crowd readable without creating rigid traffic jams.
@@ -2370,6 +2389,7 @@ class MainScene extends Phaser.Scene {
   this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();
   this.woundedKnightInteractions=new WoundedKnightInteractionSystem(this,{storyDirector:this.storyDirector}).install();
   this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();
+  this.ashAltarObjectiveMarker=new StoryObjectiveMarker(this,{insetRatio:0.10}).install();
 
   this.updateWorldStreaming();
 
@@ -2394,6 +2414,11 @@ class MainScene extends Phaser.Scene {
    this.woundedKnightInteractions=null;
    this.storyEnemyAnomalies?.destroy();
    this.storyEnemyAnomalies=null;
+   this.ashAltarObjectiveMarker?.destroy();
+   this.ashAltarObjectiveMarker=null;
+   this.ashAltarStoryTarget=null;
+   this.ashAltarMarkerTarget=null;
+   this.ashChampionIntroState=null;
    this.storyDirector?.destroy();
    this.storyDirector=null;
    this.devTools?.destroy();
@@ -2818,10 +2843,11 @@ class MainScene extends Phaser.Scene {
   return 'decorative';
  }
 
- isAshCircleBlocked(x,y,radius=0){
+ isAshCircleBlocked(x,y,radius=0,enemy=null){
   if(!this.ashLandmarkColliderGroup) return false;
   for(const blocker of this.ashLandmarkColliderGroup.getChildren()){
    if(!blocker?.active || !blocker.body || blocker.body.enable===false) continue;
+   if(this.isAshBlockerIgnoredForEnemy(blocker,enemy)) continue;
    const b=this.getAshBlockerBounds(blocker,0);
    if(!b) continue;
    const nearestX=Phaser.Math.Clamp(x,b.left,b.right);
@@ -2833,7 +2859,7 @@ class MainScene extends Phaser.Scene {
   return false;
  }
 
- isAshPathBlocked(x1,y1,x2,y2,radius=0){
+ isAshPathBlocked(x1,y1,x2,y2,radius=0,enemy=null){
   if(!this.ashLandmarkColliderGroup) return false;
   const dx=x2-x1;
   const dy=y2-y1;
@@ -2842,7 +2868,7 @@ class MainScene extends Phaser.Scene {
   const samples=Math.max(1,Math.ceil(distance/step));
   for(let i=1;i<=samples;i++){
    const t=i/samples;
-   if(this.isAshCircleBlocked(x1+dx*t,y1+dy*t,radius)) return true;
+   if(this.isAshCircleBlocked(x1+dx*t,y1+dy*t,radius,enemy)) return true;
   }
   return false;
  }
@@ -2896,7 +2922,8 @@ class MainScene extends Phaser.Scene {
 
   // Global A* routing is used only while pursuing the player. Retreating mages
   // keep their direct/local-steering behaviour and do not try to path back toward him.
-  if(towardPlayer && this.player?.active){
+  const bypassAltarNavigation=Boolean(enemy?.type==='champion' && enemy.championKind==='brokenSaint' && enemy.ignoreAshAltarCollision);
+  if(towardPlayer && this.player?.active && !bypassAltarNavigation){
    const waypoint=this.getEnemyNavigationWaypoint(enemy,time,this.player.x,this.player.y,radius);
    if(waypoint){
     desiredAngle=Phaser.Math.Angle.Between(enemy.x,enemy.y,waypoint.x,waypoint.y);
@@ -2907,7 +2934,7 @@ class MainScene extends Phaser.Scene {
   const probeX=enemy.x+Math.cos(desiredAngle)*probeDistance;
   const probeY=enemy.y+Math.sin(desiredAngle)*probeDistance;
 
-  if(!this.isAshPathBlocked(enemy.x,enemy.y,probeX,probeY,radius)){
+  if(!this.isAshPathBlocked(enemy.x,enemy.y,probeX,probeY,radius,enemy)){
    enemy.obstacleSteerUntil=0;
    enemy.body.setVelocity(Math.cos(desiredAngle)*speed,Math.sin(desiredAngle)*speed);
    return;
@@ -2916,8 +2943,8 @@ class MainScene extends Phaser.Scene {
   if(!enemy.obstacleTurnSign || time>=(enemy.obstacleSteerUntil||0)){
    const leftAngle=desiredAngle-Math.PI*0.38;
    const rightAngle=desiredAngle+Math.PI*0.38;
-   const leftBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(leftAngle)*probeDistance,enemy.y+Math.sin(leftAngle)*probeDistance,radius);
-   const rightBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(rightAngle)*probeDistance,enemy.y+Math.sin(rightAngle)*probeDistance,radius);
+   const leftBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(leftAngle)*probeDistance,enemy.y+Math.sin(leftAngle)*probeDistance,radius,enemy);
+   const rightBlocked=this.isAshPathBlocked(enemy.x,enemy.y,enemy.x+Math.cos(rightAngle)*probeDistance,enemy.y+Math.sin(rightAngle)*probeDistance,radius,enemy);
    if(leftBlocked!==rightBlocked) enemy.obstacleTurnSign=leftBlocked?1:-1;
    else {
     const target=enemy.navPath?.[enemy.navPathIndex||0]||this.player;
@@ -2935,7 +2962,7 @@ class MainScene extends Phaser.Scene {
     const angle=desiredAngle+direction*Math.PI*fraction;
     const tx=enemy.x+Math.cos(angle)*probeDistance;
     const ty=enemy.y+Math.sin(angle)*probeDistance;
-    if(this.isAshPathBlocked(enemy.x,enemy.y,tx,ty,radius)) continue;
+    if(this.isAshPathBlocked(enemy.x,enemy.y,tx,ty,radius,enemy)) continue;
     enemy.obstacleTurnSign=direction;
     enemy.body.setVelocity(Math.cos(angle)*speed,Math.sin(angle)*speed);
     return;
@@ -3831,11 +3858,11 @@ createAshFieldsEnvironment(objects,zone){
   }
  }
 
- calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave)){
+ calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave),{concurrentChampion=false}={}){
   const baseTarget=wave===1 ? 10 : 8+wave*3;
   const targetBonus=profile?.targetBonus||0;
-  const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint';
-  const championScale=(championKind && !postWaveBrokenSaint) ? 0.70 : 1;
+  const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint' && !concurrentChampion;
+  const championScale=(championKind && (concurrentChampion || !postWaveBrokenSaint)) ? 0.70 : 1;
   return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()));
  }
 
@@ -4050,14 +4077,15 @@ createAshFieldsEnvironment(objects,zone){
   this.mobileSkillButtons.forEach((pair,i)=>{pair.button.setPosition(positions[i].x,positions[i].y);pair.label.setPosition(positions[i].x,positions[i].y);});
  }
 
- spawnChampion(kind,forcedByDev=false){
-  if(this.devFlags?.autoSpawnsDisabled && !forcedByDev) return;
-  if(this.activeChampion && this.activeChampion.active) return;
+ spawnChampion(kind,forcedByDev=false,options={}){
+  if(this.devFlags?.autoSpawnsDisabled && !forcedByDev) return null;
+  if(this.activeChampion && this.activeChampion.active) return this.activeChampion;
   const def=this.getChampionDefinition(kind);
-  if(!def) return;
+  if(!def) return null;
 
-  let pos=this.getEdgeSpawnPoint(50);
-  if(kind==='hollowTree'){
+  let pos=options?.position ? {x:Number(options.position.x),y:Number(options.position.y)} : this.getEdgeSpawnPoint(50);
+  pos={x:this.clampWorldX(pos.x,60),y:this.clampWorldY(pos.y,60)};
+  if(kind==='hollowTree' && !options?.position){
    const view=this.cameras.main.worldView;
    const dx=Math.min(300,view.width*0.32);
    const dy=Math.min(230,view.height*0.30);
@@ -4070,7 +4098,9 @@ createAshFieldsEnvironment(objects,zone){
    candidates.sort((a,b)=>Phaser.Math.Distance.Between(b.x,b.y,this.player.x,this.player.y)-Phaser.Math.Distance.Between(a.x,a.y,this.player.x,this.player.y));
    pos=candidates[0];
   }
-  pos=this.findSafeEnemySpawnPoint(pos.x,pos.y,{padding:(def.hitRadius||24)+8,minPlayerDistance:150,maxRadius:460});
+  if(!options?.exactStorySpawn){
+   pos=this.findSafeEnemySpawnPoint(pos.x,pos.y,{padding:(def.hitRadius||24)+8,minPlayerDistance:options?.minPlayerDistance??150,maxRadius:options?.maxRadius??460});
+  }
 
   const e=this.add.circle(pos.x,pos.y,def.hitRadius,0xb34cff,0);
   this.physics.add.existing(e);
@@ -4100,6 +4130,9 @@ createAshFieldsEnvironment(objects,zone){
   e.guardUntil=0;
   e.lastCounterAt=-99999;
   e.lastAuraTick=0;
+  e.storyDormant=Boolean(options?.dormant);
+  e.ignoreAshAltarCollision=false;
+  e.storyAltarLocked=Boolean(options?.exactStorySpawn && kind==='brokenSaint');
 
   const isBrokenSaint=kind==='brokenSaint';
   // Later champions do not have final art yet. Use the existing skeleton set as a
@@ -4113,6 +4146,11 @@ createAshFieldsEnvironment(objects,zone){
   e.visual.play(e.visualState);
   e.visualBaseScale=def.scale;
   this.createEnemyReadabilityShadow(e);
+  if(options?.initialAlpha!==undefined){
+   const introAlpha=Phaser.Math.Clamp(Number(options.initialAlpha)||0,0,1);
+   e.visual?.setAlpha?.(introAlpha);
+   e.shadowVisual?.setAlpha?.(introAlpha*(kind==='brokenSaint'?0.34:1));
+  }
 
   if(kind==='hollowTree'){
    e.auraVisual=this.add.circle(e.x,e.y,175,0x89b85d,0.055)
@@ -4127,15 +4165,20 @@ createAshFieldsEnvironment(objects,zone){
   this.championEventActive=true;
   this.championSpawned++;
 
-  if(isBrokenSaint) this.startBrokenSaintMusic();
+  if(isBrokenSaint && !options?.deferMusic) this.startBrokenSaintMusic();
 
-  this.championNameText.setText(def.name).setVisible(true);
-  this.championHpBack.setVisible(true);
-  this.championHpFill.setVisible(true);
-  this.updateChampionBar();
+  if(!options?.deferUi){
+   this.championNameText.setText(def.name).setVisible(true);
+   this.championHpBack.setVisible(true);
+   this.championHpFill.setVisible(true);
+   this.updateChampionBar();
+  }
 
-  this.showWaveBanner(def.name,'CHAMPION EVENT — ordinary pressure reduced by 30%',def.rewardColor);
-  this.cameras.main.flash(240,70,48,25,false);
+  if(!options?.suppressBanner){
+   this.showWaveBanner(def.name,'CHAMPION EVENT — ordinary pressure reduced by 30%',def.rewardColor);
+  }
+  if(!options?.suppressFlash)this.cameras.main.flash(240,70,48,25,false);
+  return e;
  }
 
  destroyChampionHazard(hazard){
@@ -4696,7 +4739,7 @@ createAshFieldsEnvironment(objects,zone){
  handleSkillInput(index){
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen) return;
   // The five-second anomaly focus is a deliberate non-combat story beat.
-  if(this.isStoryAnomalyMomentActive(this.time.now)) return;
+  if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;
   if(this.time.now<(this.skillLockUntil||0)) return;
   if(this.mana<=0){
    this.showNoManaFeedback();
@@ -4730,6 +4773,32 @@ createAshFieldsEnvironment(objects,zone){
    up:'n',up_right:'ne',right:'e',down_right:'se',
    down:'s',down_left:'sw',left:'w',up_left:'nw'
   })[dir] || fallback;
+ }
+
+ isStoryFocusLocked(owner=''){
+  const key=String(owner||'').trim();
+  const now=this.time?.now||0;
+  const activeOwner=String(this.storyFocusLockOwner||'').trim();
+  if(activeOwner){
+   return !key || key!==activeOwner;
+  }
+  return Number(this.storyFocusLockUntil||0)>now;
+ }
+
+ acquireStoryFocus(owner){
+  const key=String(owner||'').trim();
+  if(!key || this.isStoryFocusLocked(key)) return false;
+  this.storyFocusLockOwner=key;
+  this.storyFocusLockUntil=0;
+  return true;
+ }
+
+ releaseStoryFocus(owner,{cooldownMs=STORY_FOCUS_RELEASE_COOLDOWN_MS}={}){
+  const key=String(owner||'').trim();
+  if(!key || String(this.storyFocusLockOwner||'').trim()!==key) return false;
+  this.storyFocusLockOwner='';
+  this.storyFocusLockUntil=(this.time?.now||0)+Math.max(0,Number(cooldownMs)||0);
+  return true;
  }
 
  setHeroFocusInteraction(reason,active=true){
@@ -5214,7 +5283,7 @@ createAshFieldsEnvironment(objects,zone){
   // the five-second story anomaly has deliberately frozen the whole combat beat.
   // The projectile loop also freezes the bolt in place; this guard is the hard
   // damage firewall in case a projectile is already overlapping the hero.
-  if(source==='mageProjectile' && this.isStoryAnomalyMomentActive(now)) return false;
+  if(source==='mageProjectile' && (this.isStoryAnomalyMomentActive(now) || this.isAshChampionIntroActive())) return false;
   if(now<(this.playerInvulnerableUntil||0)) return false;
 
   if(
@@ -5619,6 +5688,25 @@ createAshFieldsEnvironment(objects,zone){
   enemy.body.setCircle(radius,offsetX,offsetY);
  }
 
+ shouldEnemyCollideWithAshLandmark(objectA,objectB){
+  const enemy=objectA?.type ? objectA : (objectB?.type ? objectB : null);
+  const blocker=objectA?.ashLandmarkName ? objectA : (objectB?.ashLandmarkName ? objectB : null);
+  if(
+   enemy?.type==='champion' &&
+   enemy.championKind==='brokenSaint' &&
+   enemy.ignoreAshAltarCollision &&
+   String(blocker?.ashLandmarkName||'').startsWith('ash_landmark_altar_')
+  ) return false;
+  return true;
+ }
+
+ isAshBlockerIgnoredForEnemy(blocker,enemy){
+  return Boolean(
+   blocker && enemy?.type==='champion' && enemy.championKind==='brokenSaint' &&
+   enemy.ignoreAshAltarCollision && String(blocker.ashLandmarkName||'').startsWith('ash_landmark_altar_')
+  );
+ }
+
  applyBrokenSaintCrowdKeepout(enemy){
   const champ=this.activeChampion;
   if(
@@ -5691,6 +5779,443 @@ createAshFieldsEnvironment(objects,zone){
  }
 
 
+ getAshStoryLandmarkTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){
+  const actual=(this.devEnvironmentObjects||[]).find(object=>
+   object?.active && !object.devDeleted && object.visible!==false && object.devEnvMeta?.key===key
+  );
+  if(actual)return actual;
+
+  let fallback=null;
+  for(const segment of ASH_FIELDS_SEGMENTS||[]){
+   const landmark=(segment?.landmarks||[]).find(item=>item?.key===key);
+   if(landmark){fallback=landmark;break;}
+  }
+  if(!fallback)return null;
+
+  if(!this.ashAltarStoryTarget || this.ashAltarStoryTarget.key!==key){
+   this.ashAltarStoryTarget={
+    key,
+    x:Number(fallback.x)||0,
+    y:Number(fallback.y)||0,
+    active:true,
+    visible:true
+   };
+  }else{
+   this.ashAltarStoryTarget.x=Number(fallback.x)||this.ashAltarStoryTarget.x;
+   this.ashAltarStoryTarget.y=Number(fallback.y)||this.ashAltarStoryTarget.y;
+   this.ashAltarStoryTarget.active=true;
+   this.ashAltarStoryTarget.visible=true;
+  }
+  return this.ashAltarStoryTarget;
+ }
+
+ getAshStoryMarkerTarget(key=ASH_ALTAR_CHAMPION_STORY.landmarkKey){
+  const source=this.getAshStoryLandmarkTarget(key);
+  if(!source)return null;
+  if(!this.ashAltarMarkerTarget || this.ashAltarMarkerTarget.key!==key){
+   this.ashAltarMarkerTarget={key,x:0,y:0,active:true,visible:true};
+  }
+  this.ashAltarMarkerTarget.x=Number(source.x)||0;
+  this.ashAltarMarkerTarget.y=Number(source.y)||0;
+  this.ashAltarMarkerTarget.active=true;
+  this.ashAltarMarkerTarget.visible=true;
+  return this.ashAltarMarkerTarget;
+ }
+
+ isAshAltarStoryGateActive(){
+  return Boolean(
+   this.wave===4 &&
+   this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,false) &&
+   !this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false)
+  );
+ }
+
+ activateAshAltarChampionObjective(){
+  if(!this.storyDirector || this.storyDirector.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false))return false;
+  const target=this.getAshStoryLandmarkTarget();
+  const markerTarget=this.getAshStoryMarkerTarget();
+  if(!target || !markerTarget)return false;
+  if(!this.storyDirector.isObjectiveActive?.(ASH_ALTAR_CHAMPION_STORY.objectiveId)){
+   this.storyDirector.activateObjective?.({
+    id:ASH_ALTAR_CHAMPION_STORY.objectiveId,
+    kind:'reach',
+    targetId:ASH_ALTAR_CHAMPION_STORY.targetId,
+    label:ASH_ALTAR_CHAMPION_STORY.label
+   });
+  }
+  this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});
+  return true;
+ }
+
+ isAshChampionIntroActive(){
+  return Boolean(this.ashChampionIntroState?.champion?.active && !this.ashChampionIntroState.released);
+ }
+
+ ensureAshChampionRevealAnimation(){
+  if(this.anims?.exists?.(ASH_CHAMPION_SMOKE_ANIM_KEY)) return ASH_CHAMPION_SMOKE_ANIM_KEY;
+  const frames=[];
+  for(let frame=0;frame<ASH_CHAMPION_SMOKE_FRAME_COUNT;frame++){
+   const key=`${ASH_CHAMPION_SMOKE_TEXTURE_PREFIX}${String(frame).padStart(2,'0')}`;
+   if(this.textures?.exists?.(key)) frames.push({key});
+  }
+  if(!frames.length) return null;
+  this.anims.create({key:ASH_CHAMPION_SMOKE_ANIM_KEY,frames,frameRate:10,repeat:-1});
+  return ASH_CHAMPION_SMOKE_ANIM_KEY;
+ }
+
+ createAshChampionRevealFx(champion,anchor=null){
+  if(!champion?.active)return [];
+  const fx=[];
+  const animKey=this.ensureAshChampionRevealAnimation();
+  const baseX=anchor?.x??champion.x;
+  const baseY=(anchor?.y??champion.y)-18;
+
+  if(animKey){
+   const figureW=Math.max(120,champion.visual?.displayWidth||150);
+   const figureH=Math.max(130,champion.visual?.displayHeight||155);
+   const makeSmokeLayer=({frame=0,depth=218,width=210,height=210,alpha=0.7,delay=0,duration=680,offsetX=0,offsetY=0,progress=0}={})=>{
+    const key=`${ASH_CHAMPION_SMOKE_TEXTURE_PREFIX}${String(frame).padStart(2,'0')}`;
+    const sprite=this.add.sprite(baseX+offsetX,baseY+offsetY,key)
+     .setOrigin(0.5,0.54)
+     .setDepth(depth)
+     .setDisplaySize(width,height)
+     .setAlpha(0);
+    sprite.play(animKey);
+    sprite.anims?.setProgress?.(progress);
+    sprite.storySmokeTargetWidth=width;
+    sprite.storySmokeTargetHeight=height;
+    fx.push(sprite);
+    this.tweens.add({
+     targets:sprite,
+     alpha:{from:0,to:alpha},
+     displayWidth:{from:width*0.88,to:width},
+     displayHeight:{from:height*0.88,to:height},
+     duration,
+     delay,
+     ease:'Sine.easeOut'
+    });
+    return sprite;
+   };
+
+   // The smoke is intentionally figure-sized: it hides Broken Saint instead of
+   // becoming a full-screen weather effect. The strongest layer is in front.
+   const outerW=Math.min(238,figureW*1.48);
+   const outerH=Math.min(246,figureH*1.48);
+   const frontW=Math.min(214,figureW*1.34);
+   const frontH=Math.min(224,figureH*1.36);
+   makeSmokeLayer({frame:0,depth:217.7,width:outerW,height:outerH,alpha:0.40,duration:720,offsetY:-2,progress:0.00});
+   makeSmokeLayer({frame:1,depth:218.35,width:frontW*0.92,height:frontH*0.94,alpha:0.28,delay:100,duration:760,offsetX:-2,offsetY:-8,progress:0.24});
+   makeSmokeLayer({frame:2,depth:219.04,width:frontW,height:frontH,alpha:0.72,delay:170,duration:700,offsetY:-6,progress:0.44});
+   makeSmokeLayer({frame:3,depth:219.08,width:frontW*0.82,height:frontH*0.86,alpha:0.32,delay:300,duration:660,offsetX:4,offsetY:-15,progress:0.68});
+  }
+
+  const ground=this.add.ellipse(baseX,baseY+46,118,36,0x171210,0)
+   .setDepth(217.2);
+  fx.push(ground);
+  this.tweens.add({
+   targets:ground,
+   alpha:{from:0,to:0.28},
+   scaleX:{from:0.72,to:1.16},
+   scaleY:{from:0.72,to:1.10},
+   duration:600,
+   ease:'Sine.easeOut',
+   yoyo:true,
+   hold:320,
+   onComplete:()=>{if(ground.active)ground.destroy();}
+  });
+
+  return fx;
+ }
+
+ beginAshChampionReveal(){
+  if(this.ashChampionIntroState || this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false))return false;
+  if(this.activeChampion?.active)return false;
+  if(!this.acquireStoryFocus('ashChampionReveal'))return false;
+  const altar=this.getAshStoryLandmarkTarget();
+  if(!altar){
+   this.releaseStoryFocus('ashChampionReveal',{cooldownMs:0});
+   return false;
+  }
+
+  const preferred={
+   x:Number(altar.x)||0,
+   y:this.clampWorldY((Number(altar.y)||0)+Math.min(14,Math.max(-10,(altar.displayHeight||0)*0.04)),80)
+  };
+  const champion=this.spawnChampion(ASH_ALTAR_CHAMPION_STORY.championKind,false,{
+   position:preferred,
+   exactStorySpawn:true,
+   minPlayerDistance:0,
+   maxRadius:0,
+   dormant:true,
+   deferMusic:true,
+   deferUi:true,
+   suppressBanner:true,
+   suppressFlash:true,
+   initialAlpha:0
+  });
+  if(!champion){
+   this.releaseStoryFocus('ashChampionReveal',{cooldownMs:0});
+   return false;
+  }
+  champion.storyRevealAnchor={x:preferred.x,y:preferred.y};
+  if(champion.body){
+   champion.body.stop?.();
+   champion.body.enable=false;
+  }
+
+  const now=this.time.now;
+  // The champion first becomes fully readable, then the entire world holds for
+  // a clean three-second stare-down before combat is allowed to begin.
+  const materializeCompleteAt=now+ASH_CHAMPION_MATERIALIZE_DELAY_MS+180+ASH_CHAMPION_MATERIALIZE_MS+180;
+  const attackAt=materializeCompleteAt+ASH_CHAMPION_POST_REVEAL_HOLD_MS;
+  this.storyDirector?.setFlag?.(ASH_ALTAR_CHAMPION_STORY.encounterStartedFlag,true);
+  this.storyDirector?.completeObjective?.(ASH_ALTAR_CHAMPION_STORY.objectiveId);
+  this.ashAltarObjectiveMarker?.clearTarget();
+  this.ashAltarObjectiveMarker?.hide();
+
+  // Leave the reveal in near-silence. The champion battle track starts only
+  // when control returns and the champion is actually allowed to attack.
+  this.stopBackgroundMusic();
+  this.setHeroFocusInteraction('ashChampionReveal',true);
+  this.skillLockUntil=Math.max(this.skillLockUntil||0,attackAt+120);
+  this.playerAttackUntil=now;
+  this.player?.body?.setVelocity?.(0,0);
+  this.mobileMoveX=0;
+  this.mobileMoveY=0;
+  this.mobileMovePointerId=null;
+  if(this.activeAttackFx?.active){
+   try{this.activeAttackFx.destroy();}catch{}
+   this.activeAttackFx=null;
+  }
+  if(this.meleeAttack)this.meleeAttack.lastAttack=now;
+
+  // A previous wave can technically leave a bolt alive after its caster dies.
+  // The reveal is non-combat, so clear those leftovers instead of letting them
+  // punish a hero whose controls are intentionally frozen.
+  for(const projectile of this.projectiles||[]){
+   if(projectile?.active)projectile.destroy();
+  }
+  this.projectiles=(this.projectiles||[]).filter(projectile=>projectile?.active);
+
+  const cam=this.cameras.main;
+  const restoreZoom=cam.zoom;
+  const focusZoom=Math.min(restoreZoom*1.10,restoreZoom+0.16);
+  const focusX=this.player.x*0.38+champion.x*0.62;
+  const focusY=this.player.y*0.38+champion.y*0.62-18;
+
+  const state={
+   champion,altar,
+   target:champion,
+   vignette:null,
+   ashFx:[],
+   startAt:now,
+   materializeCompleteAt,
+   attackAt,
+   smokeFadeAt:materializeCompleteAt-220,
+   smokeFading:false,
+   vignetteFadeAt:attackAt-ASH_CHAMPION_VIGNETTE_FADE_MS,
+   vignetteFading:false,
+   restoreZoom,
+   focusZoom,
+   focusX,focusY,
+   cameraSettledAt:now+450,
+   cameraLocked:false,
+   released:false,
+   vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
+  };
+  this.ashChampionIntroState=state;
+
+  champion.visual?.setAlpha?.(0);
+  champion.shadowVisual?.setAlpha?.(0);
+  state.ashFx=this.createAshChampionRevealFx(champion,preferred);
+  if(champion.visual?.active){
+   this.tweens.add({
+    targets:champion.visual,
+    alpha:0.96,
+    duration:ASH_CHAMPION_MATERIALIZE_MS+180,
+    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+180,
+    ease:'Sine.easeInOut'
+   });
+  }
+  if(champion.shadowVisual?.active){
+   this.tweens.add({
+    targets:champion.shadowVisual,
+    alpha:ASH_READABILITY.CHAMPION_SHADOW_ALPHA,
+    duration:ASH_CHAMPION_MATERIALIZE_MS+160,
+    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+260,
+    ease:'Sine.easeInOut'
+   });
+  }
+
+  cam.stopFollow();
+  cam.pan(state.focusX,state.focusY,430,'Sine.easeOut',true);
+  cam.zoomTo(focusZoom,430,'Sine.easeOut',true);
+  return true;
+ }
+
+ releaseAshChampionFight(){
+  const state=this.ashChampionIntroState;
+  if(!state || state.released)return false;
+  state.released=true;
+  const champion=state.champion;
+  const now=this.time.now;
+
+  if(state.vignette?.active){
+   this.tweens.killTweensOf?.(state.vignette);
+   this.tweens.add({
+    targets:state.vignette,
+    alpha:0,
+    duration:180,
+    ease:'Sine.easeIn',
+    onComplete:()=>{if(state.vignette?.active)state.vignette.destroy();}
+   });
+  }
+  for(const object of state.ashFx||[]){
+   if(object?.active)this.tweens.add({targets:object,alpha:0,duration:160,onComplete:()=>{if(object.active)object.destroy();}});
+  }
+
+  if(champion?.active){
+   champion.storyDormant=false;
+   if(champion.body){
+    champion.body.enable=true;
+    champion.body.reset?.(champion.x,champion.y);
+   }
+   champion.visual?.setAlpha?.(1);
+   if(champion.shadowVisual?.active)champion.shadowVisual.setAlpha(ASH_READABILITY.CHAMPION_SHADOW_ALPHA);
+   champion.lastAttack=now;
+   champion.lastShot=now;
+   champion.nextSkillAt=now+1450;
+   champion.nextSecondaryAt=now+3600;
+   champion.pendingMeleeHitAt=0;
+   champion.pendingMeleeDamage=0;
+   champion.body?.setVelocity?.(0,0);
+  }
+
+  this.storyDirector?.setFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,true);
+  this.setHeroFocusInteraction('ashChampionReveal',false);
+  this.ashChampionIntroState=null;
+
+  // Wave 5 begins WITH the already-visible Broken Saint. This suppresses the old
+  // post-wave champion spawn and starts ordinary pressure on the same combat beat.
+  this.startWave(5,false,{preSpawnedChampion:true,suppressBanner:true});
+  this.lastSpawn=this.time.now-this.waveSpawnInterval;
+
+  if(champion?.active){
+   const def=this.getChampionDefinition(champion.championKind);
+   this.championNameText.setText(def?.name||champion.championName).setVisible(true);
+   this.championHpBack.setVisible(true);
+   this.championHpFill.setVisible(true);
+   this.updateChampionBar();
+   this.startBrokenSaintMusic();
+   this.showWaveBanner(def?.name||'BROKEN SAINT','CHAMPION ENGAGED',def?.rewardColor||'#ffe59a');
+  }
+
+  const cam=this.cameras.main;
+  cam.zoomTo(state.restoreZoom||cam.zoom,300,'Sine.easeInOut',true);
+  cam.pan(this.player.x,this.player.y,300,'Sine.easeInOut',true);
+  this.time.delayedCall(315,()=>{
+   this.releaseStoryFocus('ashChampionReveal');
+   if(this.gameOver || this.storyAnomalyCueState || this.ashChampionIntroState || this.storyDirector?.isBusy?.())return;
+   this.handleViewportResize?.();
+   cam.startFollow(this.player,true,1,1);
+   cam.centerOn(this.player.x,this.player.y);
+  });
+  return true;
+ }
+
+ updateAshAltarChampionStory(time=0){
+  if(!this.isAshAltarStoryGateActive()){
+   if(!this.ashChampionIntroState)this.ashAltarObjectiveMarker?.hide();
+   return false;
+  }
+
+  const state=this.ashChampionIntroState;
+  if(!state){
+   this.activateAshAltarChampionObjective();
+   const target=this.getAshStoryLandmarkTarget();
+   const markerTarget=this.getAshStoryMarkerTarget();
+   if(markerTarget && this.ashAltarObjectiveMarker?.target!==markerTarget){
+    this.ashAltarObjectiveMarker?.setTarget(markerTarget,{worldOffsetY:118});
+   }
+   this.ashAltarObjectiveMarker?.update(time);
+   if(
+    target && this.player?.active &&
+    Phaser.Math.Distance.Between(this.player.x,this.player.y,target.x,target.y)<=ASH_ALTAR_CHAMPION_STORY.approachRadius
+   ){
+    return this.beginAshChampionReveal();
+   }
+   return true;
+  }
+
+  const champion=state.champion;
+  if(!champion?.active){
+   this.setHeroFocusInteraction('ashChampionReveal',false);
+   if(state.vignette?.active)state.vignette.destroy();
+   this.ashChampionIntroState=null;
+   this.setupBackgroundMusic();
+   return false;
+  }
+
+  champion.storyDormant=true;
+  champion.body?.setVelocity?.(0,0);
+  this.player?.body?.setVelocity?.(0,0);
+
+  if(time>=state.cameraSettledAt){
+   const cam=this.cameras.main;
+   if(!state.cameraLocked){
+    // Never build a vignette against a moving camera. Snap to the exact final
+    // cinematic composition first, then create the mask from that stable view.
+    cam.setZoom(state.focusZoom);
+    cam.centerOn(state.focusX,state.focusY);
+    state.cameraLocked=true;
+    this.createSettledStoryVignette(state,cam,{fadeMs:300});
+   }else{
+    cam.centerOn(state.focusX,state.focusY);
+   }
+  }
+
+  if(!state.smokeFading && time>=state.smokeFadeAt){
+   state.smokeFading=true;
+   for(const object of state.ashFx||[]){
+    if(!object?.active)continue;
+    this.tweens.killTweensOf?.(object);
+    this.tweens.add({targets:object,alpha:0,duration:ASH_CHAMPION_SMOKE_FADE_MS,ease:'Sine.easeInOut'});
+   }
+  }
+
+  if(!state.vignetteFading && time>=state.vignetteFadeAt){
+   state.vignetteFading=true;
+   if(state.vignette?.active){
+    this.tweens.add({targets:state.vignette,alpha:0,duration:ASH_CHAMPION_VIGNETTE_FADE_MS,ease:'Sine.easeIn'});
+   }
+  }
+  if(time>=state.attackAt)return this.releaseAshChampionFight();
+  return true;
+ }
+
+
+ createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){
+  if(!state || state.vignette?.active || !cam?.worldView)return state?.vignette||null;
+  const target=state.enemy||state.target;
+  if(!target?.active)return null;
+  const textureKey=this.ensureStoryAnomalyVignetteTexture();
+  if(!textureKey)return null;
+  const view=cam.worldView;
+  const vignette=this.add.image(view.left,view.top,textureKey)
+   .setOrigin(0)
+   .setDepth(219)
+   .setDisplaySize(view.width,view.height)
+   .setAlpha(0);
+  state.vignette=vignette;
+  state.vignetteKeyX=null;
+  state.vignetteKeyY=null;
+  state.vignetteKeyW=null;
+  state.vignetteKeyH=null;
+  this.updateStoryAnomalyVignette(state,cam);
+  this.tweens.add({targets:vignette,alpha:1,duration:Math.max(0,fadeMs||0),ease:'Sine.easeOut'});
+  return vignette;
+ }
+
  ensureStoryAnomalyVignetteTexture(){
   if(this.textures?.exists?.(STORY_ANOMALY_VIGNETTE_TEXTURE)) return STORY_ANOMALY_VIGNETTE_TEXTURE;
   // A deliberately modest canvas is enough because the texture is scaled over
@@ -5707,7 +6232,7 @@ createAshFieldsEnvironment(objects,zone){
 
  updateStoryAnomalyVignette(state,cam=this.cameras?.main){
   const vignette=state?.vignette;
-  const enemy=state?.enemy;
+  const enemy=state?.enemy||state?.target;
   const texture=this.textures?.get?.(STORY_ANOMALY_VIGNETTE_TEXTURE)?.getSourceImage?.();
   const canvas=texture?.getContext ? texture : null;
   if(!vignette?.active || !enemy?.active || !cam?.worldView || !canvas) return;
@@ -5850,20 +6375,13 @@ createAshFieldsEnvironment(objects,zone){
    return false;
   }
 
+  if(!this.acquireStoryFocus('storyAnomaly')) return false;
+
   const cam=this.cameras.main;
   const focusMs=Phaser.Math.Clamp(Math.floor(durationMs)||5000,4800,5200);
   const restoreZoom=cam.zoom;
-  const vignetteTexture=this.ensureStoryAnomalyVignetteTexture();
-  // One layer only: a true edge vignette. The anomalous skeleton remains at
-  // normal brightness and darkness increases smoothly toward every screen edge.
-  const vignette=vignetteTexture
-   ? this.add.image(cam.worldView.left,cam.worldView.top,vignetteTexture)
-      .setOrigin(0)
-      .setDepth(219)
-      .setDisplaySize(cam.worldView.width,cam.worldView.height)
-      .setAlpha(0)
-   : null;
-
+  // The vignette is intentionally not created yet. Camera pan/zoom must finish
+  // first so the mask is generated against the final, stable worldView.
   const outline=this.createStoryAnomalyOutline(enemy);
 
   const label=lkAddText(this,enemy.x,enemy.y-68,this.getStoryAnomalyThought(enemy),{
@@ -5876,15 +6394,15 @@ createAshFieldsEnvironment(objects,zone){
   label.setAlpha(0);
 
   const focusZoom=Math.min(restoreZoom*1.08,restoreZoom+0.14);
+  const focusX=((this.player?.x||enemy.x)+enemy.x)*0.5;
+  const focusY=((this.player?.y||enemy.y)+enemy.y)*0.5-18;
   this.storyAnomalyCueState={
-   enemy,vignette,outline,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
-   cameraSettledAt:this.time.now+320,
+   enemy,vignette:null,outline,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
+   focusX,focusY,
+   cameraSettledAt:this.time.now+340,
+   cameraLocked:false,
    vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
   };
-  this.updateStoryAnomalyVignette(this.storyAnomalyCueState,cam);
-  if(vignette){
-   this.tweens.add({targets:vignette,alpha:1,duration:280,ease:'Sine.easeOut'});
-  }
   if(outline){
    this.tweens.add({targets:outline,alpha:0.88,duration:180,delay:70,ease:'Sine.easeOut'});
   }
@@ -5929,9 +6447,7 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   cam.stopFollow();
-  const focusX=((this.player?.x||enemy.x)+enemy.x)*0.5;
-  const focusY=((this.player?.y||enemy.y)+enemy.y)*0.5-18;
-  cam.pan(focusX,focusY,320,'Sine.easeOut',true);
+  cam.pan(this.storyAnomalyCueState.focusX,this.storyAnomalyCueState.focusY,320,'Sine.easeOut',true);
   cam.zoomTo(focusZoom,320,'Sine.easeOut',true);
   return true;
  }
@@ -5952,15 +6468,21 @@ createAshFieldsEnvironment(objects,zone){
 
   const bob=Math.sin(time*0.01)*4;
   const cam=this.cameras.main;
-  this.updateStoryAnomalyVignette(state,cam);
   this.syncStoryAnomalyOutline(state);
   state.label?.setPosition(enemy.x,enemy.y-68+bob);
 
-  // Once the opening pan settles, keep the camera composed between the hero and
-  // the confused enemy. This avoids invisible screen-edge walls while keeping
-  // both actors readable while the cinematic beat is frozen.
+  // Once the opening pan/zoom is over, snap to the exact final composition.
+  // Only then may the vignette exist; rebuilding it during camera motion caused
+  // the dark gradient to visibly drift off-centre.
   if(time>=state.cameraSettledAt && this.player?.active){
-   cam.centerOn((this.player.x+enemy.x)*0.5,(this.player.y+enemy.y)*0.5-18);
+   if(!state.cameraLocked){
+    cam.setZoom(state.focusZoom);
+    cam.centerOn(state.focusX,state.focusY);
+    state.cameraLocked=true;
+    this.createSettledStoryVignette(state,cam,{fadeMs:280});
+   }else{
+    cam.centerOn(state.focusX,state.focusY);
+   }
   }
  }
 
@@ -5999,6 +6521,7 @@ createAshFieldsEnvironment(objects,zone){
   cam.zoomTo(restoreZoom,260,'Sine.easeInOut',true);
   cam.pan(this.player.x,this.player.y,260,'Sine.easeInOut',true);
   this.time.delayedCall(275,()=>{
+   this.releaseStoryFocus('storyAnomaly');
    if(this.gameOver || this.storyAnomalyCueState || this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active) return;
    this.handleViewportResize?.();
    cam.startFollow(this.player,true,1,1);
@@ -6008,10 +6531,36 @@ createAshFieldsEnvironment(objects,zone){
   if(this.storyAnomalyCueQueue?.length){
    const next=this.storyAnomalyCueQueue.shift();
    this.time.delayedCall(360,()=>{
-    if(!next?.enemy?.active || this.gameOver || this.storyAnomalyCueState) return;
+    if(!next?.enemy?.active || this.gameOver || this.storyAnomalyCueState || this.isStoryFocusLocked()) return;
     this.highlightStoryAnomaly(next.enemy,{durationMs:next.durationMs});
    });
   }
+ }
+
+ isBrokenSaintEscortWaveCleared(){
+  const champion=this.activeChampion;
+  if(
+   this.wave!==5 || !champion?.active || champion.hp<=0 ||
+   champion.championKind!=='brokenSaint' || champion.ignoreAshAltarCollision ||
+   this.spawned<this.waveTarget || this.storyEnemyAnomalies?.hasPendingReturns?.()
+  ) return false;
+  return !(this.enemies||[]).some(enemy=>
+   enemy?.active && enemy.hp>0 && enemy!==champion && enemy.type!=='champion'
+  );
+ }
+
+ releaseBrokenSaintFromAltar(){
+  const champion=this.activeChampion;
+  if(!champion?.active || champion.championKind!=='brokenSaint' || champion.ignoreAshAltarCollision)return false;
+  champion.ignoreAshAltarCollision=true;
+  champion.storyAltarLocked=false;
+  champion.navPath=null;
+  champion.navPathIndex=0;
+  champion.navNextRepathAt=0;
+  champion.navForceRepath=false;
+  champion.obstacleSteerUntil=0;
+  champion.body?.setVelocity?.(0,0);
+  return true;
  }
 
  showWaveBanner(title,subtitle,color='#fff06a'){
@@ -6032,17 +6581,17 @@ createAshFieldsEnvironment(objects,zone){
   }});
  }
 
- startWave(wave,initial=false){
+ startWave(wave,initial=false,{preSpawnedChampion=false,suppressBanner=false}={}){
   this.wave=wave;
   this.spawned=0;
   this.waveIntermission=false;
   this.waveProfile=this.getWaveProfile(wave);
   const championKind=this.getChampionForWave(wave);
-  const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint';
+  const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint' && !preSpawnedChampion;
   this.postWaveChampionKind=isPostWaveBrokenSaint?championKind:null;
   this.championEventActive=Boolean(championKind && !isPostWaveBrokenSaint);
   this.waveSpawnInterval=this.calculateWaveSpawnInterval(this.waveProfile);
-  this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind);
+  this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind,{concurrentChampion:preSpawnedChampion});
   this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);
 
   this.waveText.setText(`WAVE ${wave}`);
@@ -6051,20 +6600,22 @@ createAshFieldsEnvironment(objects,zone){
   );
   if(!initial) this.lastSpawn=this.time.now-250;
 
-  if(championKind && !isPostWaveBrokenSaint){
+  if(championKind && !isPostWaveBrokenSaint && !preSpawnedChampion){
    const def=this.getChampionDefinition(championKind);
    const region=this.getWorldProgressName();
-   this.showWaveBanner(
-    'CHAMPION APPROACHES',
-    `${def.name} · ${region} · ordinary enemies -30%`,
-    def.rewardColor
-   );
+   if(!suppressBanner){
+    this.showWaveBanner(
+     'CHAMPION APPROACHES',
+     `${def.name} · ${region} · ordinary enemies -30%`,
+     def.rewardColor
+    );
+   }
    this.time.delayedCall(1100,()=>{
     if(!this.gameOver && this.wave===wave){
      this.spawnChampion(championKind);
     }
    });
-  } else {
+  } else if(!suppressBanner) {
    this.showWaveBanner(`WAVE ${wave}`,`${this.waveProfile.name} · ${this.waveProfile.subtitle}`);
   }
  }
@@ -6077,11 +6628,20 @@ createAshFieldsEnvironment(objects,zone){
    this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
    !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
   );
-  this.nextWaveAt=woundedStoryGate?Number.POSITIVE_INFINITY:time+2200;
+  const altarStoryGate=Boolean(
+   this.wave===4 &&
+   this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,false) &&
+   !this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false)
+  );
+  this.nextWaveAt=(woundedStoryGate||altarStoryGate)?Number.POSITIVE_INFINITY:time+2200;
   this.storyWaveGateWasActive=woundedStoryGate;
   if(woundedStoryGate){
    this.waveSubText.setText('STORY');
    this.showWaveBanner('WAVE CLEARED','Find the wounded knight','#e7c96b');
+  }else if(altarStoryGate){
+   this.waveSubText.setText('STORY');
+   this.activateAshAltarChampionObjective();
+   this.showWaveBanner('WAVE CLEARED','Follow the marker to the altar','#e7c96b');
   }else{
    this.waveSubText.setText('BREATHER');
    this.showWaveBanner('WAVE CLEARED','Next assault in 2 seconds','#bfe8ff');
@@ -6425,6 +6985,7 @@ createAshFieldsEnvironment(objects,zone){
   this.devTools?.update();
   this.woundedKnightInteractions?.update(time);
   this.updateStoryAnomalyCue(time);
+  this.updateAshAltarChampionStory(this.time.now);
   this.updateHeroFocusInteractionStance(time);
   if(this.storyDirector?.update(time)){
    // A story event may enter dialogue/cinematic focus on this exact frame.
@@ -6481,8 +7042,8 @@ createAshFieldsEnvironment(objects,zone){
    }
   }
 
-  if(this.isStoryAnomalyMomentActive(time)){
-   // The anomaly beat is a hard cinematic freeze: the hero can observe, but not move.
+  if(this.isStoryAnomalyMomentActive(time) || this.isAshChampionIntroActive()){
+   // Story focus beats are a hard cinematic freeze: the hero can observe, but not move.
    vx=0;
    vy=0;
   }
@@ -6546,8 +7107,13 @@ createAshFieldsEnvironment(objects,zone){
      this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
      !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
     );
+    const altarStoryGateActive=this.isAshAltarStoryGateActive();
     if(woundedStoryGateActive){
      this.storyWaveGateWasActive=true;
+     this.nextWaveAt=Number.POSITIVE_INFINITY;
+    } else if(altarStoryGateActive){
+     // Wave 5 is deliberately withheld. updateAshAltarChampionStory() owns the
+     // altar marker, reveal, and exact frame where champion combat + wave 5 begin.
      this.nextWaveAt=Number.POSITIVE_INFINITY;
     } else {
      if(this.storyWaveGateWasActive){
@@ -6565,6 +7131,9 @@ createAshFieldsEnvironment(objects,zone){
     this.spawnEnemy();
     this.spawned++;
    }
+   if(this.isBrokenSaintEscortWaveCleared()){
+    this.releaseBrokenSaintFromAltar();
+   }
    if(
     this.spawned>=this.waveTarget &&
     this.enemies.length===0 &&
@@ -6581,6 +7150,9 @@ createAshFieldsEnvironment(objects,zone){
     } else {
      if(this.wave===3){
       this.storyDirector?.setFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,true);
+     }else if(this.wave===4){
+      this.storyDirector?.setFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,true);
+      this.activateAshAltarChampionObjective();
      }
      this.beginWaveIntermission(time);
     }
@@ -6589,7 +7161,7 @@ createAshFieldsEnvironment(objects,zone){
 
   this.updateChampionHazards(time);
   this.updateRelics(time);
-  this.meleeAttack.update(time,this.enemies);
+  if(!this.isAshChampionIntroActive())this.meleeAttack.update(time,this.enemies);
   this.updateHeroWeaponAttachment();
   this.cleanupDefeatedEnemies(time);
   if(this.gameplayPaused || this.levelChoiceOpen || this.championRewardOpen) return;
@@ -6633,7 +7205,7 @@ createAshFieldsEnvironment(objects,zone){
    );
 
    let pursuitSpeed=this.getEnemyMovementSpeed(e);
-   const storyCinematicFrozen=Boolean(storyMomentActive && e!==focusedStoryEnemy);
+   const storyCinematicFrozen=Boolean((storyMomentActive && e!==focusedStoryEnemy) || e.storyDormant);
    const devFreezeAI=e.type==='champion' ? this.devFlags?.championFrozen : this.devFlags?.enemyAiFrozen;
    const devFreezeMove=e.type==='champion' ? this.devFlags?.championMovementFrozen : this.devFlags?.enemyMovementFrozen;
    const storyAnomaly=!devFreezeAI
@@ -6667,7 +7239,7 @@ createAshFieldsEnvironment(objects,zone){
     e.pendingMeleeHitAt=0;e.pendingMeleeDamage=0;e.pendingMeleeRange=0;
    }
 
-   if(!devFreezeAI && !storyAnomaly && !storyMomentActive && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
+   if(!devFreezeAI && !storyAnomaly && !storyMomentActive && !e.storyDormant && e.pendingMeleeHitAt && time>=e.pendingMeleeHitAt){
     const pendingDamage=e.pendingMeleeDamage||e.attackDamage||8;
     const pendingRange=e.pendingMeleeRange||70;
     e.pendingMeleeHitAt=0;
@@ -6717,22 +7289,17 @@ createAshFieldsEnvironment(objects,zone){
        }
       }
 
-      // The projectile is released after a visible cast window. A small lead makes
-      // lateral movement matter without turning the shot into perfect aim-bot tracking.
+      // The projectile is released after a visible cast window and aims only at
+      // the hero's CURRENT position at the release frame. No velocity prediction,
+      // homing, or post-release correction: moving after the shot can dodge it.
       this.time.delayedCall(castWindup,()=>{
-       if(!e || !e.active || e.hp<=0 || this.gameOver || this.devFlags?.enemyAttacksDisabled || this.devFlags?.enemyAiFrozen || this.isStoryAnomalyMomentActive(this.time.now)) return;
+       if(!e || !e.active || e.hp<=0 || this.gameOver || this.devFlags?.enemyAttacksDisabled || this.devFlags?.enemyAiFrozen || this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;
        if(this.storyEnemyAnomalies?.isEnemyAnomalyActive(e,this.time.now)) return;
        if(this.time.now<(e.staggerUntil||0) || this.time.now<(e.skillLiftUntil||0)) return;
 
-       const leadX=this.clampWorldX(
-        this.player.x+(this.player.body.velocity.x||0)*BALANCE.MAGE_LEAD_SECONDS,
-        20
-       );
-       const leadY=this.clampWorldY(
-        this.player.y+(this.player.body.velocity.y||0)*BALANCE.MAGE_LEAD_SECONDS,
-        20
-       );
-       const shotAngle=Phaser.Math.Angle.Between(e.x,e.y,leadX,leadY);
+       const shotX=this.clampWorldX(this.player.x,20);
+       const shotY=this.clampWorldY(this.player.y,20);
+       const shotAngle=Phaser.Math.Angle.Between(e.x,e.y,shotX,shotY);
 
        const projectile=this.add.sprite(
         e.x,e.y,'mage_projectile_00'
@@ -6903,9 +7470,9 @@ createAshFieldsEnvironment(objects,zone){
   this.applyEnemySoftSeparation(time);
   // Soft separation adds velocity after the AI loop; override it as well so the
   // cinematic freeze is physically absolute for every non-focused enemy.
-  if(storyMomentActive){
+  if(storyMomentActive || this.isAshChampionIntroActive()){
    for(const enemy of this.enemies||[]){
-    if(enemy?.active && enemy!==focusedStoryEnemy && enemy.body){
+    if(enemy?.active && enemy.body && ((storyMomentActive && enemy!==focusedStoryEnemy) || enemy.storyDormant)){
      enemy.body.setVelocity(0,0);
     }
    }
@@ -8073,7 +8640,7 @@ class HUDScene extends Phaser.Scene {
   });
 
   const champ=m.activeChampion && m.activeChampion.active ? m.activeChampion : null;
-  const bossVisible=Boolean(champ);
+  const bossVisible=Boolean(champ && !champ.storyDormant);
   // Champion takes over the exact top-center status slot; never stack WAVE + boss UI.
   [this.wavePanel,this.waveTitle,this.waveSub].forEach(o=>o.setVisible(!bossVisible));
   [this.championPanel,this.bossName,this.bossHpBack,this.bossHpFill,this.bossHpText].forEach(o=>o.setVisible(bossVisible));

@@ -6,6 +6,7 @@ const INTERACTION_DISTANCE=112;
 const CAMERA_IN_MS=300;
 const CAMERA_OUT_MS=300;
 const DIALOGUE_INPUT_LOCK_MS=220;
+const STORY_FOCUS_OWNER='woundedKnightDialogue';
 
 const STORY_KNIGHT_ID=ASH_WOUNDED_KNIGHT_STORY.characterId;
 const STORY_EVENT_ID=ASH_WOUNDED_KNIGHT_STORY.dialogueEventId;
@@ -110,12 +111,6 @@ class WoundedKnightInteractionSystem {
    padding:{x:12,y:8},align:'center',wordWrap:{width:360,useAdvancedWrap:true}
   }).setOrigin(0.5,1).setDepth(640).setVisible(false);
 
-  this.continueHint=addUiText(scene,0,0,'',{
-   fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#d8cdb8',
-   stroke:'#080706',strokeThickness:2,backgroundColor:'#0b0a09bd',
-   padding:{x:8,y:4},align:'center'
-  }).setOrigin(0.5,1).setScrollFactor(0).setDepth(641).setVisible(false);
-
   // Generic reusable objective compass. It is deliberately separate from
   // wounded-knight dialogue logic so later story NPCs/items/bosses can use the
   // same strict 10%-inset screen-frame navigation.
@@ -167,7 +162,7 @@ class WoundedKnightInteractionSystem {
   scene?.events?.off('story-objective-updated',this._onObjectiveUpdated);
   scene?.events?.off('story-objective-completed',this._onObjectiveCompleted);
   scene?.events?.off('story-objective-cleared',this._onObjectiveCleared);
-  for(const object of [this.promptText,this.dialogueText,this.continueHint]){
+  for(const object of [this.promptText,this.dialogueText]){
    try{object?.destroy();}catch{}
   }
   this.objectiveMarker?.destroy();
@@ -269,7 +264,7 @@ class WoundedKnightInteractionSystem {
    return;
   }
 
-  if(this.scene.gameOver || this.scene.levelChoiceOpen || this.scene.championRewardOpen || this.storyDirector?.isBusy?.()){
+  if(this.scene.gameOver || this.scene.levelChoiceOpen || this.scene.championRewardOpen || this.storyDirector?.isBusy?.() || this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)){
    this.nearest=null;
    this.promptText?.setVisible(false);
    this.updateObjectiveMarker(time,false);
@@ -304,7 +299,7 @@ class WoundedKnightInteractionSystem {
   if(!prompt)return;
   if(!this.nearest || !scene?.player){prompt.setVisible(false);return;}
   const touch=Boolean(scene.isTouchDevice);
-  prompt.setText('Нажмите для взаимодействия');
+  prompt.setText(touch?'Нажмите для взаимодействия':'Нажмите E для взаимодействия');
   prompt.setFontSize(touch?16:15);
   const target=this.nearest.sprite;
   const promptOffset=Math.max(58,(target?.displayHeight||60)*0.60);
@@ -314,6 +309,7 @@ class WoundedKnightInteractionSystem {
  onKeyDown(event){
   if(!this.scene || event?.repeat)return;
   const now=this.scene.game?.loop?.time||0;
+  if(!this.active && this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)) return;
   if(this.active){
    this.advanceDialogue(now);
    return;
@@ -334,6 +330,7 @@ class WoundedKnightInteractionSystem {
   // Defense in depth: even if another system accidentally emits the world
   // interaction event in the future, left-half touches are rejected here too.
   if(!this.scene?.isMobileInteractionPointerAllowed?.(pointer))return;
+  if(!this.active && this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)) return;
   const now=this.scene.game?.loop?.time||0;
   if(this.active){
    this.advanceDialogue(now);
@@ -345,8 +342,12 @@ class WoundedKnightInteractionSystem {
  startInteraction(entry,now=0){
   if(!entry || this.active || this.isCompleted(entry) || this.storyDirector?.isBusy?.())return false;
   if(entry.story && !this.isStoryEntryUnlocked(entry))return false;
+  if(this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER) || !this.scene?.acquireStoryFocus?.(STORY_FOCUS_OWNER))return false;
   const lines=this.getDialogue(entry);
-  if(!Array.isArray(lines) || !lines.length)return false;
+  if(!Array.isArray(lines) || !lines.length){
+   this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
+   return false;
+  }
 
   this.promptText?.setVisible(false);
   if(this.scene.player?.body)this.scene.player.body.setVelocity(0,0);
@@ -358,14 +359,20 @@ class WoundedKnightInteractionSystem {
    kind:'wounded-knight',entryId:entry.id,story:entry.story,lines
   },{eventId:entry.eventId,once:true});
   if(started)this.dialogueInputLockUntil=now+DIALOGUE_INPUT_LOCK_MS;
+  else this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
   return Boolean(started);
  }
 
  onDialogueStart(payload,controls){
   if(payload?.kind!=='wounded-knight')return;
+  if(this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER) && !this.active){
+   controls?.cancel?.();
+   return;
+  }
   const entry=this.knights.get(String(payload.entryId));
   if(!entry?.sprite?.active || (entry.story && !this.isStoryEntryUnlocked(entry))){
    controls?.cancel?.();
+   this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
    return;
   }
 
@@ -403,9 +410,6 @@ class WoundedKnightInteractionSystem {
   cam.pan(focusX,focusY,CAMERA_IN_MS,'Sine.easeOut',true);
   cam.zoomTo(targetZoom,CAMERA_IN_MS,'Sine.easeOut',true);
 
-  this.continueHint
-   ?.setText(scene.isTouchDevice?'Коснитесь справа — продолжить':'Любая клавиша — продолжить')
-   .setVisible(true);
   this.showDialogueLine();
  }
 
@@ -510,10 +514,6 @@ class WoundedKnightInteractionSystem {
 
    if(best)this.dialogueText.setPosition(best.x,best.y);
   }
-  if(this.continueHint){
-   const metrics=scene.getUiMetrics?.()||{cx:400,height:720};
-   this.continueHint.setPosition(metrics.cx,metrics.height-(scene.isTouchDevice?46:18));
-  }
  }
 
  updateActiveDialogue(time){
@@ -539,7 +539,6 @@ class WoundedKnightInteractionSystem {
   if(!this.active || this.active.closing)return;
   this.active.closing=true;
   this.dialogueText?.setVisible(false);
-  this.continueHint?.setVisible(false);
   const scene=this.scene;
   const cam=scene.cameras.main;
   const restoreZoom=this.cameraRestore?.zoom||cam.zoom;
@@ -571,6 +570,7 @@ class WoundedKnightInteractionSystem {
   this.dialogueLineIndex=0;
   this.closeAt=0;
   controls?.complete?.();
+  scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER);
  }
 
  updateObjectiveMarker(time=0,forceHide=false){
