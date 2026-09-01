@@ -1,12 +1,12 @@
 export const BROKEN_SAINT_INTRO=Object.freeze([
  'Ты не должен был вернуться.',
- 'Мы знакомы?',
+ 'Откуда ты меня знаешь?',
  'Я знал тебя до того, как ты научился отводить взгляд.',
  'Я ничего не помню.',
- 'В этом я тебе верю.',
+ 'Тебе повезло....',
  'Тогда скажи, что случилось.',
  'Ты выбрал себя. А цену за этот выбор заплатили мы.',
- 'Если это правда, я должен всё исправить.',
+ 'Я не понимаю, что все это значит? Я должен все исправить!',
  'Может быть. Но прежде тебе придётся вспомнить, сколько крови стоил твой выбор.'
 ]);
 // The amnesiac hero answers every second line; Broken Saint carries the
@@ -40,4 +40,10 @@ export const BROKEN_SAINT_MEMORY=Object.freeze([
  'Да.',
  'Если ты забудешь...',
  '...ты снова станешь им.'
+]);
+
+export const BROKEN_SAINT_SWORD_PAGES=Object.freeze([
+ Object.freeze({image:'broken_saint_sword_01',pan:'left',text:'Я победил того, кто называл меня предателем.'}),
+ Object.freeze({image:'broken_saint_sword_02',pan:'left',text:'Что здесь, чёрт возьми, происходит?'}),
+ Object.freeze({image:'broken_saint_sword_03',pan:'left',text:'Чёрные знамёна. Надо двигаться.'})
 ]);

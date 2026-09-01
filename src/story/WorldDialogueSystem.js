@@ -376,8 +376,12 @@ class WorldDialogueSystem {
   let best=null;
   // Keep the usual text size first; narrower wrapping can open a clear slot
   // beside a large boss. A smaller font is only a last resort on short screens.
-  for(const fontSize of [18,16,14]){
-   for(const wrapWidth of [...new Set([wrap,Math.max(Math.min(180,wrap),wrap*0.78)])]){
+  for(const fontSize of [18,16,14,12,11]){
+   for(const wrapWidth of [...new Set([
+    wrap,
+    Math.max(Math.min(180,wrap),wrap*0.78),
+    Math.max(Math.min(140,wrap),wrap*0.62)
+   ])]){
     this.setDialogueTextLayout(fontSize,wrapWidth);
     const width=this.dialogueText.displayWidth,height=this.dialogueText.displayHeight;
     for(const frame of [safe,fallback]){

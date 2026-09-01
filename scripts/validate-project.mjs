@@ -6,7 +6,8 @@ import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
  PROLOGUE_PAGE_KEYS,
- BROKEN_SAINT_AFTERMATH_PAGE_KEYS
+ BROKEN_SAINT_AFTERMATH_PAGE_KEYS,
+ ASH_SWORD_PULSE_FRAME_KEYS
 } from '../src/config/assetManifest.mjs';
 import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
 import StoryEnemyAnomalySystem from '../src/story/StoryEnemyAnomalySystem.js';
@@ -117,11 +118,29 @@ for(const key of BROKEN_SAINT_AFTERMATH_PAGE_KEYS){
  const spec=ASSET_MANIFEST.find(entry=>entry.key===key);
  if(!spec || spec.category!==ASSET_CATEGORY.REGION_ASH) fail(`Broken Saint aftermath page missing from REGION_ASH manifest: ${key}`);
 }
+if(ASH_SWORD_PULSE_FRAME_KEYS.length!==3) fail(`Expected 3 Ash sword pulse frame keys, got ${ASH_SWORD_PULSE_FRAME_KEYS.length}`);
+for(const key of ASH_SWORD_PULSE_FRAME_KEYS){
+ const spec=ASSET_MANIFEST.find(entry=>entry.key===key);
+ if(!spec || spec.category!==ASSET_CATEGORY.REGION_ASH) fail(`Ash sword pulse frame missing from REGION_ASH manifest: ${key}`);
+}
 if(!main.includes('releaseTextureKeys(this,[LOADING_ART_KEY]);')) fail('Loading key-art release contract missing');
 if(!main.includes('releaseTextureKeys(this,PROLOGUE_PAGE_KEYS);')) fail('Prologue texture release contract missing');
 if(!main.includes('releaseTextureKeys:BROKEN_SAINT_AFTERMATH_PAGE_KEYS')) fail('Broken Saint aftermath texture release contract missing');
 if(!main.includes('spec?.requirement===ASSET_REQUIREMENT.OPTIONAL')) fail('Optional preload resilience contract missing');
 else pass('Resilient preload + one-shot texture release contracts present');
+
+for(const [label,source,needle] of [
+ ['Ash sword pulse plus 1.5-second rest',main,'const ASH_SWORD_PULSE_CYCLE_MS=ASH_SWORD_PULSE_ACTIVE_MS+1500;'],
+ ['Ash sword pulse animation',main,"key:ASH_SWORD_PULSE_ANIM_KEY,"],
+ ['Ash sword 1-2-3-2-1 frame order',main,"{key:'ash_sword_pulse_03_cutout'},\n     {key:'ash_sword_pulse_02_cutout'},\n     {key:'ash_sword_pulse_01_cutout'}"],
+ ['Ash sword Wave 2 intermission delay',main,'this.ashSwordPreludeQueuedAt=time+1000;'],
+ ['Ash sword three locked pulses',main,'const ASH_SWORD_PRELUDE_LOCKED_PULSES=3;'],
+ ['Ash sword starts Wave 3 after return',main,'this.startWave(3);'],
+ ['Ash sword pulse ends in Zone 2',main,'if(nextIndex>0) this.stopAshSwordAmbientAnimation();']
+]){
+ if(!source.includes(needle)) fail(`Missing Ash sword cinematic contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Ash sword cinematic contract:'))) pass('Ash sword cinematic contracts present');
 
 // Shared animation dimensions used only for validator reconstruction.
 const heroDirs=['n','ne','e','se','s','sw','w','nw'];
@@ -246,7 +265,6 @@ for(const [label,source,needle] of [
 if(!errors.some(e=>e.startsWith('Missing Broken Saint reward contract:'))) pass('Broken Saint build rewards + reverse-smoke death + mobile reward UI contracts present');
 
 // 8c) Broken Saint reward / build-strategy v1 contracts.
-const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
 for(const [label,source,needle] of [
  ['Lift commitment slowdown',main,'const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.55;'],
  ['Lift post-landing slow',main,'const BROKEN_SAINT_LIFT_POST_SLOW_MS=3000;'],
@@ -539,11 +557,11 @@ for(const [label,source,needle] of [
 }
 for(const [label,needle] of [
  ['wave-2 anomaly id',"id:'ash_wave2_master_question'"],
- ['wave-2 master line',"text:'Господин?..'"],
+ ['wave-2 master line',"text:'Это он?..'"],
  ['wave-2 hero response',"text:'Ты меня знаешь?'"],
- ['wave-3 return line',"text:'Он вернулся.'"],
+ ['wave-3 return line',"text:'Он здесь, надо срочно сообщить командиру.'"],
  ['wave-3 killing-us line',"text:'Почему он убивает нас?'"],
- ['wave-3 hero response',"text:'Кого вы во мне видите?'"],
+ ['wave-3 hero response',"text:'Да кто вы, чёрт возьми, такие?'"],
  ['anomaly post behavior',"behaviorAfter:'flee'"],
  ['anomaly one-shot contract','once:true']
 ]){

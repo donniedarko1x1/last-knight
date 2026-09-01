@@ -25,6 +25,13 @@ export const BROKEN_SAINT_AFTERMATH_PAGE_KEYS=Array.from(
  {length:3},
  (_,i)=>`broken_saint_aftermath_${String(i+1).padStart(2,'0')}`
 );
+export const ASH_SWORD_PULSE_FRAME_KEYS=Array.from(
+ {length:3},
+ (_,i)=>`ash_sword_pulse_${String(i+1).padStart(2,'0')}`
+);
+export const BROKEN_SAINT_SWORD_CINEMATIC_PAGE_KEYS=Array.from(
+ {length:3},(_,i)=>`broken_saint_sword_${String(i+1).padStart(2,'0')}`
+);
 
 const manifest=[];
 const add=(category,requirement,type,key,url)=>{
@@ -123,6 +130,12 @@ for(const dir of dirs){
 for(const key of BROKEN_SAINT_AFTERMATH_PAGE_KEYS){
  image(REGION_ASH,R,key,`/assets/ui/cinematic/broken_saint_aftermath/${key}.png`);
 }
+for(const key of ASH_SWORD_PULSE_FRAME_KEYS){
+ image(REGION_ASH,R,key,`/assets/effects/ash_sword_pulse/${key}.png`);
+}
+for(const key of BROKEN_SAINT_SWORD_CINEMATIC_PAGE_KEYS){
+ image(REGION_ASH,R,key,`/assets/ui/cinematic/broken_saint_sword/${key}.png`);
+}
 
 const ashGround=['ash_ground_base_01','ash_edge_north_01','ash_edge_south_01','ash_edge_west_01','ash_edge_east_01'];
 for(const key of ashGround) image(REGION_ASH,R,key,`/assets/environment/ash_fields/ground_minimal/${key}.png`);
@@ -152,6 +165,9 @@ for(const key of ['ash_corpse_01','ash_corpse_02']){
 }
 
 for(const [key,url] of Object.entries({
+ sfx_ash_sword_pulse:'/assets/audio/ash_sword_pulse.mp3',
+ sfx_broken_saint_materialize:'/assets/audio/broken_saint_materialize.ogg',
+ sfx_broken_saint_disappear:'/assets/audio/broken_saint_disappear.ogg',
  sfx_broken_saint_holy_warning:'/assets/audio/broken_saint_holy_warning.ogg',
  sfx_broken_saint_holy_beam:'/assets/audio/broken_saint_holy_beam.ogg',
  sfx_broken_saint_spawn:'/assets/audio/broken_saint_spawn.ogg'

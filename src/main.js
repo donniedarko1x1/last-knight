@@ -30,7 +30,7 @@ import StoryDirector from './story/StoryDirector.js';
 import WoundedKnightInteractionSystem from './story/WoundedKnightInteractionSystem.js';
 import WorldDialogueSystem from './story/WorldDialogueSystem.js';
 import ChampionDialogueSystem from './story/ChampionDialogueSystem.js';
-import {BROKEN_SAINT_INTRO_DIALOGUE,BROKEN_SAINT_AFTERMATH_PAGES} from './story/BrokenSaintCinematics.js';
+import {BROKEN_SAINT_INTRO_DIALOGUE,BROKEN_SAINT_AFTERMATH_PAGES,BROKEN_SAINT_SWORD_PAGES} from './story/BrokenSaintCinematics.js';
 import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
 import StoryObjectiveMarker from './story/StoryObjectiveMarker.js';
 import {PROLOGUE_STORY_PAGES,STORY_ANOMALY_DEFINITIONS,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from './story/storyEvents.js';
@@ -40,13 +40,15 @@ import {
  SKILL_ICON_KEYS,
  PROLOGUE_PAGE_KEYS,
  BROKEN_SAINT_AFTERMATH_PAGE_KEYS,
+ BROKEN_SAINT_SWORD_CINEMATIC_PAGE_KEYS,
+ ASH_SWORD_PULSE_FRAME_KEYS,
  getAssetSpec,
  queueAssetCategories,
  releaseTextureKeys
 } from './config/assetManifest.mjs';
 
-// This artifact is an explicit development build. Set false for release; ?dev=1 still unlocks the tuner.
-const DEV_BUILD=true;
+// Player builds never expose the internal scene tuner or its shortcuts.
+const DEV_BUILD=false;
 
 // DEV HiDPI experiment. Phaser 3.90 no longer honors the old GameConfig `resolution`
 // option, so this build renders a larger backing canvas and lets ScaleManager FIT it
@@ -112,6 +114,13 @@ const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
 const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
 const ASH_CHAMPION_SMOKE_TEXTURE_PREFIX='ash_champion_smoke_';
 const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
+const ASH_SWORD_PULSE_ANIM_KEY='ash_sword_pulse';
+const ASH_SWORD_PULSE_ACTIVE_MS=400;
+const ASH_SWORD_PULSE_CYCLE_MS=ASH_SWORD_PULSE_ACTIVE_MS+1500;
+const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
+const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
+const ASH_SWORD_PRELUDE_RETURN_MS=800;
+const ASH_SWORD_PRELUDE_LOCKED_PULSES=3;
 const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.55;
 const BROKEN_SAINT_LIFT_POST_SLOW_MS=3000;
 const BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600;
@@ -591,7 +600,7 @@ class LastKnightUiLayoutEditor {
 class LastKnightDevTools {
  constructor(scene){
   this.scene=scene;
-  this.enabled=DEV_BUILD || (typeof location!=='undefined' && new URLSearchParams(location.search).get('dev')==='1');
+  this.enabled=false;
   this.open=false;
   this.editMode=false;
   this.selected=null;
@@ -3018,6 +3027,22 @@ class MainScene extends Phaser.Scene {
    });
   }
 
+  if(!this.anims.exists(ASH_SWORD_PULSE_ANIM_KEY)){
+   this.prepareAshSwordTextures();
+   this.anims.create({
+    key:ASH_SWORD_PULSE_ANIM_KEY,
+    frames:[
+     {key:'ash_sword_pulse_01_cutout'},
+     {key:'ash_sword_pulse_02_cutout'},
+     {key:'ash_sword_pulse_03_cutout'},
+     {key:'ash_sword_pulse_02_cutout'},
+     {key:'ash_sword_pulse_01_cutout'}
+    ],
+    duration:ASH_SWORD_PULSE_ACTIVE_MS,
+    repeat:0
+   });
+  }
+
  }
 
  constructor(){
@@ -3079,6 +3104,9 @@ class MainScene extends Phaser.Scene {
   this.currentChampionRewardChoices=[];
   this.currentChampionRewardFlow=null;
   this.currentChampionRewardStepIndex=0;
+  // Every champion fight receives the same two-attempt checkpoint. It is
+  // created only when combat is actually released (after any story dialogue).
+  this.championRetryCheckpoint=null;
   this.brokenSaintDefeatSequenceActive=false;
   this.brokenSaintDefeatFx=[];
   this.bsPenitenceCharges=0;
@@ -3144,6 +3172,13 @@ class MainScene extends Phaser.Scene {
   this.ashAltarObjectiveMarker=null;
   this.ashAltarStoryTarget=null;
   this.ashChampionIntroState=null;
+  this.ashSwordLandmark=null;
+  this.ashSwordPulseOverlay=null;
+  this.ashSwordPreludeState=null;
+  this.ashSwordPulseCompleted=false;
+  this.ashSwordNextPulseAt=0;
+  this.ashSwordPreludeQueuedAt=0;
+  this.brokenSaintSwordEpilogue=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -3222,6 +3257,7 @@ class MainScene extends Phaser.Scene {
   this.currentChampionRewardChoices=[];
   this.currentChampionRewardFlow=null;
   this.currentChampionRewardStepIndex=0;
+  this.championRetryCheckpoint=null;
   this.brokenSaintDefeatSequenceActive=false;
   this.brokenSaintDefeatFx=[];
   this.bsPenitenceCharges=0;
@@ -3286,6 +3322,13 @@ class MainScene extends Phaser.Scene {
   this.ashAltarObjectiveMarker=null;
   this.ashAltarStoryTarget=null;
   this.ashChampionIntroState=null;
+  this.ashSwordLandmark=null;
+  this.ashSwordPulseOverlay=null;
+  this.ashSwordPreludeState=null;
+  this.ashSwordPulseCompleted=false;
+  this.ashSwordNextPulseAt=0;
+  this.ashSwordPreludeQueuedAt=0;
+  this.brokenSaintSwordEpilogue=null;
   this.devFlags={
    autoSpawnsDisabled:false,
    enemyAiFrozen:false,
@@ -3441,9 +3484,8 @@ class MainScene extends Phaser.Scene {
 
   this.updateWorldStreaming();
 
-  // Development-only Scene Tuner. The DEV build exposes it by button and F2.
-  this.devTools=new LastKnightDevTools(this);
-  this.devTools.install();
+  // The scene tuner is intentionally omitted from player builds.
+  this.devTools=null;
 
   this.scale.on('resize',this.handleViewportResize,this);
   this.scale.on('resize',this.syncOrientationPause,this);
@@ -3455,6 +3497,7 @@ class MainScene extends Phaser.Scene {
    this.stopCriticalHeartbeat(true);
    try{this.physics.world.resume();}catch{}
    this.stopBrokenSaintHolyWarningSfx();
+   this.stopAshSwordPulseSfx();
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
@@ -3487,6 +3530,10 @@ class MainScene extends Phaser.Scene {
  stopBackgroundMusic(){ return AudioManager.prototype.stopBackgroundMusic.call(this); }
  startBrokenSaintMusic(){ return AudioManager.prototype.startBrokenSaintMusic.call(this); }
  stopBrokenSaintMusic(){ return AudioManager.prototype.stopBrokenSaintMusic.call(this); }
+ playAshSwordPulseSfx(){ return AudioManager.prototype.playAshSwordPulseSfx.call(this); }
+ stopAshSwordPulseSfx(){ return AudioManager.prototype.stopAshSwordPulseSfx.call(this); }
+ playBrokenSaintMaterializeSfx(){ return AudioManager.prototype.playBrokenSaintMaterializeSfx.call(this); }
+ playBrokenSaintDisappearSfx(){ return AudioManager.prototype.playBrokenSaintDisappearSfx.call(this); }
 
  isPortraitInputBlocked(){
   if(typeof window==='undefined' || !window.matchMedia) return false;
@@ -4271,7 +4318,7 @@ createAshFieldsBakedLayout(objects){
   if(!state || state.deleted || !this.textures.exists(state.key)) continue;
   const kind=state.kind || (state.key?.includes('tree_')?'tree':state.key?.includes('rock_')?'rock':state.key?.includes('landmark_')?'landmark':'grass');
   const landmark=Boolean(state.landmark)||kind==='landmark';
-  const prop=this.add.image(state.x,state.y,state.key)
+  const prop=(state.key==='ash_landmark_sword'?this.add.sprite(state.x,state.y,state.key):this.add.image(state.x,state.y,state.key))
    .setDepth(landmark?-28:(kind==='grass'?-46:-44))
    .setScale(Math.max(0.01,Number(state.scale)||1))
    .setAlpha(state.alpha??(kind==='grass'?0.40:0.96))
@@ -4289,6 +4336,7 @@ createAshFieldsBakedLayout(objects){
   this.registerDevEnvironmentObject(prop,{
    id,segment:state.segment||'ash',cluster:null,kind,key:state.key,landmark,created:false
   });
+  if(state.key==='ash_landmark_sword') this.registerAshSwordPulseLandmark(prop,objects);
  }
 }
 
@@ -4300,7 +4348,7 @@ createAshFieldsSegment(objects,segment){
 
  (segment.landmarks||[]).forEach(({key,x,y,scale,rotation},landmarkIndex)=>{
   if(!this.textures.exists(key)) return;
-  const landmark=this.add.image(x,y,key)
+  const landmark=(key==='ash_landmark_sword'?this.add.sprite(x,y,key):this.add.image(x,y,key))
    .setDepth(-28)
    .setScale(scale)
    .setRotation(rotation)
@@ -4313,7 +4361,24 @@ createAshFieldsSegment(objects,segment){
   this.registerDevEnvironmentObject(landmark,{
    id:`${segment.id}:landmark${landmarkIndex}`,segment:segment.id,cluster:null,kind:'landmark',key,landmark:true
   });
+  if(key==='ash_landmark_sword') this.registerAshSwordPulseLandmark(landmark,objects);
  });
+}
+
+registerAshSwordPulseLandmark(landmark,objects=[]){
+ if(!landmark?.active || landmark.texture?.key!=='ash_landmark_sword') return null;
+ this.ashSwordLandmark=landmark;
+ if(this.ashSwordPulseOverlay?.active) return this.ashSwordPulseOverlay;
+ if(!this.textures.exists('ash_sword_pulse_01')) return null;
+
+ // Replace the texture of the ONE landmark sprite; never draw a second sword.
+ const width=landmark.displayWidth;
+ const bottom=landmark.y+landmark.displayHeight*(1-landmark.originY);
+ landmark.setTexture('ash_sword_pulse_01_cutout').setDisplaySize(width,width*1086/1448)
+  .setAlpha(1).setBlendMode(Phaser.BlendModes.NORMAL);
+ landmark.y=bottom-landmark.displayHeight*(1-landmark.originY);
+ this.ashSwordPulseOverlay=landmark;
+ return landmark;
 }
 
 registerDevEnvironmentObject(object,meta){
@@ -4842,6 +4907,9 @@ createAshFieldsEnvironment(objects,zone){
   if(nextIndex===this.currentWorldZoneIndex) return;
 
   this.currentWorldZoneIndex=nextIndex;
+  // The landmark keeps its silent pulse only inside the Ash Fields. It is
+  // explicitly retired as soon as the hero crosses into the next zone.
+  if(nextIndex>0) this.stopAshSwordAmbientAnimation();
   const zone=WORLD_DESIGN.ZONES[nextIndex];
   if(this.regionText) this.regionText.setText(zone.name);
 
@@ -5302,6 +5370,12 @@ createAshFieldsEnvironment(objects,zone){
   this.championEventActive=true;
   this.championSpawned++;
 
+  // Ordinary champions are combat-ready as soon as they spawn. Broken Saint is
+  // deliberately excluded here: his checkpoint begins after the altar dialogue.
+  if(!options?.skipRetryCheckpoint && !e.storyDormant && kind!=='brokenSaint'){
+   this.createChampionRetryCheckpoint(e);
+  }
+
   if(isBrokenSaint && !options?.deferMusic) this.startBrokenSaintMusic();
 
   if(!options?.deferUi){
@@ -5316,6 +5390,168 @@ createAshFieldsEnvironment(objects,zone){
   }
   if(!options?.suppressFlash)this.cameras.main.flash(240,70,48,25,false);
   return e;
+ }
+
+ createChampionRetryCheckpoint(champion){
+  if(!champion?.active || !champion.championKind || !this.player)return null;
+  const numeric=(value,fallback=0)=>Number.isFinite(value)?value:fallback;
+  const melee=this.meleeAttack||{};
+  const now=this.time.now;
+  this.championRetryCheckpoint={
+   retriesRemaining:2,
+   kind:champion.championKind,
+   champion:{
+    x:champion.x,y:champion.y,maxHp:champion.maxHp,
+    ignoreAshAltarCollision:Boolean(champion.ignoreAshAltarCollision)
+   },
+   hero:{
+    x:this.player.x,y:this.player.y,hp:this.player.hp,maxHp:this.player.maxHp,
+    level:this.level,xp:this.xp,kills:this.kills,mana:this.mana,maxMana:this.maxMana,
+    melee:{level:melee.level,damage:melee.damage,cooldown:melee.cooldown,radius:melee.radius},
+    weaponLevels:{...this.weaponLevels},
+    championRelics:[...this.championRelics],
+    championSkillEvolutions:[...this.championSkillEvolutions],
+    championEssences:[...this.championEssences],
+    championHpMultiplier:this.championHpMultiplier,
+    championManaRegenMultiplier:this.championManaRegenMultiplier,
+    skillRecoveryMultiplier:this.skillRecoveryMultiplier,
+    bsPenitenceCharges:this.bsPenitenceCharges,
+    killStreakBonus:this.killStreakBonus,
+    fallenBlessingUsed:this.fallenBlessingUsed
+   },
+   wave:{
+    number:this.wave,spawned:this.spawned,target:this.waveTarget,profile:this.waveProfile,
+    intermission:this.waveIntermission,postWaveChampionKind:this.postWaveChampionKind,
+    lastSpawnOffset:numeric(this.lastSpawn,now)-now
+   }
+  };
+  return this.championRetryCheckpoint;
+ }
+
+ hasChampionRetryAvailable(){
+  return Boolean(this.championRetryCheckpoint?.retriesRemaining>0);
+ }
+
+ discardEnemyForChampionRetry(enemy){
+  if(!enemy)return;
+  for(const key of ['visual','auraVisual','reflectVisual','saintsNailMarkVisual']){
+   if(enemy[key]?.active)enemy[key].destroy();
+  }
+  this.destroyEnemyReadabilityShadow(enemy);
+  if(enemy.active)enemy.destroy();
+ }
+
+ clearCombatForChampionRetry(){
+  // This must work in the player scene without the optional DEV tools.
+  for(const projectile of this.projectiles||[])if(projectile?.active)projectile.destroy();
+  this.projectiles=[];
+  this.clearChampionHazards();
+  for(const orb of this.orbs||[])if(orb?.active)orb.destroy();
+  for(const heart of this.hearts||[])if(heart?.active)heart.destroy();
+  this.orbs=[];
+  this.hearts=[];
+  for(const enemy of [...(this.enemies||[])])this.discardEnemyForChampionRetry(enemy);
+  this.enemies=[];
+  this.activeChampion=null;
+  this.championEventActive=false;
+  this.championNameText?.setVisible(false);
+  this.championHpBack?.setVisible(false);
+  this.championHpFill?.setVisible(false);
+ }
+
+ retryChampionFight(){
+  const checkpoint=this.championRetryCheckpoint;
+  if(!this.gameOver || !this.gameOverUiReady || !checkpoint || checkpoint.retriesRemaining<=0)return false;
+
+  const now=this.time.now;
+  const hero=checkpoint.hero;
+  const wave=checkpoint.wave;
+  this.clearCombatForChampionRetry();
+  this.stopBrokenSaintHolyWarningSfx();
+  this.stopBrokenSaintMusic();
+  this.brokenSaintDefeatSequenceActive=false;
+  this.brokenSaintDefeatFx=[];
+
+  this.level=hero.level;
+  this.xp=hero.xp;
+  this.kills=hero.kills;
+  this.mana=hero.mana;
+  this.maxMana=hero.maxMana;
+  this.weaponLevels={...hero.weaponLevels};
+  this.championRelics=new Set(hero.championRelics);
+  this.championSkillEvolutions=new Set(hero.championSkillEvolutions);
+  this.championEssences=new Set(hero.championEssences);
+  this.championHpMultiplier=hero.championHpMultiplier;
+  this.championManaRegenMultiplier=hero.championManaRegenMultiplier;
+  this.skillRecoveryMultiplier=hero.skillRecoveryMultiplier;
+  this.bsPenitenceCharges=hero.bsPenitenceCharges;
+  this.killStreakBonus=hero.killStreakBonus;
+  this.fallenBlessingUsed=hero.fallenBlessingUsed;
+  Object.assign(this.meleeAttack,hero.melee,{lastAttack:now,combatActive:false,attackTargetCount:0,nearbyTargetCount:0});
+
+  this.wave=wave.number;
+  this.spawned=wave.spawned;
+  this.waveTarget=wave.target;
+  this.waveProfile=wave.profile;
+  this.waveIntermission=wave.intermission;
+  this.postWaveChampionKind=wave.postWaveChampionKind;
+  this.lastSpawn=now+wave.lastSpawnOffset;
+  this.nextWaveAt=Number.POSITIVE_INFINITY;
+
+  this.player.setPosition(hero.x,hero.y);
+  this.player.body?.reset?.(hero.x,hero.y);
+  this.player.body.enable=true;
+  this.player.maxHp=hero.maxHp;
+  this.player.hp=hero.hp;
+  this.playerInvulnerableUntil=now+700;
+  this.playerSlowUntil=0;
+  this.playerSlowFactor=1;
+  this.playerForcedUntil=0;
+  this.playerForcedVX=0;
+  this.playerForcedVY=0;
+  this.skillLockUntil=now;
+  this.playerAttackUntil=now;
+  this.mobileMoveX=0;
+  this.mobileMoveY=0;
+  this.playerVisual?.clearTint?.();
+  this.playerVisual?.setPosition(hero.x,hero.y).setOrigin(0.5,0.78).setScale(HERO_SOCKET_VISUAL_SCALE).setFlipX(false).setFlipY(false);
+  this.playerVisualState='hero_socket_idle_s';
+  this.playerVisual?.play(this.playerVisualState,true);
+  this.playerShadow?.setVisible(true);
+  if(this.deathSword?.active)this.deathSword.destroy();
+  this.deathSword=null;
+  this.updateHeroWeaponAttachment();
+  this.updateLowHealthState(true);
+
+  const champion=this.spawnChampion(checkpoint.kind,false,{
+   position:checkpoint.champion,
+   exactStorySpawn:true,
+   minPlayerDistance:0,maxRadius:0,
+   deferMusic:true,
+   suppressBanner:true,
+   suppressFlash:true,
+   skipRetryCheckpoint:true
+  });
+  if(!champion)return false;
+  champion.maxHp=checkpoint.champion.maxHp;
+  champion.hp=champion.maxHp;
+  champion.ignoreAshAltarCollision=checkpoint.champion.ignoreAshAltarCollision || checkpoint.kind==='brokenSaint';
+  champion.storyAltarLocked=false;
+  champion.storyDormant=false;
+  champion.nextSkillAt=now+1450;
+  champion.nextSecondaryAt=now+3600;
+
+  // Consume a retry only after the fresh champion has been created successfully.
+  checkpoint.retriesRemaining--;
+  this.gameOver=false;
+  this.gameOverUiReady=false;
+  this.deathSequenceActive=false;
+  this.gameOverPanel?.setVisible(false);
+  this.gameOverText?.setVisible(false);
+  try{this.physics.world.resume();}catch{}
+  if(checkpoint.kind==='brokenSaint')this.startBrokenSaintMusic();
+  this.showWaveBanner(champion.championName,'CHAMPION RETRY',this.getChampionDefinition(checkpoint.kind)?.rewardColor||'#f5d78f');
+  return true;
  }
 
  destroyChampionHazard(hazard){
@@ -5919,7 +6155,10 @@ createAshFieldsEnvironment(objects,zone){
   this.currentChampionRewardKind=null;
   this.championRewardOpen=false;
   this.setGameplayPaused('championReward',false);
-  if(finishedKind==='brokenSaint') this.setupBackgroundMusic();
+  if(finishedKind==='brokenSaint'){
+   this.setupBackgroundMusic();
+   this.beginBrokenSaintSwordEpilogue();
+  }
 
   this.grantXp(40);
 
@@ -6009,6 +6248,7 @@ createAshFieldsEnvironment(objects,zone){
  }
 
  handleSkillInput(index){
+  if(this.ashSwordPreludeState) return;
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen || this.brokenSaintDefeatSequenceActive) return;
   // The five-second anomaly focus is a deliberate non-combat story beat.
   if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;
@@ -6091,6 +6331,173 @@ createAshFieldsEnvironment(objects,zone){
    this.woundedKnightInteractions?.active ||
    this.storyDirector?.isBusy?.()
   );
+ }
+
+ isAshSwordPreludeActive(){
+  return Boolean(this.ashSwordPreludeState);
+ }
+
+ prepareAshSwordTextures(){
+  // Cut out only border-connected black background, using one shared mask.
+  // Dark metal/rocks inside the silhouette stay fully opaque in every frame.
+  const source=this.textures.get(ASH_SWORD_PULSE_FRAME_KEYS[0]).getSourceImage();
+  const width=source.width,height=source.height,count=width*height;
+  const canvas=document.createElement('canvas');
+  canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(source,0,0);
+  const pixels=ctx.getImageData(0,0,width,height).data;
+  const background=new Uint8Array(count),queue=new Int32Array(count);
+  let read=0,write=0;
+  const visit=(index)=>{
+   if(background[index])return;
+   const p=index*4;
+   if(Math.max(pixels[p],pixels[p+1],pixels[p+2])>8)return;
+   background[index]=1;queue[write++]=index;
+  };
+  for(let x=0;x<width;x++){visit(x);visit((height-1)*width+x);}
+  for(let y=0;y<height;y++){visit(y*width);visit(y*width+width-1);}
+  while(read<write){
+   const i=queue[read++],x=i%width;
+   if(x>0)visit(i-1);if(x<width-1)visit(i+1);
+   if(i>=width)visit(i-width);if(i<count-width)visit(i+width);
+  }
+  for(const key of ASH_SWORD_PULSE_FRAME_KEYS){
+   if(this.textures.exists(`${key}_cutout`))continue;
+   const texture=this.textures.createCanvas(`${key}_cutout`,width,height);
+   texture.context.drawImage(this.textures.get(key).getSourceImage(),0,0);
+   const frame=texture.context.getImageData(0,0,width,height);
+   for(let i=0;i<count;i++)frame.data[i*4+3]=background[i]?0:255;
+   texture.context.putImageData(frame,0,0);texture.refresh();
+  }
+ }
+
+ beginAshSwordPulseAnimation(){
+  const overlay=this.ashSwordPulseOverlay;
+  if(!overlay?.active) return false;
+  overlay.setVisible(true);
+  overlay.play(ASH_SWORD_PULSE_ANIM_KEY,false);
+  this.ashSwordNextPulseAt=this.time.now+ASH_SWORD_PULSE_CYCLE_MS;
+  return true;
+ }
+
+ updateAshSwordPulse(time){
+  if(!this.ashSwordNextPulseAt || time<this.ashSwordNextPulseAt)return;
+  this.beginAshSwordPulseAnimation();
+  const state=this.ashSwordPreludeState;
+  if(!state || state.phase==='returning')return;
+  if(state.phase==='locked'){
+   if(state.lockedPulses>=ASH_SWORD_PRELUDE_LOCKED_PULSES)return;
+   state.lockedPulses++;
+   state.nextLockedPulseAt=time+ASH_SWORD_PULSE_CYCLE_MS;
+  }
+  this.playAshSwordPulseSfx();
+ }
+
+ stopAshSwordPulseAnimation({hide=false}={}){
+  const overlay=this.ashSwordPulseOverlay;
+  this.ashSwordNextPulseAt=0;
+  if(!overlay) return false;
+  overlay.anims?.stop?.();
+  overlay.setTexture?.('ash_sword_pulse_01_cutout');
+  return true;
+ }
+
+ stopAshSwordAmbientAnimation(){
+  this.stopAshSwordPulseSfx();
+  return this.stopAshSwordPulseAnimation({hide:true});
+ }
+
+ cancelAshSwordPrelude(){
+  if(!this.ashSwordPreludeState) return false;
+  const restoreZoom=this.ashSwordPreludeState.restoreZoom;
+  this.stopAshSwordPulseSfx();
+  this.stopAshSwordPulseAnimation({hide:true});
+  this.ashSwordPreludeState=null;
+  this.setHeroFocusInteraction('ashSwordPrelude',false);
+  this.releaseStoryFocus('ashSwordPrelude',{cooldownMs:0});
+  this.cameras.main.setZoom(restoreZoom);
+  this.cameras.main.startFollow(this.player,true,1,1);
+  return true;
+ }
+
+ beginAshSwordPrelude(time=this.time.now){
+  if(this.ashSwordPulseCompleted || this.ashSwordPreludeState || this.wave!==2 || !this.ashSwordLandmark?.active) return false;
+  if(!this.acquireStoryFocus('ashSwordPrelude')) return false;
+  if(!this.ashSwordPulseOverlay?.active){
+   this.releaseStoryFocus('ashSwordPrelude',{cooldownMs:0});
+   return false;
+  }
+
+  const cam=this.cameras.main;
+  const restoreZoom=cam.zoom;
+  const focusZoom=Math.min(restoreZoom*1.14,restoreZoom+0.18);
+  this.ashSwordPreludeState={
+   phase:'hero',
+   restoreZoom,
+   focusZoom,
+   heroArriveAt:time+ASH_SWORD_PRELUDE_HERO_FOCUS_MS,
+   swordLockedAt:time+ASH_SWORD_PRELUDE_HERO_FOCUS_MS+ASH_SWORD_PRELUDE_SWORD_PAN_MS,
+   lockedPulses:0,
+   nextLockedPulseAt:0,
+   returnAt:0
+  };
+  this.setHeroFocusInteraction('ashSwordPrelude',true);
+  this.player?.body?.setVelocity?.(0,0);
+  // No leftover bolt may hit a hero whose controls are locked for the scene.
+  for(const projectile of this.projectiles||[])if(projectile?.active)projectile.destroy();
+  this.projectiles=[];
+  this.mobileMoveX=0;
+  this.mobileMoveY=0;
+  this.mobileMovePointerId=null;
+  cam.stopFollow();
+  cam.pan(this.player.x,this.player.y,ASH_SWORD_PRELUDE_HERO_FOCUS_MS,'Sine.easeOut',true);
+  cam.zoomTo(focusZoom,ASH_SWORD_PRELUDE_HERO_FOCUS_MS,'Sine.easeOut',true);
+  this.beginAshSwordPulseAnimation();
+  this.playAshSwordPulseSfx();
+  return true;
+ }
+
+ updateAshSwordPrelude(time=this.time.now){
+  const state=this.ashSwordPreludeState;
+  if(!state) return false;
+  const sword=this.ashSwordLandmark;
+  const cam=this.cameras.main;
+  if(!sword?.active || this.gameOver){
+   this.cancelAshSwordPrelude();
+   return false;
+  }
+
+  this.player?.body?.setVelocity?.(0,0);
+  if(state.phase==='hero' && time>=state.heroArriveAt){
+   state.phase='sword';
+   state.swordLockedAt=time+ASH_SWORD_PRELUDE_SWORD_PAN_MS;
+   const focusY=sword.y-Math.min(46,Math.max(18,(sword.displayHeight||0)*0.14));
+   cam.pan(sword.x,focusY,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
+   cam.zoomTo(state.focusZoom,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
+  }
+  if(state.phase==='sword' && time>=state.swordLockedAt){
+   state.phase='locked';
+   state.lockedPulses=0;
+  }
+  if(state.phase==='locked' && state.lockedPulses===ASH_SWORD_PRELUDE_LOCKED_PULSES && time>=state.nextLockedPulseAt){
+    state.phase='returning';
+    state.returnAt=time+ASH_SWORD_PRELUDE_RETURN_MS;
+    this.stopAshSwordPulseSfx();
+    cam.pan(this.player.x,this.player.y,ASH_SWORD_PRELUDE_RETURN_MS,'Quad.easeOut',true);
+    cam.zoomTo(state.restoreZoom,ASH_SWORD_PRELUDE_RETURN_MS,'Quad.easeOut',true);
+  }
+  if(state.phase==='returning' && time>=state.returnAt){
+   cam.setZoom(state.restoreZoom);
+   cam.centerOn(this.player.x,this.player.y);
+   cam.startFollow(this.player,true,1,1);
+   this.ashSwordPreludeState=null;
+   this.ashSwordPulseCompleted=true;
+   this.setHeroFocusInteraction('ashSwordPrelude',false);
+   this.releaseStoryFocus('ashSwordPrelude',{cooldownMs:0});
+   this.startWave(3);
+  }
+  return true;
  }
 
  updateHeroFocusInteractionStance(frameTime=0){
@@ -6980,6 +7387,7 @@ createAshFieldsEnvironment(objects,zone){
   const visual=enemy?.visual?.active?enemy.visual:null;
   const shadow=enemy?.shadowVisual?.active?enemy.shadowVisual:null;
   this.brokenSaintDefeatSequenceActive=true;
+  this.playBrokenSaintDisappearSfx();
   this.setHeroFocusInteraction('brokenSaintDefeat',true);
   this.player?.body?.setVelocity?.(0,0);
   this.mobileMoveX=0; this.mobileMoveY=0; this.mobileMovePointerId=null;
@@ -7029,6 +7437,61 @@ createAshFieldsEnvironment(objects,zone){
   return Boolean(started);
  }
 
+ beginBrokenSaintSwordEpilogue(){
+  if(this.brokenSaintSwordEpilogue)return;
+  this.waveIntermission=true;
+  this.nextWaveAt=Number.POSITIVE_INFINITY;
+  this.brokenSaintSwordEpilogue={phase:'waitingClear'};
+ }
+
+ updateBrokenSaintSwordEpilogue(time){
+  const state=this.brokenSaintSwordEpilogue;
+  if(!state)return false;
+  if(state.phase==='waitingClear'){
+   if((this.enemies||[]).some(enemy=>enemy?.active&&enemy.hp>0))return false;
+   state.phase='freePlay';state.until=time+3000;return false;
+  }
+  if(state.phase==='freePlay'&&time>=state.until){
+   if(!this.acquireStoryFocus('brokenSaintSwordEpilogue'))return true;
+   state.phase='call';state.target=this.player;state.kind='swordEpilogue';
+   this.setHeroFocusInteraction('brokenSaintSwordEpilogue',true);
+   this.player?.body?.setVelocity?.(0,0);this.mobileMoveX=0;this.mobileMoveY=0;
+   this.createSettledStoryVignette(state,this.cameras.main,{fadeMs:300});
+   this.playAshSwordPulseSfx();state.until=time+3000;return true;
+  }
+  if(state.phase==='call'&&time>=state.until){
+   this.stopAshSwordPulseSfx();
+   if(state.vignette?.active)this.tweens.add({targets:state.vignette,alpha:0,duration:260,onComplete:()=>state.vignette?.destroy()});
+   this.setHeroFocusInteraction('brokenSaintSwordEpilogue',false);
+   this.releaseStoryFocus('brokenSaintSwordEpilogue',{cooldownMs:0});
+   this.ashAltarObjectiveMarker?.setTarget(this.ashSwordLandmark,{worldOffsetY:118});
+   state.phase='approach';return false;
+  }
+ if(state.phase==='approach'){
+   this.ashAltarObjectiveMarker?.update(time);
+   if(!this.ashSwordLandmark?.active||Phaser.Math.Distance.Between(this.player.x,this.player.y,this.ashSwordLandmark.x,this.ashSwordLandmark.y)>260)return false;
+   state.phase='cinematic';this.playAshSwordPulseSfx();
+   const complete=()=>{
+    this.stopAshSwordPulseSfx();
+    // The gate is the next visible objective, but it deliberately remains
+    // closed until the next approved progression beat is implemented.
+    const gate=WORLD_DESIGN.GATES.find(entry=>entry.champion==='brokenSaint');
+    if(gate){
+     this.ensureProgressionGate(gate.fromZone);
+     const gateObject=this.worldGateObjects.get(gate.id);
+     this.ashAltarObjectiveMarker?.setTarget(gateObject?.visible||gateObject?.blocker,{worldOffsetY:0});
+    }
+    state.phase='gateMarker';
+   };
+   if(!this.storyDirector?.playCinematic(BROKEN_SAINT_SWORD_PAGES,{eventId:'ash_broken_saint_sword_cinematic',once:true,releaseTextureKeys:BROKEN_SAINT_SWORD_CINEMATIC_PAGE_KEYS,onComplete:complete}))complete();
+   return true;
+  }
+  if(state.phase==='gateMarker'){
+   this.ashAltarObjectiveMarker?.update(time);
+  }
+  return false;
+ }
+
  onChampionDefeated(enemy){
   const kind=enemy.championKind;
   if(kind==='brokenSaint'){
@@ -7037,13 +7500,14 @@ createAshFieldsEnvironment(objects,zone){
   }
   this.activeChampion=null;
   this.championEventActive=false;
+  this.championRetryCheckpoint=null;
   this.championNameText.setVisible(false);
   this.championHpBack.setVisible(false);
   this.championHpFill.setVisible(false);
   this.clearChampionHazards();
 
-  // Defeating a champion opens the thematic passage to the next region.
-  this.requestWorldAdvance(kind);
+  // Broken Saint's passage opens only after the sword epilogue cinematic.
+  if(kind!=='brokenSaint')this.requestWorldAdvance(kind);
 
   if(kind==='brokenSaint'){
    // Reverse the reveal language: smoke fades IN over the corpse while the
@@ -7412,6 +7876,7 @@ createAshFieldsEnvironment(objects,zone){
   const champion=state.champion;
   const anchor=champion.storyRevealAnchor||{x:champion.x,y:champion.y};
   state.ashFx=this.createAshChampionRevealFx(champion,anchor);
+  this.playBrokenSaintMaterializeSfx();
   if(champion.visual?.active){
    this.tweens.add({
     targets:champion.visual,
@@ -7481,9 +7946,8 @@ createAshFieldsEnvironment(objects,zone){
   this.ashAltarObjectiveMarker?.clearTarget();
   this.ashAltarObjectiveMarker?.hide();
 
-  // Leave the reveal in near-silence. The champion battle track starts only
-  // when control returns and the champion is actually allowed to attack.
-  this.stopBackgroundMusic();
+  // Keep the background track through reveal and dialogue. The battle track
+  // replaces it only in releaseAshChampionFight(), after the final line.
   this.setHeroFocusInteraction('ashChampionReveal',true);
   this.skillLockUntil=Math.max(this.skillLockUntil||0,dialogueAt+120);
   this.playerAttackUntil=now;
@@ -7638,6 +8102,7 @@ createAshFieldsEnvironment(objects,zone){
   // post-wave champion spawn and starts ordinary pressure on the same combat beat.
   this.startWave(5,false,{preSpawnedChampion:true,suppressBanner:true});
   this.lastSpawn=this.time.now-this.waveSpawnInterval;
+  this.createChampionRetryCheckpoint?.(champion);
 
   if(champion?.active){
    const def=this.getChampionDefinition(champion.championKind);
@@ -8055,6 +8520,12 @@ createAshFieldsEnvironment(objects,zone){
  beginWaveIntermission(time){
   if(this.waveIntermission) return;
   this.waveIntermission=true;
+  if(this.wave===2 && !this.ashSwordPulseCompleted){
+   this.ashSwordPreludeQueuedAt=time+1000;
+   this.nextWaveAt=Number.POSITIVE_INFINITY;
+   this.waveSubText.setText('');
+   return;
+  }
   const woundedStoryGate=Boolean(
    this.wave===3 &&
    this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
@@ -8460,7 +8931,16 @@ createAshFieldsEnvironment(objects,zone){
    return;
   }
 
+  if(this.isAshSwordPreludeActive()){
+   this.updateAshSwordPrelude(this.time.now);
+   this.updateAshSwordPulse(this.time.now);
+   this.updateHeroFocusInteractionStance(this.time.now);
+   return;
+  }
+  if(this.updateBrokenSaintSwordEpilogue(this.time.now))return;
+
   this.updateMana(time);
+  this.updateAshSwordPulse(time);
 
   if(Phaser.Input.Keyboard.JustDown(this.skillKeys.skill1)) this.handleSkillInput(1);
   if(Phaser.Input.Keyboard.JustDown(this.skillKeys.skill2)) this.handleSkillInput(2);
@@ -8571,6 +9051,9 @@ createAshFieldsEnvironment(objects,zone){
   traceSectionAt=this.endSubsystemTrace('worldStreaming',traceSectionAt);
 
   if(this.waveIntermission){
+   if(this.wave===2&&!this.ashSwordPulseCompleted&&this.ashSwordPreludeQueuedAt&&time>=this.ashSwordPreludeQueuedAt){
+    this.ashSwordPreludeQueuedAt=0;this.beginAshSwordPrelude(time);return;
+   }
    if(this.awaitingWorldAdvance){
     this.updateWorldTravel(time);
    } else {
@@ -9789,12 +10272,15 @@ class HUDScene extends Phaser.Scene {
 
  buildGameOver(){
   this.gameOverShade=this.add.rectangle(0,0,100,100,0x050403,0.72).setOrigin(0).setDepth(100).setVisible(false);
-  this.gameOverFrame=this.add.rectangle(0,0,410,180,0x16120f,0.98).setStrokeStyle(3,0xa98649,1).setDepth(101).setVisible(false);
+  this.gameOverFrame=this.add.rectangle(0,0,410,226,0x16120f,0.98).setStrokeStyle(3,0xa98649,1).setDepth(101).setVisible(false);
   this.gameOverTitle=lkAddText(this,0,0,'YOU HAVE FALLEN',{fontFamily:'Arial, sans-serif',fontSize:'28px',fontStyle:'bold',color:'#e6cf9a',stroke:'#1a1009',strokeThickness:4}).setOrigin(0.5).setDepth(102).setVisible(false);
   this.gameOverHint=lkAddText(this,0,0,'Press R to restart',{fontFamily:'Arial, sans-serif',fontSize:'15px',color:'#d1c7b5'}).setOrigin(0.5).setDepth(102).setVisible(false);
   this.restartButton=this.add.rectangle(0,0,180,44,0x2b2418,1).setStrokeStyle(2,0xc3a35d,1).setDepth(102).setVisible(false).setInteractive({useHandCursor:true});
   this.restartLabel=lkAddText(this,0,0,'RESTART',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f5dfad'}).setOrigin(0.5).setDepth(103).setVisible(false);
+  this.retryBossButton=this.add.rectangle(0,0,220,44,0x1b2922,1).setStrokeStyle(2,0x8fc178,1).setDepth(102).setVisible(false).setInteractive({useHandCursor:true});
+  this.retryBossLabel=lkAddText(this,0,0,'RETRY BOSS · 2 LEFT',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#d9f0c8'}).setOrigin(0.5).setDepth(103).setVisible(false);
   this.restartButton.on('pointerdown',()=>{ if(this.mainScene?.gameOver) this.mainScene.scene.restart(); });
+  this.retryBossButton.on('pointerdown',()=>{this.mainScene?.retryChampionFight?.();});
  }
 
  // Canvas-space rectangles for shared world dialogue. Graphics have no useful
@@ -9949,12 +10435,11 @@ class HUDScene extends Phaser.Scene {
   const bottom=h-this.safe.bottom-(mobile?8:22);
   const screenCx=w/2;
 
-  // Fullscreen belongs to the lower-left utility corner. On touch screens the
-  // joystick occupies the literal corner, so the button sits directly above it.
+  // Keep fullscreen in the unobstructed upper-right utility corner.
   if(this.fullscreenButton){
    const fsR=mobile?19:22;
-   const fsX=left+fsR;
-   const fsY=this.mainScene?.isTouchDevice ? bottom-(mobile?126:148) : bottom-fsR;
+   const fsX=right-fsR;
+   const fsY=top+fsR;
    this.fullscreenButton.setPosition(fsX,fsY).setRadius(fsR).setStrokeStyle(mobile?1.5:2,0xc4a662,0.82);
    this.drawFullscreenIcon();
   }
@@ -10123,12 +10608,14 @@ class HUDScene extends Phaser.Scene {
 
   this.gameOverShade.setPosition(0,0).setSize(w,h).setDisplaySize(w,h);
   const goW=Math.min(mobile?330:430,w-24);
-  const goH=mobile?142:180;
+  const goH=mobile?190:226;
   this.gameOverFrame.setPosition(screenCx,h/2).setSize(goW,goH).setDisplaySize(goW,goH);
-  this.gameOverTitle.setPosition(screenCx,h/2-(mobile?20:25)).setFontSize(mobile?20:26);
-  this.gameOverHint.setPosition(screenCx,h/2+(mobile?14:20)).setFontSize(mobile?11:13);
-  this.restartButton.setPosition(screenCx,h/2+(mobile?49:66)).setSize(mobile?150:180,mobile?38:44).setDisplaySize(mobile?150:180,mobile?38:44).setStrokeStyle(2,0xc3a35d,1);
-  this.restartLabel.setPosition(screenCx,h/2+(mobile?49:66)).setFontSize(mobile?12:14);
+  this.gameOverTitle.setPosition(screenCx,h/2-(mobile?58:70)).setFontSize(mobile?20:26);
+  this.gameOverHint.setPosition(screenCx,h/2-(mobile?28:34)).setFontSize(mobile?11:13);
+  this.restartButton.setPosition(screenCx,h/2+(mobile?16:22)).setSize(mobile?150:180,mobile?38:44).setDisplaySize(mobile?150:180,mobile?38:44).setStrokeStyle(2,0xc3a35d,1);
+  this.restartLabel.setPosition(screenCx,h/2+(mobile?16:22)).setFontSize(mobile?12:14);
+  this.retryBossButton.setPosition(screenCx,h/2+(mobile?64:76)).setSize(mobile?184:220,mobile?38:44).setDisplaySize(mobile?184:220,mobile?38:44).setStrokeStyle(2,0x8fc178,1);
+  this.retryBossLabel.setPosition(screenCx,h/2+(mobile?64:76)).setFontSize(mobile?11:14);
 
   this.layoutLevelChoiceOverlay();
   this.layoutEventBanner();
@@ -10248,7 +10735,10 @@ class HUDScene extends Phaser.Scene {
   }
 
   const over=Boolean(m.gameOver && m.gameOverUiReady);
+  const retryAvailable=over&&Boolean(m.hasChampionRetryAvailable?.());
   [this.gameOverShade,this.gameOverFrame,this.gameOverTitle,this.gameOverHint,this.restartButton,this.restartLabel].forEach(o=>o.setVisible(over));
+  [this.retryBossButton,this.retryBossLabel].forEach(o=>o.setVisible(retryAvailable));
+  if(retryAvailable)this.retryBossLabel.setText(`RETRY BOSS · ${m.championRetryCheckpoint.retriesRemaining} LEFT`);
   if(over && m.isTouchDevice) this.gameOverHint.setText('Tap restart to continue');
   else this.gameOverHint.setText('Press R or click restart');
   this.applyDevUiRuntimeAlpha();

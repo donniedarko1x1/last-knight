@@ -26,7 +26,7 @@ const STORY_ANOMALY_DEFINITIONS=Object.freeze([
   actor:'enemy',
   speakerName:'Скелет',
   dialogue:Object.freeze([
-   Object.freeze({speaker:'npc',text:'Господин?..'}),
+   Object.freeze({speaker:'npc',text:'Это он?..'}),
    Object.freeze({speaker:'hero',text:'Ты меня знаешь?'})
   ]),
   focusPreset:'soft',
@@ -42,7 +42,7 @@ const STORY_ANOMALY_DEFINITIONS=Object.freeze([
   actor:'enemy',
   speakerName:'Скелет',
   dialogue:Object.freeze([
-   Object.freeze({speaker:'npc',text:'Он вернулся.'})
+   Object.freeze({speaker:'npc',text:'Он здесь, надо срочно сообщить командиру.'})
   ]),
   focusPreset:'soft',
   behaviorAfter:'flee',
@@ -58,7 +58,7 @@ const STORY_ANOMALY_DEFINITIONS=Object.freeze([
   speakerName:'Скелет',
   dialogue:Object.freeze([
    Object.freeze({speaker:'npc',text:'Почему он убивает нас?'}),
-   Object.freeze({speaker:'hero',text:'Кого вы во мне видите?'})
+   Object.freeze({speaker:'hero',text:'Да кто вы, чёрт возьми, такие?'})
   ]),
   focusPreset:'soft',
   behaviorAfter:'flee',

@@ -57,6 +57,36 @@ class AudioManager {
   this.brokenSaintMusic=null;
  }
 
+ playAshSwordPulseSfx(){
+  this.stopAshSwordPulseSfx();
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_ash_sword_pulse')) return;
+  const sound=this.sound.add('sfx_ash_sword_pulse',{volume:0.936});
+  this.ashSwordPulseSound=sound;
+  sound.once('complete',()=>{
+   if(this.ashSwordPulseSound===sound)this.ashSwordPulseSound=null;
+   sound.destroy();
+  });
+  sound.play();
+ }
+
+ stopAshSwordPulseSfx(){
+  const sound=this.ashSwordPulseSound;
+  if(!sound)return;
+  this.ashSwordPulseSound=null;
+  try{if(sound.isPlaying)sound.stop();}catch{}
+  try{sound.destroy();}catch{}
+ }
+
+ playBrokenSaintMaterializeSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_materialize')) return;
+  this.sound.play('sfx_broken_saint_materialize',{volume:0.60});
+ }
+
+ playBrokenSaintDisappearSfx(){
+  if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_disappear')) return;
+  this.sound.play('sfx_broken_saint_disappear',{volume:0.70});
+ }
+
  playHeroSwordAttackSfx(){
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_hero_sword_attack')) return;
   this.sound.play('sfx_hero_sword_attack',{volume:0.42});
@@ -80,7 +110,7 @@ class AudioManager {
  startBrokenSaintHolyWarningSfx(){
   this.stopBrokenSaintHolyWarningSfx();
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('sfx_broken_saint_holy_warning')) return;
-  const sound=this.sound.add('sfx_broken_saint_holy_warning',{volume:1.00});
+  const sound=this.sound.add('sfx_broken_saint_holy_warning',{volume:1.0});
   this.brokenSaintHolyWarningSound=sound;
   sound.once('complete',()=>{
    if(this.brokenSaintHolyWarningSound===sound) this.brokenSaintHolyWarningSound=null;

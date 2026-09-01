@@ -194,6 +194,7 @@ function saintScene(){
  s.getAshStoryLandmarkTarget=()=>object(520,270);s.clampWorldY=y=>y;
  s.spawnChampion=()=>{s.activeChampion=champion;s.enemies.push(champion);return champion;};
  s.stopBackgroundMusic=()=>{};s.setHeroFocusInteraction=()=>{};s.setupBackgroundMusic=()=>{};
+ s.playBrokenSaintMaterializeSfx=()=>{};
  s.createAshChampionRevealFx=()=>[object()];
  s.startWave=wave=>{counts.wave++;s.wave=wave;};s.startBrokenSaintMusic=()=>counts.music++;
  s.championNameText=object();s.championHpBack=object();s.championHpFill=object();

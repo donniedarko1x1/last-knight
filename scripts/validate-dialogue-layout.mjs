@@ -50,7 +50,7 @@ for(const [w,h,touch] of [[1280,720,false],[960,540,false],[844,390,true],[667,3
   dialogue.dialogueText=textBox();
   dialogue.active={target,speakerName:kind==='brokenSaint'?'Broken Saint':'Рыцарь',lines:[{speaker,text:'Ты даже имя своё забыл. Тогда я напомню.'}],closing:false};
   // Evaluate incoming/settled zoom, resize, speaker changes, and moving framing.
-  for(const zoomFactor of [0.9,1,1.18])for(const spoken of ['Господин?..','Кто мог — ушёл к северной дороге. Остальные...','Ты даже имя своё забыл. Хорошо. Тогда я напомню.']){
+  for(const zoomFactor of [0.9,1,1.18])for(const spoken of ['Это он?..','Наш командир повёл уцелевших на север. К старой часовне у тракта. Найди его прямо по дороге. Увидишь чёрные знамёна — значит, почти дошёл.','Ты даже имя своё забыл. Хорошо. Тогда я напомню.']){
    cam.width=w*backing;cam.height=h*backing;cam.zoom=backing*zoomFactor;
    cam.scrollX=2000-cam.width/2;cam.scrollY=1000-cam.height/2;
    // worldView is deliberately stale: the real renderer refreshes it later.
