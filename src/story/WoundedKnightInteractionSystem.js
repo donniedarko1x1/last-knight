@@ -1,12 +1,9 @@
 import Phaser from 'phaser';
+import {addUiText,worldUiScale,isInteractionKey} from './WorldDialogueSystem.js';
 import StoryObjectiveMarker from './StoryObjectiveMarker.js';
 import {ASH_WOUNDED_KNIGHT_STORY} from './storyEvents.js';
 
 const INTERACTION_DISTANCE=112;
-const CAMERA_IN_MS=300;
-const CAMERA_OUT_MS=300;
-const DIALOGUE_INPUT_LOCK_MS=220;
-const STORY_FOCUS_OWNER='woundedKnightDialogue';
 
 const STORY_KNIGHT_ID=ASH_WOUNDED_KNIGHT_STORY.characterId;
 const STORY_EVENT_ID=ASH_WOUNDED_KNIGHT_STORY.dialogueEventId;
@@ -62,61 +59,20 @@ const AMBIENT_DIALOGUES=Object.freeze([
  ])
 ]);
 
-function addUiText(scene,x,y,text,style){
- const object=scene.add.text(x,y,text,style);
- object.setResolution?.(2);
- return object;
-}
-
-// World-space story text should keep a stable CSS-pixel size even when the
-// backing render scale changes. Convert one CSS pixel into the current camera's
-// world units instead of letting HiDPI scale shrink speech panels.
-function worldUiScale(scene){
- const cam=scene?.cameras?.main;
- const zoom=Math.max(0.01,cam?.zoom||1);
- const canvas=scene?.game?.canvas;
- let backingScale=1;
- try{
-  const rect=canvas?.getBoundingClientRect?.();
-  if(rect?.width>0&&rect?.height>0){
-   const sx=(canvas.width||scene?.scale?.width||rect.width)/rect.width;
-   const sy=(canvas.height||scene?.scale?.height||rect.height)/rect.height;
-   if(Number.isFinite(sx)&&Number.isFinite(sy)&&sx>0&&sy>0)backingScale=(sx+sy)*0.5;
-  }
- }catch{}
- return Math.max(0.05,backingScale/zoom);
-}
-
-function cssViewportWidth(scene){
- try{
-  const rect=scene?.game?.canvas?.getBoundingClientRect?.();
-  if(rect?.width>0)return rect.width;
- }catch{}
- return Math.max(320,(scene?.scale?.width||1280)/Math.max(0.01,worldUiScale(scene)*(scene?.cameras?.main?.zoom||1)));
-}
-
 class WoundedKnightInteractionSystem {
- constructor(scene,{storyDirector=null}={}){
+ constructor(scene,{storyDirector=null,dialogueSystem=scene?.dialogueSystem}={}){
   this.scene=scene;
   this.storyDirector=storyDirector;
+  this.dialogueSystem=dialogueSystem;
   this.knights=new Map();
   this.nearest=null;
-  this.active=null;
   this.installed=false;
-  this.dialogueControls=null;
-  this.dialogueLineIndex=0;
-  this.dialogueInputLockUntil=0;
-  this.closeAt=0;
-  this.cameraRestore=null;
   this.activeStoryTargetId=null;
   this.objectiveMarker=null;
   this.storyMarkerAnchor=null;
-  this.dialogueVignetteState=null;
 
   this._onKeyDown=this.onKeyDown.bind(this);
-  this._onPointerDown=this.onPointerDown.bind(this);
   this._onMobileWorldInteract=this.onMobileWorldInteract.bind(this);
-  this._onDialogueStart=this.onDialogueStart.bind(this);
   this._onObjectiveActivated=this.onObjectiveActivated.bind(this);
   this._onObjectiveUpdated=this.onObjectiveActivated.bind(this);
   this._onObjectiveCompleted=this.onObjectiveCompleted.bind(this);
@@ -134,23 +90,14 @@ class WoundedKnightInteractionSystem {
    padding:{x:10,y:6},align:'center'
   }).setOrigin(0.5,1).setDepth(620).setVisible(false);
 
-  this.dialogueText=addUiText(scene,0,0,'',{
-   fontFamily:'Georgia, serif',fontSize:'18px',color:'#f3e8d5',
-   stroke:'#090807',strokeThickness:2,backgroundColor:'#11100ee8',
-   padding:{x:12,y:8},align:'center',wordWrap:{width:360,useAdvancedWrap:true}
-  }).setOrigin(0.5,1).setDepth(640).setVisible(false);
-
   // Generic reusable objective compass. It is deliberately separate from
   // wounded-knight dialogue logic so later story NPCs/items/bosses can use the
   // same strict 10%-inset screen-frame navigation.
   this.objectiveMarker=new StoryObjectiveMarker(scene,{insetRatio:0.10}).install();
 
   scene.input.keyboard?.on('keydown',this._onKeyDown);
-  // Desktop mouse keeps its old dialogue-advance behavior. Touch interaction is
-  // routed by HUDScene so the left movement half can never trigger an NPC.
-  scene.input.on('pointerdown',this._onPointerDown);
+  // The shared dialogue module handles advancing; this client handles starting.
   scene.events.on('mobile-world-interact',this._onMobileWorldInteract);
-  scene.events.on('story-dialogue-start',this._onDialogueStart);
   scene.events.on('story-objective-activated',this._onObjectiveActivated);
   scene.events.on('story-objective-updated',this._onObjectiveUpdated);
   scene.events.on('story-objective-completed',this._onObjectiveCompleted);
@@ -182,16 +129,15 @@ class WoundedKnightInteractionSystem {
 
  destroy(){
   if(!this.installed)return;
+  if(this.active)this.dialogueSystem.cancel();
   const scene=this.scene;
   scene?.input?.keyboard?.off('keydown',this._onKeyDown);
-  scene?.input?.off('pointerdown',this._onPointerDown);
   scene?.events?.off('mobile-world-interact',this._onMobileWorldInteract);
-  scene?.events?.off('story-dialogue-start',this._onDialogueStart);
   scene?.events?.off('story-objective-activated',this._onObjectiveActivated);
   scene?.events?.off('story-objective-updated',this._onObjectiveUpdated);
   scene?.events?.off('story-objective-completed',this._onObjectiveCompleted);
   scene?.events?.off('story-objective-cleared',this._onObjectiveCleared);
-  for(const object of [this.promptText,this.dialogueText]){
+  for(const object of [this.promptText]){
    try{object?.destroy();}catch{}
   }
   try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
@@ -200,12 +146,39 @@ class WoundedKnightInteractionSystem {
   this.objectiveMarker=null;
   this.storyMarkerAnchor=null;
   this.knights.clear();
-  this.active=null;
   this.nearest=null;
   this.activeStoryTargetId=null;
   this.installed=false;
   this.scene=null;
   this.storyDirector=null;
+  this.dialogueSystem=null;
+ }
+
+ resolveStoryMarkerAnchor(targetId=STORY_KNIGHT_ID,objective=null){
+  const id=String(targetId||'');
+  if(!id)return null;
+
+  // The StoryDirector objective/world story spec is authoritative. A rendered
+  // knight may not exist yet because of streaming, and runtime culling may hide
+  // it. Neither state is allowed to affect navigation.
+  const point=objective?.markerPoint || (id===STORY_KNIGHT_ID?ASH_WOUNDED_KNIGHT_STORY.markerPoint:null);
+  const x=Number(point?.x),y=Number(point?.y);
+  if(Number.isFinite(x) && Number.isFinite(y)){
+   if(!this.storyMarkerAnchor || this.storyMarkerAnchor.id!==id){
+    this.storyMarkerAnchor={id,x,y,active:true};
+   }else{
+    this.storyMarkerAnchor.x=x;
+    this.storyMarkerAnchor.y=y;
+    this.storyMarkerAnchor.active=true;
+   }
+   return this.storyMarkerAnchor;
+  }
+
+  // Legacy/non-story fallback only: if an objective has no declared point,
+  // derive it from an already registered entity. Story objectives should not
+  // rely on this path.
+  const entry=this.knights.get(id);
+  return this.syncKnightMarkerAnchor(entry);
  }
 
  resolveStoryMarkerAnchor(targetId=STORY_KNIGHT_ID,objective=null){
@@ -338,12 +311,12 @@ class WoundedKnightInteractionSystem {
   if(!this.scene)return;
 
   if(this.active){
-   this.updateActiveDialogue(time);
+   this.promptText?.setVisible(false);
    this.updateObjectiveMarker(time,true);
    return;
   }
 
-  if(this.scene.gameOver || this.scene.levelChoiceOpen || this.scene.championRewardOpen || this.storyDirector?.isBusy?.() || this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)){
+  if(this.scene.gameOver || this.scene.levelChoiceOpen || this.scene.championRewardOpen || this.storyDirector?.isBusy?.() || this.scene?.isStoryFocusLocked?.()){
    this.nearest=null;
    this.promptText?.setVisible(false);
    this.updateObjectiveMarker(time,false);
@@ -386,296 +359,43 @@ class WoundedKnightInteractionSystem {
   prompt.setPosition(target.x,target.y-promptOffset).setVisible(true);
  }
 
- onKeyDown(event){
-  if(!this.scene || event?.repeat)return;
-  const now=this.scene.game?.loop?.time||0;
-  if(!this.active && this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)) return;
-  if(this.active){
-   this.advanceDialogue(now);
-   return;
-  }
-  if((event?.code==='KeyE' || String(event?.key||'').toLowerCase()==='e') && this.nearest){
-   this.startInteraction(this.nearest,now);
-  }
+ get active(){
+  const session=this.dialogueSystem?.active;
+  return session?.owner==='woundedKnight'?session:null;
  }
 
- onPointerDown(){
-  if(!this.scene || this.scene.isTouchDevice)return;
-  const now=this.scene.game?.loop?.time||0;
-  if(this.active)this.advanceDialogue(now);
+ onKeyDown(event){
+  if(!this.scene || event?.repeat || this.dialogueSystem?.active)return;
+  if(isInteractionKey(event) && this.nearest){
+   this.startInteraction(this.nearest);
+  }
  }
 
  onMobileWorldInteract(pointer){
-  if(!this.scene?.isTouchDevice)return;
-  // Defense in depth: even if another system accidentally emits the world
-  // interaction event in the future, left-half touches are rejected here too.
+  if(!this.scene?.isTouchDevice || this.dialogueSystem?.active)return;
   if(!this.scene?.isMobileInteractionPointerAllowed?.(pointer))return;
-  if(!this.active && this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER)) return;
-  const now=this.scene.game?.loop?.time||0;
-  if(this.active){
-   this.advanceDialogue(now);
-   return;
-  }
-  if(this.nearest)this.startInteraction(this.nearest,now);
+  if(this.nearest)this.startInteraction(this.nearest);
  }
 
- startInteraction(entry,now=0){
-  if(!entry || this.active || this.isCompleted(entry) || this.storyDirector?.isBusy?.())return false;
+ startInteraction(entry){
+  if(!entry || this.dialogueSystem?.active || this.isCompleted(entry) || this.storyDirector?.isBusy?.())return false;
   if(entry.story && !this.isStoryEntryUnlocked(entry))return false;
-  if(this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER) || !this.scene?.acquireStoryFocus?.(STORY_FOCUS_OWNER))return false;
-  const lines=this.getDialogue(entry);
-  if(!Array.isArray(lines) || !lines.length){
-   this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
-   return false;
-  }
-
-  this.promptText?.setVisible(false);
-  if(this.scene.player?.body)this.scene.player.body.setVelocity(0,0);
-  this.scene.mobileMoveX=0;
-  this.scene.mobileMoveY=0;
-  this.scene.mobileMovePointerId=null;
-
-  const started=this.storyDirector?.beginDialogue?.({
-   kind:'wounded-knight',entryId:entry.id,story:entry.story,lines
-  },{eventId:entry.eventId,once:true});
-  if(started)this.dialogueInputLockUntil=now+DIALOGUE_INPUT_LOCK_MS;
-  else this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
-  return Boolean(started);
- }
-
- onDialogueStart(payload,controls){
-  if(payload?.kind!=='wounded-knight')return;
-  if(this.scene?.isStoryFocusLocked?.(STORY_FOCUS_OWNER) && !this.active){
-   controls?.cancel?.();
-   return;
-  }
-  const entry=this.knights.get(String(payload.entryId));
-  if(!entry?.sprite?.active || (entry.story && !this.isStoryEntryUnlocked(entry))){
-   controls?.cancel?.();
-   this.scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER,{cooldownMs:0});
-   return;
-  }
-
-  this.active={entry,lines:payload.lines||[],closing:false};
-  this.dialogueControls=controls||null;
-  this.dialogueLineIndex=0;
-  this.closeAt=0;
-  this.promptText?.setVisible(false);
-  this.objectiveMarker?.hide();
-
-  const scene=this.scene;
-  const cam=scene.cameras.main;
-  this.cameraRestore={zoom:cam.zoom};
-  cam.stopFollow();
-
-  const midpointX=(scene.player.x+entry.sprite.x)*0.5;
-  const midpointY=(scene.player.y+entry.sprite.y)*0.5-18;
-  let focusX=midpointX;
-  let focusY=midpointY;
-  // Keep enough context around both actors so long dialogue panels have real
-  // screen space to avoid the hero/NPC instead of filling the whole camera.
-  let targetZoom=Math.min(cam.zoom*1.18,cam.zoom+0.20);
-
-  if(scene.isTouchDevice){
-   // Keep both actors inside the unobstructed middle-right gameplay area rather
-   // than under HP/Wave panels or the bottom touch controls. A light zoom is
-   // enough on phones; the old 1.52x close-up made speech bubbles enormous.
-   targetZoom=Math.min(cam.zoom*1.08,cam.zoom+0.12);
-   const targetViewW=cam.width/Math.max(0.01,targetZoom);
-   const targetViewH=cam.height/Math.max(0.01,targetZoom);
-   focusX=midpointX-targetViewW*0.06; // actors appear ~6% right of screen center
-   focusY=midpointY-targetViewH*0.05; // actors appear ~5% below screen center
-  }
-
-  cam.pan(focusX,focusY,CAMERA_IN_MS,'Sine.easeOut',true);
-  cam.zoomTo(targetZoom,CAMERA_IN_MS,'Sine.easeOut',true);
-
-  // Use the same soft story vignette language as anomaly/champion beats, but
-  // only after the dialogue camera has settled. This applies to every lying
-  // wounded knight, not just the main story NPC.
-  try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
-  this.dialogueVignetteState={
-   target:entry.sprite,kind:'woundedKnight',cameraLocked:true,vignette:null,
-   vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
-  };
-  scene.time.delayedCall(CAMERA_IN_MS+25,()=>{
-   if(!this.active || this.active.entry!==entry || !this.dialogueVignetteState)return;
-   scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});
-  });
-
-  this.showDialogueLine();
- }
-
- showDialogueLine(){
-  if(!this.active || !this.dialogueText)return;
-  const line=this.active.lines[this.dialogueLineIndex];
-  if(!line)return;
-  const speakerLabel=line.speaker==='hero'?'Ты':'Раненый рыцарь';
-  const spokenText=String(line.text||'').trim();
-  this.dialogueText.setText(`${speakerLabel}: «${spokenText}»`).setVisible(true);
-  this.positionDialogueUi();
- }
-
- getDialogueActorBounds(actor){
-  const scene=this.scene;
-  if(!actor || !scene)return null;
-  const visual=actor===scene.player ? scene.playerVisual : actor;
-  const bounds=visual?.getBounds?.() || actor?.getBounds?.();
-  if(bounds){
-   return {left:bounds.left,right:bounds.right,top:bounds.top,bottom:bounds.bottom,centerX:bounds.centerX,centerY:bounds.centerY};
-  }
-  const radius=Math.max(18,actor.hitRadius||18);
-  return {left:actor.x-radius,right:actor.x+radius,top:actor.y-radius*1.6,bottom:actor.y+radius,centerX:actor.x,centerY:actor.y-radius*0.3};
- }
-
- expandDialogueAvoidRect(rect,pad=28){
-  if(!rect)return null;
-  return {left:rect.left-pad,right:rect.right+pad,top:rect.top-pad,bottom:rect.bottom+pad};
- }
-
- dialogueOverlapArea(a,b){
-  if(!a||!b)return 0;
-  const w=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));
-  const h=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
-  return w*h;
- }
-
- positionDialogueUi(){
-  if(!this.active || !this.scene)return;
-  const scene=this.scene;
-  const line=this.active.lines[this.dialogueLineIndex];
-  const knight=this.active.entry.sprite;
-  const actor=line?.speaker==='hero'?scene.player:knight;
-  if(actor && this.dialogueText){
-   const cam=scene.cameras.main;
-   const view=cam.worldView;
-   // Dialogue is a world object, but it reads like UI. Compensate for both
-   // camera zoom and the HiDPI backing scale so 1.00x..1.75x never changes the
-   // perceived CSS size of the speech panel.
-   const dialogueScale=worldUiScale(scene);
-   this.dialogueText.setScale(dialogueScale);
-   const cssW=cssViewportWidth(scene);
-   const wrapWidth=scene.isTouchDevice
-    ? Math.min(300,Math.max(220,cssW*0.34))
-    : Math.min(390,Math.max(300,cssW*0.30));
-   this.dialogueText.setWordWrapWidth?.(wrapWidth,true);
-
-   // Measure after wrapping. The text uses origin (0.5, 1), therefore each
-   // candidate stores the lower-center anchor of the speech panel.
-   const bubbleW=Math.max(120,this.dialogueText.displayWidth||wrapWidth);
-   const bubbleH=Math.max(42,this.dialogueText.displayHeight||70);
-   const halfW=bubbleW*0.5;
-   const margin=scene.isTouchDevice?12:18;
-   const safe=scene.isTouchDevice
-    ? {left:view.left+view.width*0.19,right:view.left+view.width*0.83,top:view.top+view.height*0.18,bottom:view.top+view.height*0.78}
-    : {left:view.left+view.width*0.035,right:view.right-view.width*0.035,top:view.top+view.height*0.12,bottom:view.bottom-view.height*0.07};
-
-   const actorBounds=this.getDialogueActorBounds(actor);
-   const heroBounds=this.expandDialogueAvoidRect(this.getDialogueActorBounds(scene.player),34);
-   const knightBounds=this.expandDialogueAvoidRect(this.getDialogueActorBounds(knight),32);
-   const other=line?.speaker==='hero'?knightBounds:heroBounds;
-   const speakerAvoid=line?.speaker==='hero'?heroBounds:knightBounds;
-   const pairCenterX=((scene.player?.x||actor.x)+(knight?.x||actor.x))*0.5;
-   const topOfPair=Math.min(heroBounds?.top??actor.y,knightBounds?.top??actor.y);
-   const gap=18;
-
-   const candidates=[
-    {x:actorBounds?.centerX??actor.x,y:(actorBounds?.top??actor.y)-gap,bias:0},
-    {x:pairCenterX,y:topOfPair-gap,bias:90},
-    {x:(actorBounds?.right??actor.x)+halfW+26,y:(actorBounds?.centerY??actor.y)+bubbleH*0.45,bias:180},
-    {x:(actorBounds?.left??actor.x)-halfW-26,y:(actorBounds?.centerY??actor.y)+bubbleH*0.45,bias:180},
-    {x:safe.left+halfW+margin,y:safe.top+bubbleH+margin,bias:320},
-    {x:safe.right-halfW-margin,y:safe.top+bubbleH+margin,bias:320},
-    {x:(safe.left+safe.right)*0.5,y:safe.top+bubbleH+margin,bias:360}
-   ];
-
-   let best=null;
-   for(const candidate of candidates){
-    const x=Phaser.Math.Clamp(candidate.x,safe.left+halfW+margin,safe.right-halfW-margin);
-    const y=Phaser.Math.Clamp(candidate.y,safe.top+bubbleH+margin,safe.bottom-margin);
-    const rect={left:x-halfW,right:x+halfW,top:y-bubbleH,bottom:y};
-    const outside=
-     Math.max(0,safe.left-rect.left)+Math.max(0,rect.right-safe.right)+
-     Math.max(0,safe.top-rect.top)+Math.max(0,rect.bottom-safe.bottom);
-    // Never cover either actor when another viable slot exists. Covering the
-    // current speaker is penalized too: long lines should move away instead of
-    // expanding down over the character model.
-    const actorOverlap=this.dialogueOverlapArea(rect,speakerAvoid);
-    const otherOverlap=this.dialogueOverlapArea(rect,other);
-    const distance=Math.hypot(x-(actorBounds?.centerX??actor.x),y-(actorBounds?.top??actor.y));
-    const score=candidate.bias+outside*5000+actorOverlap*35+otherOverlap*55+distance*0.08;
-    if(!best || score<best.score)best={x,y,score};
+  const started=this.dialogueSystem?.begin({
+   target:entry.sprite,entry,owner:'woundedKnight',kind:'woundedKnight',
+   initiator:'hero',speakerName:'Раненый рыцарь',lines:this.getDialogue(entry),
+   eventId:entry.eventId,once:true,
+   onComplete:()=>{
+    if(entry.story){
+     this.storyDirector?.setFlag?.(STORY_FLAG,true);
+     this.storyDirector?.completeObjective?.(STORY_OBJECTIVE_ID);
+    }
    }
-
-   if(best)this.dialogueText.setPosition(best.x,best.y);
+  });
+  if(started){
+   this.promptText?.setVisible(false);
+   this.objectiveMarker?.hide();
   }
- }
-
- updateActiveDialogue(time){
-  if(!this.active)return;
-  this.positionDialogueUi();
-  if(this.dialogueVignetteState?.vignette?.active){
-   this.scene?.updateStoryAnomalyVignette?.(this.dialogueVignetteState,this.scene?.cameras?.main);
-  }
-  if(this.active.closing && time>=this.closeAt){
-   this.finishDialogue();
-  }
- }
-
- advanceDialogue(now=0){
-  if(!this.active || this.active.closing || now<this.dialogueInputLockUntil)return;
-  this.dialogueInputLockUntil=now+DIALOGUE_INPUT_LOCK_MS;
-  if(this.dialogueLineIndex<this.active.lines.length-1){
-   this.dialogueLineIndex++;
-   this.showDialogueLine();
-   return;
-  }
-  this.beginClose(now);
- }
-
- beginClose(now=0){
-  if(!this.active || this.active.closing)return;
-  this.active.closing=true;
-  this.dialogueText?.setVisible(false);
-  const scene=this.scene;
-  const cam=scene.cameras.main;
-  const restoreZoom=this.cameraRestore?.zoom||cam.zoom;
-  const vignette=this.dialogueVignetteState?.vignette;
-  if(vignette?.active){
-   scene.tweens?.killTweensOf?.(vignette);
-   scene.tweens?.add?.({targets:vignette,alpha:0,duration:Math.min(220,CAMERA_OUT_MS),ease:'Sine.easeIn'});
-  }
-  cam.zoomTo(restoreZoom,CAMERA_OUT_MS,'Sine.easeInOut',true);
-  cam.pan(scene.player.x,scene.player.y,CAMERA_OUT_MS,'Sine.easeInOut',true);
-  this.closeAt=now+CAMERA_OUT_MS+20;
- }
-
- finishDialogue(){
-  if(!this.active || !this.scene)return;
-  const {entry}=this.active;
-  const scene=this.scene;
-  const controls=this.dialogueControls;
-
-  if(entry.story){
-   this.storyDirector?.setFlag?.(STORY_FLAG,true);
-   this.storyDirector?.completeObjective?.(STORY_OBJECTIVE_ID);
-  }
-
-  const cam=scene.cameras.main;
-  if(this.cameraRestore?.zoom)cam.setZoom(this.cameraRestore.zoom);
-  scene.handleViewportResize?.();
-  cam.startFollow(scene.player,true,1,1);
-  cam.centerOn(scene.player.x,scene.player.y);
-
-  try{this.dialogueVignetteState?.vignette?.destroy?.();}catch{}
-  this.dialogueVignetteState=null;
-  this.active=null;
-  this.dialogueControls=null;
-  this.cameraRestore=null;
-  this.dialogueLineIndex=0;
-  this.closeAt=0;
-  controls?.complete?.();
-  scene?.releaseStoryFocus?.(STORY_FOCUS_OWNER);
+  return Boolean(started);
  }
 
  updateObjectiveMarker(time=0,forceHide=false){

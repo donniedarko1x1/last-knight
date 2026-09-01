@@ -20,7 +20,11 @@ export const SKILL_ICON_KEYS={
  spin:'skill_icon_spin'
 };
 
-export const PROLOGUE_PAGE_KEYS=Array.from({length:4},(_,i)=>`prologue_scene_${String(i+1).padStart(2,'0')}`);
+export const PROLOGUE_PAGE_KEYS=Array.from({length:3},(_,i)=>`prologue_scene_${String(i+1).padStart(2,'0')}`);
+export const BROKEN_SAINT_AFTERMATH_PAGE_KEYS=Array.from(
+ {length:3},
+ (_,i)=>`broken_saint_aftermath_${String(i+1).padStart(2,'0')}`
+);
 
 const manifest=[];
 const add=(category,requirement,type,key,url)=>{
@@ -116,6 +120,10 @@ for(const dir of dirs){
 // Decorative scenery is optional: existing world builders already skip missing
 // prop/landmark textures, so one decorative 404 cannot block the whole game.
 // ---------------------------------------------------------------------------
+for(const key of BROKEN_SAINT_AFTERMATH_PAGE_KEYS){
+ image(REGION_ASH,R,key,`/assets/ui/cinematic/broken_saint_aftermath/${key}.png`);
+}
+
 const ashGround=['ash_ground_base_01','ash_edge_north_01','ash_edge_south_01','ash_edge_west_01','ash_edge_east_01'];
 for(const key of ashGround) image(REGION_ASH,R,key,`/assets/environment/ash_fields/ground_minimal/${key}.png`);
 

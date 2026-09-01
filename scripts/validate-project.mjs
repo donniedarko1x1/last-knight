@@ -5,11 +5,12 @@ import {
  ASSET_MANIFEST,
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
- PROLOGUE_PAGE_KEYS
+ PROLOGUE_PAGE_KEYS,
+ BROKEN_SAINT_AFTERMATH_PAGE_KEYS
 } from '../src/config/assetManifest.mjs';
 import StoryDirector,{STORY_STATE} from '../src/story/StoryDirector.js';
-import StoryEnemyAnomalySystem,{STORY_WAVE_ANOMALY_COUNTS} from '../src/story/StoryEnemyAnomalySystem.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from '../src/story/storyEvents.js';
+import StoryEnemyAnomalySystem from '../src/story/StoryEnemyAnomalySystem.js';
+import {PROLOGUE_STORY_PAGES,STORY_ANOMALY_DEFINITIONS,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from '../src/story/storyEvents.js';
 
 const root=process.cwd();
 const errors=[];
@@ -35,7 +36,7 @@ function register(key,url,{required=true}={}){
 function pad2(n){return String(n).padStart(2,'0');}
 
 // 1) JS syntax.
-const syntaxFiles=['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/storyEvents.js'];
+const syntaxFiles=['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/WorldDialogueSystem.js','src/story/ChampionDialogueSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/BrokenSaintCinematics.js','src/story/storyEvents.js'];
 for(const file of syntaxFiles){
  const source=fs.readFileSync(path.join(root,file),'utf8');
  if(/^(?:<<<<<<<|=======|>>>>>>>)/m.test(source)) fail(`Unresolved Git conflict marker: ${file}`);
@@ -56,6 +57,7 @@ const worldConfig=fs.readFileSync(path.join(root,'src/config/worldConfig.mjs'),'
 const storyDirectorSource=fs.readFileSync(path.join(root,'src/story/StoryDirector.js'),'utf8');
 const objectiveMarkerSource=fs.readFileSync(path.join(root,'src/story/StoryObjectiveMarker.js'),'utf8');
 const woundedInteractionSource=fs.readFileSync(path.join(root,'src/story/WoundedKnightInteractionSystem.js'),'utf8');
+const worldDialogueSource=fs.readFileSync(path.join(root,'src/story/WorldDialogueSystem.js'),'utf8');
 const storyEnemyAnomalySource=fs.readFileSync(path.join(root,'src/story/StoryEnemyAnomalySystem.js'),'utf8');
 const storyEventsSource=fs.readFileSync(path.join(root,'src/story/storyEvents.js'),'utf8');
 
@@ -105,13 +107,19 @@ if(!errors.some(e=>e.startsWith('Missing required asset:')||e.startsWith('Duplic
 }
 
 // One-shot texture lifecycle contracts.
-if(PROLOGUE_PAGE_KEYS.length!==4) fail(`Expected 4 prologue page keys, got ${PROLOGUE_PAGE_KEYS.length}`);
+if(PROLOGUE_PAGE_KEYS.length!==3) fail(`Expected 3 prologue page keys, got ${PROLOGUE_PAGE_KEYS.length}`);
 for(const key of PROLOGUE_PAGE_KEYS){
  const spec=ASSET_MANIFEST.find(entry=>entry.key===key);
  if(!spec || spec.category!==ASSET_CATEGORY.PROLOGUE) fail(`Prologue page missing from PROLOGUE manifest: ${key}`);
 }
+if(BROKEN_SAINT_AFTERMATH_PAGE_KEYS.length!==3) fail(`Expected 3 Broken Saint aftermath page keys, got ${BROKEN_SAINT_AFTERMATH_PAGE_KEYS.length}`);
+for(const key of BROKEN_SAINT_AFTERMATH_PAGE_KEYS){
+ const spec=ASSET_MANIFEST.find(entry=>entry.key===key);
+ if(!spec || spec.category!==ASSET_CATEGORY.REGION_ASH) fail(`Broken Saint aftermath page missing from REGION_ASH manifest: ${key}`);
+}
 if(!main.includes('releaseTextureKeys(this,[LOADING_ART_KEY]);')) fail('Loading key-art release contract missing');
 if(!main.includes('releaseTextureKeys(this,PROLOGUE_PAGE_KEYS);')) fail('Prologue texture release contract missing');
+if(!main.includes('releaseTextureKeys:BROKEN_SAINT_AFTERMATH_PAGE_KEYS')) fail('Broken Saint aftermath texture release contract missing');
 if(!main.includes('spec?.requirement===ASSET_REQUIREMENT.OPTIONAL')) fail('Optional preload resilience contract missing');
 else pass('Resilient preload + one-shot texture release contracts present');
 
@@ -187,7 +195,8 @@ if(!errors.some(e=>e.startsWith('Missing world-physics contract:'))) pass('World
 // 8b) Broken Saint altar encounter v2 contracts.
 for(const [label,needle] of [
  ['figure-sized champion smoke','const outerW=Math.min(238,figureW*1.48);'],
- ['three-second post-materialize hold','const ASH_CHAMPION_POST_REVEAL_HOLD_MS=3000;'],
+ ['one-second post-materialize hold','const ASH_CHAMPION_POST_REVEAL_HOLD_MS=1000;'],
+ ['vignette completes before smoke','const materializeAt=cameraSettledAt+ASH_CHAMPION_VIGNETTE_FADE_MS;'],
  ['smoke clears before combat','smokeFadeAt:materializeCompleteAt-220'],
  ['escort clear detector','isBrokenSaintEscortWaveCleared(){'],
  ['altar release phase','releaseBrokenSaintFromAltar(){'],
@@ -196,7 +205,45 @@ for(const [label,needle] of [
 ]){
  if(!main.includes(needle)) fail(`Missing Broken Saint altar phase contract: ${label}`);
 }
-if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) pass('Broken Saint local smoke + 3s reveal hold + altar release phase contracts present');
+if(!errors.some(e=>e.startsWith('Missing Broken Saint altar phase contract:'))) pass('Broken Saint local smoke + 1s reveal hold + altar release phase contracts present');
+
+// 8c) Broken Saint reward / build-strategy v1 contracts.
+const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
+for(const [label,source,needle] of [
+ ['Lift commitment slowdown',main,'const BROKEN_SAINT_LIFT_SLOW_FACTOR=0.55;'],
+ ['Lift post-landing slow',main,'const BROKEN_SAINT_LIFT_POST_SLOW_MS=3000;'],
+ ['Lift slowdown only after a real launch',main,'if(longestLiftMs>0){\n   const landingAt=castAt+longestLiftMs;'],
+ ['Lift slow uses separate timer',main,'if(time<(this.liftSlowUntil||0)) s*=BROKEN_SAINT_LIFT_SLOW_FACTOR;'],
+ ['Spin remains stationary',main,'if(time<(this.spinCommitUntil||0) && time>=(this.playerForcedUntil||0)){'],
+ ['Pilgrim Path evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath'],
+ ['Verdict evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.verdict'],
+ ['Saint Stance evolution',main,'BROKEN_SAINT_EVOLUTION_IDS.saintStance'],
+ ['three-step Broken Saint reward flow',main,"stepTitle:'СИЛА ЧЕМПИОНА'"],
+ ['Cracked Halo relic',main,"name:'ТРЕСНУВШИЙ НИМБ'"],
+ ['Saints Nail post-Lift mark window',main,'BROKEN_SAINT_LIFT_POST_MARK_WINDOW_MS=3600'],
+ ['Ash Rosary cross-skill mana discount',main,'return 0.75;'],
+ ['reverse-smoke champion death',main,'beginBrokenSaintDefeatSequence(enemy){'],
+ ['post-death cinematic starts after smoke',main,'this.beginBrokenSaintAftermathCinematic();'],
+ ['post-death cinematic completion opens rewards',main,"eventId:'ash_broken_saint_aftermath_cinematic'"],
+ ['cinematic image mask clips illustration',main,'this.cinematicImageMaskShape=this.make.graphics({x:0,y:0,add:false});'],
+ ['cinematic image pan stays inside top frame',main,"const shouldPanLeft=page?.pan==='left';"],
+ ['reward UI base-skill icons',main,'entry.icon.setTexture(c.iconKey);'],
+ ['larger reward decision panel',main,'const panelW=Math.min(compact?720:900'],
+ ['larger reward description type',main,'.setFontSize(veryCompact?10:(compact?11.5:13.5))'],
+ ['Broken Saint essence icon map',main,'const BROKEN_SAINT_ESSENCE_ICON_KEYS=Object.freeze({'],
+ ['Essence of Body icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.body]"],
+ ['Essence of Will icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.will]"],
+ ['Essence of Discipline icon key',main,"iconKey:BROKEN_SAINT_ESSENCE_ICON_KEYS[BROKEN_SAINT_ESSENCE_IDS.discipline]"],
+ ['Cracked Halo asset manifest',assetManifestSource,'broken_saint_relic_cracked_halo'],
+ ['Saints Nail asset manifest',assetManifestSource,'broken_saint_relic_saints_nail'],
+ ['Ash Rosary asset manifest',assetManifestSource,'broken_saint_relic_ash_rosary'],
+ ['Essence Body asset manifest',assetManifestSource,'broken_saint_essence_body'],
+ ['Essence Will asset manifest',assetManifestSource,'broken_saint_essence_will'],
+ ['Essence Discipline asset manifest',assetManifestSource,'broken_saint_essence_discipline']
+]){
+ if(!source.includes(needle)) fail(`Missing Broken Saint reward contract: ${label}`);
+}
+if(!errors.some(e=>e.startsWith('Missing Broken Saint reward contract:'))) pass('Broken Saint build rewards + reverse-smoke death + mobile reward UI contracts present');
 
 // 8c) Broken Saint reward / build-strategy v1 contracts.
 const assetManifestSource=fs.readFileSync(path.join(root,'src/config/assetManifest.mjs'),'utf8');
@@ -263,9 +310,9 @@ for(const [label,source,needle] of [
  ['Ash altar objective carries marker point',main,'markerPoint:ASH_ALTAR_CHAMPION_STORY.markerPoint'],
  ['story marker ignores sprite visibility',objectiveMarkerSource,'Logical target point exists independently of sprite streaming/visibility.'],
  ['edge marker frame uses camera world view',objectiveMarkerSource,'const frame=this.getFrame(view);'],
- ['wounded dialogue gets settled vignette',woundedInteractionSource,'scene.createSettledStoryVignette?.(this.dialogueVignetteState,cam,{fadeMs:220});'],
+ ['wounded dialogue gets settled vignette without paused tweens',worldDialogueSource,'this.scene.createSettledStoryVignette?.(state,cam,{fadeMs:0});'],
  ['settled-camera vignette factory',main,'createSettledStoryVignette(state,cam=this.cameras?.main,{fadeMs=280}={}){'],
- ['skeleton vignette waits for camera lock',main,'state.cameraLocked=true;\n    this.createSettledStoryVignette(state,cam,{fadeMs:280});'],
+ ['shared vignette waits for camera lock',worldDialogueSource,'if(state && !this.active.closing && time>=state.cameraSettledAt)'],
  ['champion vignette waits for camera lock',main,'this.createSettledStoryVignette(state,cam,{fadeMs:300});']
 ]){
  if(!source.includes(needle)) fail(`Missing story marker/vignette contract: ${label}`);
@@ -274,11 +321,13 @@ if(!errors.some(e=>e.startsWith('Missing story marker/vignette contract:'))) pas
 
 // 9b) Dialogue safety + runtime performance pass.
 for(const [label,source,needle] of [
- ['dialogue actor avoidance',woundedInteractionSource,'dialogueOverlapArea(a,b){'],
- ['dialogue candidate layout',woundedInteractionSource,'const candidates=['],
- ['dialogue safe viewport',woundedInteractionSource,'const safe=scene.isTouchDevice'],
- ['dialogue CSS/backing compensation',woundedInteractionSource,'const dialogueScale=worldUiScale(scene);'],
- ['dialogue camera context',woundedInteractionSource,'cam.zoom*1.18'],
+ ['dialogue actor avoidance',worldDialogueSource,'dialogueOverlapArea(a,b){'],
+ ['dialogue candidate layout',worldDialogueSource,'const candidates=['],
+ ['dialogue safe viewport',worldDialogueSource,'const safe=scene.isTouchDevice'],
+ ['dialogue HUD geometry',main,'getDialogueAvoidBounds(){'],
+ ['dialogue follows current camera and HUD',worldDialogueSource,"scene.events.on('prerender',this._onPreRender);"],
+ ['dialogue CSS/backing compensation',worldDialogueSource,'const dialogueScale=worldUiScale(scene);'],
+ ['dialogue camera context',worldDialogueSource,'cam.zoom*1.18'],
  ['single A* route budget per frame',main,'this.navigationPathfindBudget=1;'],
  ['sleeping DEV overlays',main,'hasActiveOverlay(){'],
  ['DEV live-info throttle',main,'now-this.lastInfoAt<500'],
@@ -341,7 +390,7 @@ for(const [label,source,needle] of [
 ]){
  if(!source.includes(needle)) fail(`Missing StoryDirector v1 contract: ${label}`);
 }
-if(PROLOGUE_STORY_PAGES.length!==4) fail(`StoryDirector v1 expected 4 shared prologue pages, got ${PROLOGUE_STORY_PAGES.length}`);
+if(PROLOGUE_STORY_PAGES.length!==3) fail(`StoryDirector v1 expected 3 shared prologue pages, got ${PROLOGUE_STORY_PAGES.length}`);
 if(!Array.isArray(STORY_EVENTS)) fail('STORY_EVENTS must be an array');
 try{
  const emitted=[];
@@ -396,12 +445,12 @@ for(const [label,source,needle] of [
  ['interaction system module',woundedInteractionSource,'class WoundedKnightInteractionSystem'],
  ['desktop interaction prompt',woundedInteractionSource,"Нажмите E для взаимодействия"],
  ['dialogue wounded-knight speaker label',woundedInteractionSource,"'Раненый рыцарь'"],
- ['dialogue hero speaker label',woundedInteractionSource,"'Ты'"],
+ ['dialogue hero speaker label',worldDialogueSource,"'Ты'"],
  ['story knight dialogue route hook',woundedInteractionSource,'Наш командир повёл уцелевших на север. К старой часовне у тракта.'],
  ['story knight dramatic final line',woundedInteractionSource,'Не спеши. Мне уже некуда идти.'],
- ['camera focus zoom',woundedInteractionSource,'cam.zoomTo(targetZoom,CAMERA_IN_MS'],
+ ['camera focus zoom',worldDialogueSource,'cam.zoomTo(targetZoom,CAMERA_IN_MS'],
  ['generic marker client',woundedInteractionSource,"new StoryObjectiveMarker(scene,{insetRatio:0.10})"],
- ['story dialogue StoryDirector bridge',woundedInteractionSource,'this.storyDirector?.beginDialogue?.({'],
+ ['shared dialogue StoryDirector bridge',worldDialogueSource,'this.storyDirector?.beginDialogue?.({'],
  ['story NPC locked until objective',woundedInteractionSource,'if(entry.story && !this.isStoryEntryUnlocked(entry))continue;'],
  ['story interaction hard lock',woundedInteractionSource,'if(entry.story && !this.isStoryEntryUnlocked(entry))return false;'],
  ['objective activation listener',woundedInteractionSource,"scene.events.on('story-objective-activated'"],
@@ -442,24 +491,28 @@ if(!errors.some(e=>e.startsWith('Missing story-objective interaction contract:')
 if(woundedInteractionSource.includes('Любая клавиша — продолжить')) fail('Desktop dialogue continue plaque must be removed');
 else pass('Desktop E interaction prompt present; continue plaque removed');
 
-// 14) Act-I wave pacing: subtle enemy hesitation from waves 2-5, then Broken Saint
-// only after the ordinary fifth wave has been cleared.
+// 14) Act-I story anomalies are now data-driven. Ash Fields uses one scripted
+// beat in wave 2 and two beats in wave 3; later waves stay clear so the wounded
+// knight / altar / Broken Saint beats own the pacing.
 for(const [label,source,needle] of [
  ['enemy anomaly module',storyEnemyAnomalySource,'class StoryEnemyAnomalySystem'],
- ['wave anomaly counts',storyEnemyAnomalySource,'const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:1,3:2,4:1,5:2})'],
- ['distributed wave selection',storyEnemyAnomalySource,'this.selectedOrdinals.add(ordinal);'],
- ['hesitation phase',storyEnemyAnomalySource,"state.phase='hesitate';"],
+ ['data definition lookup',storyEnemyAnomalySource,'getDefinitionsForWave(wave)'],
+ ['data trigger ordinal map',storyEnemyAnomalySource,'this.selectedOrdinals.set(ordinal,definition);'],
+ ['definition attached to enemy',storyEnemyAnomalySource,'definition,'],
+ ['interactive dialogue phase',storyEnemyAnomalySource,"state.phase='dialogue';"],
  ['release beat before flee',storyEnemyAnomalySource,"state.phase='release';"],
  ['flee phase',storyEnemyAnomalySource,"state.phase='flee';"],
- ['five-second hesitation',storyEnemyAnomalySource,'const hesitateMs=5000;'],
  ['escaped anomaly is permanently defeated',storyEnemyAnomalySource,'vanishAsDefeated(enemy,state){'],
  ['escaped anomaly schedules no replacement',storyEnemyAnomalySource,'hasPendingReturns(){return false;}'],
  ['MainScene anomaly import',main,"import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';"],
- ['MainScene anomaly install',main,'this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();'],
+ ['MainScene anomaly data import',main,'STORY_ANOMALY_DEFINITIONS'],
+ ['MainScene anomaly install',main,'new StoryEnemyAnomalySystem(this,{definitions:STORY_ANOMALY_DEFINITIONS}).install();'],
  ['wave plan hook',main,'this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);'],
  ['spawn registration hook',main,'this.storyEnemyAnomalies?.registerEnemy(e,{'],
  ['AI anomaly override',main,'const storyAnomaly=!devFreezeAI'],
- ['five-second anomaly focus',main,'highlightStoryAnomaly(enemy,{durationMs=5000}={})'],
+ ['data-aware anomaly focus',main,'highlightStoryAnomaly(enemy,{cue=null}={})'],
+ ['enemy scripted line',main,'getStoryAnomalyEnemyLine(enemy)'],
+ ['hero scripted response',main,'getStoryAnomalyHeroLine(enemy)'],
  ['anomaly cinematic gate',main,'isStoryAnomalyMomentActive(time=this.time?.now||0)'],
  ['soft anomaly vignette',main,"const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';"],
  ['edge-normalized anomaly vignette',main,'const maxEdgeAlpha=0.52;'],
@@ -467,18 +520,6 @@ for(const [label,source,needle] of [
  ['anomaly focus curve',main,'const vignetteFocusCurve=0.82;'],
  ['anomaly silhouette outline',main,'createStoryAnomalyOutline(enemy)'],
  ['anomaly outline frame sync',main,'syncStoryAnomalyOutline(state)'],
- ['anomaly ambiguous survival thought',main,"'Он выжил...'"],
- ['anomaly thought impossible',main,"'Этого не может быть...'"],
- ['anomaly thought still here',main,"'Он всё ещё здесь...'"],
- ['anomaly thought truth',main,"'Значит, это правда...'"],
- ['anomaly thought saw death',main,"'Я видел его смерть...'"],
- ['anomaly thought denial',main,"'Нет... не может быть.'"],
- ['anomaly thought should be dead',main,"'Он должен был погибнуть...'"],
- ['anomaly thought realization',main,"'Так вот что случилось...'"],
- ['anomaly thought too late',main,"'Слишком поздно...'"],
- ['expanded anomaly thought pool',main,"'Кто тогда погиб?..'"],
- ['anomaly recent-thought anti-repeat window',main,'const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;'],
- ['anomaly thought random choice',main,'Math.floor(Math.random()*pool.length)'],
  ['hero skill lock during anomaly',main,'if(this.isStoryAnomalyMomentActive(this.time.now) || this.isAshChampionIntroActive()) return;'],
  ['player anomaly hard freeze',main,'vx=0;'],
  ['enemy anomaly cinematic freeze',main,'const storyCinematicFrozen=Boolean((storyMomentActive && e!==focusedStoryEnemy) || e.storyDormant);'],
@@ -496,17 +537,27 @@ for(const [label,source,needle] of [
 ]){
  if(!source.includes(needle)) fail(`Missing Act-I wave pacing contract: ${label}`);
 }
+for(const [label,needle] of [
+ ['wave-2 anomaly id',"id:'ash_wave2_master_question'"],
+ ['wave-2 master line',"text:'Господин?..'"],
+ ['wave-2 hero response',"text:'Ты меня знаешь?'"],
+ ['wave-3 return line',"text:'Он вернулся.'"],
+ ['wave-3 killing-us line',"text:'Почему он убивает нас?'"],
+ ['wave-3 hero response',"text:'Кого вы во мне видите?'"],
+ ['anomaly post behavior',"behaviorAfter:'flee'"],
+ ['anomaly one-shot contract','once:true']
+]){
+ if(!storyEventsSource.includes(needle)) fail(`Missing scripted Act-I anomaly data: ${label}`);
+}
 if(!gameplayConfig.includes('MAGE_PROJECTILE_DAMAGE:8')) fail('Mage projectile base damage must match ordinary skeleton base damage (8)');
 try{
- const fakeScene={time:{now:1000}};
- const anomaly=new StoryEnemyAnomalySystem(fakeScene).install();
- for(const wave of [2,3,4,5]){
+ const fakeScene={time:{now:1000},regionIndex:0};
+ const anomaly=new StoryEnemyAnomalySystem(fakeScene,{definitions:STORY_ANOMALY_DEFINITIONS}).install();
+ const expectedCounts=new Map([[1,0],[2,1],[3,2],[4,0],[5,0]]);
+ for(const [wave,expected] of expectedCounts){
   anomaly.beginWave(wave,20);
-  const expected=STORY_WAVE_ANOMALY_COUNTS[wave];
   if(anomaly.selectedOrdinals.size!==expected) throw new Error(`wave ${wave} planned ${anomaly.selectedOrdinals.size}, expected ${expected}`);
  }
- anomaly.beginWave(1,20);
- if(anomaly.selectedOrdinals.size!==0) throw new Error('wave 1 must have no story anomalies');
  anomaly.destroy();
 }catch(error){
  fail(`Act-I enemy anomaly smoke test failed: ${error.message}`);
@@ -591,9 +642,9 @@ for(const [label,source,needle] of [
  ['hero melee nearby hysteresis',heroMeleeSource,'this.disengagePadding = 26;'],
  ['short browser resume panic cooldown',main,'fps:{panicMax:10,smoothStep:true,deltaHistory:10}'],
  ['browser resume recovery trace',main,"'browser_resume_recovery'"],
- ['fixed CSS-scale anomaly thought',main,'const anomalyUiScale=lkWorldUiScale(this,cam);'],
+ ['fixed CSS-scale anomaly dialogue',worldDialogueSource,'const dialogueScale=worldUiScale(scene);'],
  ['fixed CSS-scale wounded prompt',woundedInteractionSource,'prompt.setScale(worldUiScale(scene));'],
- ['fixed CSS-scale wounded dialogue',woundedInteractionSource,'const dialogueScale=worldUiScale(scene);']
+ ['fixed CSS-scale wounded dialogue',worldDialogueSource,'const dialogueScale=worldUiScale(scene);']
 ]){
  if(!source.includes(needle)) fail(`Missing Performance Diagnostics v4 contract: ${label}`);
 }

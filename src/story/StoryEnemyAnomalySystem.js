@@ -1,18 +1,28 @@
-const STORY_WAVE_ANOMALY_COUNTS=Object.freeze({2:1,3:2,4:1,5:2});
-const ONE_EVENT_FRACTIONS=Object.freeze([0.52]);
-const TWO_EVENT_FRACTIONS=Object.freeze([0.30,0.72]);
+const DEFAULT_TRIGGER_FRACTION=0.52;
 const ANOMALY_RELEASE_MS=120;
 
 function deterministicSeed(wave,ordinal){
  return Math.abs((Number(wave)||0)*97+(Number(ordinal)||0)*53);
 }
 
+function toOrdinal(definition,waveTarget){
+ const exactOrdinal=Math.floor(Number(definition?.triggerOrdinal)||0);
+ if(exactOrdinal>0)return Math.max(1,Math.min(waveTarget,exactOrdinal));
+ const fraction=Number.isFinite(Number(definition?.triggerFraction))
+  ? Number(definition.triggerFraction)
+  : DEFAULT_TRIGGER_FRACTION;
+ const normalized=Math.max(0.05,Math.min(0.95,fraction));
+ return Math.max(1,Math.min(waveTarget,Math.round(waveTarget*normalized)));
+}
+
 class StoryEnemyAnomalySystem {
- constructor(scene){
+ constructor(scene,{definitions=[]}={}){
   this.scene=scene;
   this.currentWave=0;
   this.waveTarget=0;
-  this.selectedOrdinals=new Set();
+  this.selectedOrdinals=new Map();
+  this.consumedDefinitionIds=new Set();
+  this.definitions=Array.isArray(definitions)?definitions.filter(Boolean):[];
   this.installed=false;
  }
 
@@ -23,27 +33,39 @@ class StoryEnemyAnomalySystem {
 
  destroy(){
   this.selectedOrdinals.clear();
+  this.consumedDefinitionIds.clear();
   this.installed=false;
   this.scene=null;
  }
 
  hasPendingReturns(){return false;}
 
+ getDefinitionsForWave(wave){
+  const regionIndex=Number(this.scene?.regionIndex)||0;
+  return this.definitions.filter(def=>{
+   if(!def)return false;
+   if((Number(def.wave)||0)!==(Number(wave)||0))return false;
+   if(def.once && this.consumedDefinitionIds.has(def.id))return false;
+   if(def.regionIndex===undefined || def.regionIndex===null)return true;
+   return (Number(def.regionIndex)||0)===regionIndex;
+  });
+ }
+
  beginWave(wave,waveTarget){
   this.currentWave=Number(wave)||0;
   this.waveTarget=Math.max(0,Math.floor(Number(waveTarget)||0));
   this.selectedOrdinals.clear();
+  if(this.waveTarget<=0)return;
 
-  const count=STORY_WAVE_ANOMALY_COUNTS[this.currentWave]||0;
-  if(count<=0 || this.waveTarget<=0)return;
+  const definitions=this.getDefinitionsForWave(this.currentWave);
+  if(!definitions.length)return;
 
-  const fractions=count===1?ONE_EVENT_FRACTIONS:TWO_EVENT_FRACTIONS;
-  for(const fraction of fractions){
-   let ordinal=Math.round(this.waveTarget*fraction);
-   ordinal=Math.max(1,Math.min(this.waveTarget,ordinal));
+  for(const definition of definitions){
+   let ordinal=toOrdinal(definition,this.waveTarget);
    while(this.selectedOrdinals.has(ordinal) && ordinal<this.waveTarget)ordinal++;
    while(this.selectedOrdinals.has(ordinal) && ordinal>1)ordinal--;
-   this.selectedOrdinals.add(ordinal);
+   if(this.selectedOrdinals.has(ordinal))continue;
+   this.selectedOrdinals.set(ordinal,definition);
   }
  }
 
@@ -53,22 +75,22 @@ class StoryEnemyAnomalySystem {
   const ordinal=Math.max(1,Math.floor(Number(spawnOrdinal)||0));
   if(normalizedWave!==this.currentWave || !this.selectedOrdinals.has(ordinal))return false;
 
+  const definition=this.selectedOrdinals.get(ordinal);
+  this.selectedOrdinals.delete(ordinal);
+
   const seed=deterministicSeed(normalizedWave,ordinal);
   const baseDistance=enemy.type==='mage'?238:(enemy.type==='shield'?142:152);
   const triggerDistance=baseDistance+(seed%31)-15;
   const armDelay=650+(seed%1450);
-  // Give the player enough time to notice the broken behaviour before the mob bolts.
-  const hesitateMs=5000;
 
   enemy.storyAnomaly={
    wave:normalizedWave,
    spawnOrdinal:ordinal,
    seed,
+   definition,
    phase:'waiting',
    armedAt:(this.scene?.time?.now||0)+armDelay,
    triggerDistance,
-   hesitateMs,
-   hesitateUntil:0,
    releaseUntil:0,
    fleeAngle:0,
    fleeStartedAt:0
@@ -79,7 +101,7 @@ class StoryEnemyAnomalySystem {
  isEnemyAnomalyActive(enemy,time=this.scene?.time?.now||0){
   const state=enemy?.storyAnomaly;
   if(!state)return false;
-  return state.phase==='hesitate' || state.phase==='release' || state.phase==='flee' || time<(enemy.storyAnomalyFreezeUntil||0);
+  return state.phase==='dialogue' || state.phase==='release' || state.phase==='flee' || time<(enemy.storyAnomalyFreezeUntil||0);
  }
 
  chooseFleeAngle(enemy){
@@ -107,9 +129,8 @@ class StoryEnemyAnomalySystem {
   const scene=this.scene;
   if(!scene || !enemy?.active || state.phase==='escaped')return false;
 
-  // Escaping the battlefield is permanent. No replacement is spawned; wave
-  // progression treats this mob as defeated once it leaves the focused view.
   state.phase='escaped';
+  if(state.definition?.id) this.consumedDefinitionIds.add(state.definition.id);
   enemy.hp=0;
   try{enemy.visual?.destroy?.();}catch{}
   try{enemy.auraVisual?.destroy?.();}catch{}
@@ -117,6 +138,25 @@ class StoryEnemyAnomalySystem {
   try{scene.destroyEnemyReadabilityShadow?.(enemy);}catch{}
   try{enemy.destroy?.();}catch{}
   scene.enemies=(scene.enemies||[]).filter(item=>item && item!==enemy && item.active);
+  return true;
+ }
+
+ finishDialogue(enemy){
+  const state=enemy?.storyAnomaly;
+  if(!state || state.phase!=='dialogue')return false;
+  if(state.definition?.id)this.consumedDefinitionIds.add(state.definition.id);
+  state.phase='release';
+  state.releaseUntil=(this.scene?.time?.now||0)+ANOMALY_RELEASE_MS;
+  enemy.storyAnomalyFreezeUntil=state.releaseUntil;
+  return true;
+ }
+
+ cancelDialogue(enemy){
+  const state=enemy?.storyAnomaly;
+  if(!state || state.phase!=='dialogue')return false;
+  state.phase=enemy.active && enemy.hp>0?'waiting':'done';
+  state.armedAt=(this.scene?.time?.now||0)+500;
+  enemy.storyAnomalyFreezeUntil=0;
   return true;
  }
 
@@ -130,30 +170,24 @@ class StoryEnemyAnomalySystem {
    if(time<state.armedAt || distance>state.triggerDistance)return null;
    if(time<(enemy.staggerUntil||0) || time<(enemy.skillLiftUntil||0) || time<(enemy.skillTremorUntil||0))return null;
 
-   state.phase='hesitate';
-   state.hesitateUntil=time+state.hesitateMs;
-   enemy.storyAnomalyFreezeUntil=state.hesitateUntil;
-   enemy.pendingMeleeHitAt=0;
-   enemy.pendingMeleeDamage=0;
-   enemy.pendingMeleeRange=0;
-   enemy.attackAnimUntil=0;
-   enemy.lastAttack=Math.max(enemy.lastAttack||0,time);
-   enemy.lastShot=Math.max(enemy.lastShot||0,time);
-   this.scene?.highlightStoryAnomaly?.(enemy,{durationMs:5000});
+   // A rejected start (another conversation/menu/focus lock) remains waiting.
+   // Do not consume the event or start a flee timer until the shared UI accepts it.
+   const started=this.scene?.highlightStoryAnomaly?.(enemy,{cue:state.definition});
+   if(!started)return null;
+   state.phase='dialogue';
+   enemy.storyAnomalyFreezeUntil=0;
   }
 
-  if(state.phase==='hesitate'){
-   if(time<state.hesitateUntil)return {kind:'hesitate'};
-   // Give the vignette a fraction of a second to clear before the skeleton bolts.
-   // This creates a readable beat: focus ends -> world returns -> sudden escape.
-   state.phase='release';
-   state.releaseUntil=time+ANOMALY_RELEASE_MS;
-   enemy.storyAnomalyFreezeUntil=state.releaseUntil;
-   return {kind:'release'};
-  }
+  if(state.phase==='dialogue')return {kind:'hesitate'};
 
   if(state.phase==='release'){
    if(time<state.releaseUntil)return {kind:'release'};
+   if((state.definition?.behaviorAfter||'flee')!=='flee'){
+    state.phase='done';
+    enemy.storyAnomalyFreezeUntil=0;
+    if(state.definition?.id) this.consumedDefinitionIds.add(state.definition.id);
+    return null;
+   }
    state.phase='flee';
    state.fleeAngle=this.chooseFleeAngle(enemy);
    state.fleeStartedAt=time;
@@ -173,5 +207,5 @@ class StoryEnemyAnomalySystem {
  }
 }
 
-export {STORY_WAVE_ANOMALY_COUNTS,ANOMALY_RELEASE_MS};
+export {ANOMALY_RELEASE_MS};
 export default StoryEnemyAnomalySystem;

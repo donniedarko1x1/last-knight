@@ -9,15 +9,61 @@ const PROLOGUE_STORY_PAGES=Object.freeze([
  }),
  Object.freeze({
   image:'prologue_scene_02',
-  text:'Ему дали меч и сказали, против кого сражаться.'
+  text:'Ему дали чужой меч.\nСказали только одно: если хочешь жить — сражайся.'
  }),
  Object.freeze({
   image:'prologue_scene_03',
-  text:'Королевство гибло.\nИ он поверил, что должен его спасти.'
+  text:'Ему указали дорогу в Пепельные поля,\nоткуда снова поднимались мёртвые.'
+ })
+]);
+
+const STORY_ANOMALY_DEFINITIONS=Object.freeze([
+ Object.freeze({
+  id:'ash_wave2_master_question',
+  regionIndex:0,
+  wave:2,
+  triggerFraction:0.52,
+  actor:'enemy',
+  speakerName:'Скелет',
+  dialogue:Object.freeze([
+   Object.freeze({speaker:'npc',text:'Господин?..'}),
+   Object.freeze({speaker:'hero',text:'Ты меня знаешь?'})
+  ]),
+  focusPreset:'soft',
+  behaviorAfter:'flee',
+  once:true,
+  storyState:'act1_false_identity'
  }),
  Object.freeze({
-  image:'prologue_scene_04',
-  text:'Его ярость рвалась наружу...'
+  id:'ash_wave3_he_returned',
+  regionIndex:0,
+  wave:3,
+  triggerFraction:0.30,
+  actor:'enemy',
+  speakerName:'Скелет',
+  dialogue:Object.freeze([
+   Object.freeze({speaker:'npc',text:'Он вернулся.'})
+  ]),
+  focusPreset:'soft',
+  behaviorAfter:'flee',
+  once:true,
+  storyState:'act1_false_identity'
+ }),
+ Object.freeze({
+  id:'ash_wave3_why_is_he_killing_us',
+  regionIndex:0,
+  wave:3,
+  triggerFraction:0.72,
+  actor:'enemy',
+  speakerName:'Скелет',
+  dialogue:Object.freeze([
+   Object.freeze({speaker:'npc',text:'Почему он убивает нас?'}),
+   Object.freeze({speaker:'hero',text:'Кого вы во мне видите?'})
+  ]),
+  focusPreset:'soft',
+  behaviorAfter:'flee',
+  once:true,
+  storyState:'act1_false_identity'
  })
 ]);
 
@@ -37,8 +83,6 @@ const ASH_WOUNDED_KNIGHT_STORY=Object.freeze({
  // The marker must exist even while the knight sprite is culled or not created.
  markerPoint:Object.freeze({x:2700,y:800})
 });
-
-
 
 // After wave 4, combat pauses and the player is led to the Ash Fields altar.
 // The first champion materializes only when the player reaches the landmark;
@@ -80,4 +124,4 @@ const STORY_EVENTS=Object.freeze([
  })
 ]);
 
-export {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY};
+export {PROLOGUE_STORY_PAGES,STORY_ANOMALY_DEFINITIONS,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY};

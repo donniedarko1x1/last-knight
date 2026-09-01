@@ -28,14 +28,18 @@ import NavigationSystem from './world/NavigationSystem.js';
 import AudioManager from './audio/AudioManager.js';
 import StoryDirector from './story/StoryDirector.js';
 import WoundedKnightInteractionSystem from './story/WoundedKnightInteractionSystem.js';
+import WorldDialogueSystem from './story/WorldDialogueSystem.js';
+import ChampionDialogueSystem from './story/ChampionDialogueSystem.js';
+import {BROKEN_SAINT_INTRO_DIALOGUE,BROKEN_SAINT_AFTERMATH_PAGES} from './story/BrokenSaintCinematics.js';
 import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
 import StoryObjectiveMarker from './story/StoryObjectiveMarker.js';
-import {PROLOGUE_STORY_PAGES,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from './story/storyEvents.js';
+import {PROLOGUE_STORY_PAGES,STORY_ANOMALY_DEFINITIONS,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from './story/storyEvents.js';
 import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
  SKILL_ICON_KEYS,
  PROLOGUE_PAGE_KEYS,
+ BROKEN_SAINT_AFTERMATH_PAGE_KEYS,
  getAssetSpec,
  queueAssetCategories,
  releaseTextureKeys
@@ -94,36 +98,15 @@ function lkWriteQualityResponseMap(map){
  try{localStorage.setItem(LK_QUALITY_RESPONSE_STORAGE_KEY,JSON.stringify(map||{}));}catch{}
 }
 
-const STORY_ANOMALY_THOUGHTS=Object.freeze([
- 'Он выжил...',
- 'Этого не может быть...',
- 'Он всё ещё здесь...',
- 'Значит, это правда...',
- 'Я видел его смерть...',
- 'Нет... не может быть.',
- 'Он должен был погибнуть...',
- 'Так вот что случилось...',
- 'Слишком поздно...',
- 'Как он смог?..',
- 'Я не ошибся...',
- 'Это действительно он?..',
- 'Мы опоздали...',
- 'После всего этого...',
- 'Нас предупреждали...',
- 'Всё начинается снова...',
- 'Значит, это ещё не конец...',
- 'Почему именно сейчас?..',
- 'Кто тогда погиб?..'
-]);
-const STORY_ANOMALY_RECENT_THOUGHT_LIMIT=4;
 const STORY_ANOMALY_VIGNETTE_TEXTURE='story_anomaly_vignette_soft';
 const HERO_FOCUS_STANCE_FRAME_MS=330;
 const HERO_FOCUS_STANCE_STATE='hero_socket_focus_stance';
 const ASH_CHAMPION_REVEAL_MS=4600;
 const ASH_CHAMPION_MATERIALIZE_DELAY_MS=260;
 const ASH_CHAMPION_MATERIALIZE_MS=1450;
+const ASH_CHAMPION_CAMERA_SETTLE_MS=450;
 const ASH_CHAMPION_VIGNETTE_FADE_MS=300;
-const ASH_CHAMPION_POST_REVEAL_HOLD_MS=3000;
+const ASH_CHAMPION_POST_REVEAL_HOLD_MS=1000;
 const ASH_CHAMPION_SMOKE_FADE_MS=650;
 const STORY_FOCUS_RELEASE_COOLDOWN_MS=220;
 const ASH_CHAMPION_SMOKE_FRAME_COUNT=5;
@@ -2306,6 +2289,9 @@ class CinematicScene extends Phaser.Scene {
   this.runtimeOnComplete=null;
   this.runtimeOnCancel=null;
   this.runtimeCompletionDispatched=false;
+  this.cinematicImageMaskShape=null;
+  this.cinematicImageMask=null;
+  this.cinematicPanTween=null;
  }
 
  init(data={}){
@@ -2351,6 +2337,10 @@ class CinematicScene extends Phaser.Scene {
    if(this.cinematicMode==='story' && !this.runtimeCompletionDispatched){
     this.dispatchRuntimeCinematicCancel();
    }
+   this.stopCinematicImagePan();
+   this.cinematicImageMaskShape?.destroy();
+   this.cinematicImageMaskShape=null;
+   this.cinematicImageMask=null;
   });
 
   this.input.keyboard?.on('keydown-RIGHT',()=>this.advancePrologue());
@@ -2369,9 +2359,12 @@ class CinematicScene extends Phaser.Scene {
   this.lowerPanel.on('pointerup',()=>this.advancePrologue());
 
   const firstImageKey=this.cinematicPages?.[0]?.image || this.prologuePages?.[0]?.image || 'prologue_scene_01';
+  this.cinematicImageMaskShape=this.make.graphics({x:0,y:0,add:false});
+  this.cinematicImageMask=this.cinematicImageMaskShape.createGeometryMask();
   this.cinematicImage=this.add.image(0,0,firstImageKey)
    .setOrigin(0)
-   .setDepth(2);
+   .setDepth(2)
+   .setMask(this.cinematicImageMask);
 
   this.dialogueText=lkAddText(this,0,0,'',{
    fontFamily:'Georgia, serif',
@@ -2563,13 +2556,16 @@ class CinematicScene extends Phaser.Scene {
  fitCinematicImage(x,y,w,h){
   if(!this.cinematicImage?.texture)return;
 
+  this.stopCinematicImagePan();
   const source=this.cinematicImage.texture.getSourceImage();
   const sw=source?.width||1536;
   const sh=source?.height||864;
-  const scale=Math.min(w/sw,h/sh);
+  const page=this.cinematicPages?.[this.pageIndex];
+  const shouldPanLeft=page?.pan==='left';
+  const scale=shouldPanLeft ? Math.max(w/sw,h/sh) : Math.min(w/sw,h/sh);
   const displayW=sw*scale;
   const displayH=sh*scale;
-  const drawX=x+(w-displayW)*0.5;
+  const drawX=shouldPanLeft ? x : x+(w-displayW)*0.5;
   const drawY=y+(h-displayH)*0.5;
 
   this.cinematicImage
@@ -2577,7 +2573,30 @@ class CinematicScene extends Phaser.Scene {
    .setPosition(drawX,drawY)
    .setDisplaySize(displayW,displayH);
 
+  if(shouldPanLeft && displayW>w+1){
+   this.cinematicPanTween=this.tweens.add({
+    targets:this.cinematicImage,
+    x:x+w-displayW,
+    duration:14000,
+    ease:'Sine.easeInOut'
+   });
+  }
+
   this._lastImageBounds=[x,y,w,h];
+ }
+
+ stopCinematicImagePan(){
+  if(!this.cinematicPanTween)return;
+  this.cinematicPanTween.stop();
+  this.cinematicPanTween=null;
+ }
+
+ updateCinematicImageMask(x,y,w,h){
+  if(!this.cinematicImageMaskShape)return;
+  this.cinematicImageMaskShape
+   .clear()
+   .fillStyle(0xffffff,1)
+   .fillRect(x,y,w,h);
  }
 
  layoutDialogueText(textX,textY,textW,textH){
@@ -2699,6 +2718,7 @@ class CinematicScene extends Phaser.Scene {
    .setSize(frameW,lowerPanelH)
    .setDisplaySize(frameW,lowerPanelH);
 
+  this.updateCinematicImageMask(left,top,frameW,imageH);
   this.fitCinematicImage(left,top,frameW,imageH);
 
   this.addStoneBar(left,top,right,top,borderThickness);
@@ -3119,7 +3139,6 @@ class MainScene extends Phaser.Scene {
   this.devTools=null;
   this.storyDirector=null;
   this.storyEnemyAnomalies=null;
-  this.storyAnomalyRecentThoughts=[];
   this.storyWaveGateWasActive=false;
   this.postWaveChampionKind=null;
   this.ashAltarObjectiveMarker=null;
@@ -3262,7 +3281,6 @@ class MainScene extends Phaser.Scene {
   this.devEnvironmentShadows=[];
   this.devEnvironmentColliders=[];
   this.storyEnemyAnomalies=null;
-  this.storyAnomalyRecentThoughts=[];
   this.storyWaveGateWasActive=false;
   this.postWaveChampionKind=null;
   this.ashAltarObjectiveMarker=null;
@@ -3411,12 +3429,14 @@ class MainScene extends Phaser.Scene {
   this.currentWorldZoneIndex=0;
   this.regionText.setText(WORLD_DESIGN.ZONES[0].name);
 
-  // StoryDirector owns one-shot story state. WoundedKnightInteractionSystem is
-  // the first in-world dialogue client: it pauses combat, focuses the camera and
-  // uses StoryDirector completion flags so every wounded knight speaks only once.
+  // One dialogue presentation/input owner serves both E interactions and NPC triggers.
+  // Install its input listeners before interaction clients so the initiating press
+  // cannot also advance the first line.
   this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();
+  this.dialogueSystem=new WorldDialogueSystem(this,{storyDirector:this.storyDirector}).install();
   this.woundedKnightInteractions=new WoundedKnightInteractionSystem(this,{storyDirector:this.storyDirector}).install();
-  this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this).install();
+  this.championDialogueSystem=new ChampionDialogueSystem(this,{storyDirector:this.storyDirector});
+  this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this,{definitions:STORY_ANOMALY_DEFINITIONS}).install();
   this.ashAltarObjectiveMarker=new StoryObjectiveMarker(this,{insetRatio:0.10}).install();
 
   this.updateWorldStreaming();
@@ -3438,6 +3458,11 @@ class MainScene extends Phaser.Scene {
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
+   this.dialogueSystem?.destroy();
+   this.dialogueSystem=null;
+   this.championDialogueSystem?.destroy();
+   this.championDialogueSystem=null;
+   this.finishStoryAnomalyHighlight();
    this.woundedKnightInteractions?.destroy();
    this.woundedKnightInteractions=null;
    this.storyEnemyAnomalies?.destroy();
@@ -6629,7 +6654,7 @@ createAshFieldsEnvironment(objects,zone){
 
  damagePlayer(amount,source='enemy',attacker=null){
   if(this.devFlags?.godMode) return false;
-  if(this.gameOver || amount<=0) return false;
+  if(this.gameOver || this.dialogueSystem?.active || amount<=0) return false;
   const now=this.time.now;
   // A mage bolt that was already in flight must never punish the player while
   // the five-second story anomaly has deliberately frozen the whole combat beat.
@@ -6984,11 +7009,24 @@ createAshFieldsEnvironment(objects,zone){
    if(shadow?.active) shadow.destroy();
    for(const smoke of this.brokenSaintDefeatFx||[]){if(smoke?.active)smoke.destroy();}
    this.brokenSaintDefeatFx=[];
+   this.beginBrokenSaintAftermathCinematic();
+  });
+ }
+
+ beginBrokenSaintAftermathCinematic(){
+  const complete=()=>{
    this.brokenSaintDefeatSequenceActive=false;
    this.setHeroFocusInteraction('brokenSaintDefeat',false);
-   try{this.physics.resume();}catch{}
    this.openChampionRewards('brokenSaint');
+  };
+  const started=this.storyDirector?.playCinematic(BROKEN_SAINT_AFTERMATH_PAGES,{
+   eventId:'ash_broken_saint_aftermath_cinematic',
+   once:true,
+   releaseTextureKeys:BROKEN_SAINT_AFTERMATH_PAGE_KEYS,
+   onComplete:complete
   });
+  if(!started) complete();
+  return Boolean(started);
  }
 
  onChampionDefeated(enemy){
@@ -7365,7 +7403,34 @@ createAshFieldsEnvironment(objects,zone){
    onComplete:()=>{if(ground.active)ground.destroy();}
   });
 
-  return fx;
+ return fx;
+}
+
+ beginAshChampionMaterialization(state){
+  if(!state || state.materializationStarted || !state.champion?.active)return false;
+  state.materializationStarted=true;
+  const champion=state.champion;
+  const anchor=champion.storyRevealAnchor||{x:champion.x,y:champion.y};
+  state.ashFx=this.createAshChampionRevealFx(champion,anchor);
+  if(champion.visual?.active){
+   this.tweens.add({
+    targets:champion.visual,
+    alpha:0.96,
+    duration:ASH_CHAMPION_MATERIALIZE_MS+180,
+    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+180,
+    ease:'Sine.easeInOut'
+   });
+  }
+  if(champion.shadowVisual?.active){
+   this.tweens.add({
+    targets:champion.shadowVisual,
+    alpha:ASH_READABILITY.CHAMPION_SHADOW_ALPHA,
+    duration:ASH_CHAMPION_MATERIALIZE_MS+160,
+    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+260,
+    ease:'Sine.easeInOut'
+   });
+  }
+  return true;
  }
 
  beginAshChampionReveal(){
@@ -7405,10 +7470,12 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   const now=this.time.now;
-  // The champion first becomes fully readable, then the entire world holds for
-  // a clean three-second stare-down before combat is allowed to begin.
-  const materializeCompleteAt=now+ASH_CHAMPION_MATERIALIZE_DELAY_MS+180+ASH_CHAMPION_MATERIALIZE_MS+180;
-  const attackAt=materializeCompleteAt+ASH_CHAMPION_POST_REVEAL_HOLD_MS;
+  // The camera gets to rest first. Only after the vignette has finished fading
+  // in does the smoke begin and Broken Saint materialize inside that frame.
+  const cameraSettledAt=now+ASH_CHAMPION_CAMERA_SETTLE_MS;
+  const materializeAt=cameraSettledAt+ASH_CHAMPION_VIGNETTE_FADE_MS;
+  const materializeCompleteAt=materializeAt+ASH_CHAMPION_MATERIALIZE_DELAY_MS+180+ASH_CHAMPION_MATERIALIZE_MS+180;
+  const dialogueAt=materializeCompleteAt+ASH_CHAMPION_POST_REVEAL_HOLD_MS;
   this.storyDirector?.setFlag?.(ASH_ALTAR_CHAMPION_STORY.encounterStartedFlag,true);
   this.storyDirector?.completeObjective?.(ASH_ALTAR_CHAMPION_STORY.objectiveId);
   this.ashAltarObjectiveMarker?.clearTarget();
@@ -7418,7 +7485,7 @@ createAshFieldsEnvironment(objects,zone){
   // when control returns and the champion is actually allowed to attack.
   this.stopBackgroundMusic();
   this.setHeroFocusInteraction('ashChampionReveal',true);
-  this.skillLockUntil=Math.max(this.skillLockUntil||0,attackAt+120);
+  this.skillLockUntil=Math.max(this.skillLockUntil||0,dialogueAt+120);
   this.playerAttackUntil=now;
   this.player?.body?.setVelocity?.(0,0);
   this.mobileMoveX=0;
@@ -7450,43 +7517,28 @@ createAshFieldsEnvironment(objects,zone){
    vignette:null,
    ashFx:[],
    startAt:now,
+   cameraSettledAt,
+   materializeAt,
    materializeCompleteAt,
-   attackAt,
+   dialogueAt,
    smokeFadeAt:materializeCompleteAt-220,
    smokeFading:false,
-   vignetteFadeAt:attackAt-ASH_CHAMPION_VIGNETTE_FADE_MS,
+   vignetteFadeAt:dialogueAt-ASH_CHAMPION_VIGNETTE_FADE_MS,
    vignetteFading:false,
    restoreZoom,
    focusZoom,
    focusX,focusY,
-   cameraSettledAt:now+450,
    cameraLocked:false,
+   materializationStarted:false,
    released:false,
+   dialogueStarted:false,
+   dialogueComplete:false,
    vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
   };
   this.ashChampionIntroState=state;
 
   champion.visual?.setAlpha?.(0);
   champion.shadowVisual?.setAlpha?.(0);
-  state.ashFx=this.createAshChampionRevealFx(champion,preferred);
-  if(champion.visual?.active){
-   this.tweens.add({
-    targets:champion.visual,
-    alpha:0.96,
-    duration:ASH_CHAMPION_MATERIALIZE_MS+180,
-    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+180,
-    ease:'Sine.easeInOut'
-   });
-  }
-  if(champion.shadowVisual?.active){
-   this.tweens.add({
-    targets:champion.shadowVisual,
-    alpha:ASH_READABILITY.CHAMPION_SHADOW_ALPHA,
-    duration:ASH_CHAMPION_MATERIALIZE_MS+160,
-    delay:ASH_CHAMPION_MATERIALIZE_DELAY_MS+260,
-    ease:'Sine.easeInOut'
-   });
-  }
 
   cam.stopFollow();
   cam.pan(state.focusX,state.focusY,430,'Sine.easeOut',true);
@@ -7494,9 +7546,55 @@ createAshFieldsEnvironment(objects,zone){
   return true;
  }
 
+ beginBrokenSaintIntroDialogue(){
+  const state=this.ashChampionIntroState;
+  if(!state || state.dialogueStarted || state.released || this.gameOver)return false;
+  const champion=state.champion;
+  if(!champion?.active || champion.hp<=0 || this.gameplayPaused || this.storyDirector?.isBusy?.())return false;
+
+  // Transfer the reveal's camera lock to the shared dialogue owner. Do not let
+  // the reveal updater recenter the camera while the player advances the lines.
+  const releasedFocus=this.releaseStoryFocus('ashChampionReveal',{cooldownMs:0});
+  const started=this.championDialogueSystem?.begin(BROKEN_SAINT_INTRO_DIALOGUE,{
+   target:champion,speakerName:'Broken Saint',initiator:'npc',
+   eventId:'ash_broken_saint_intro_dialogue',once:true,
+   onComplete:()=>{
+    if(this.ashChampionIntroState!==state || this.gameOver || !champion.active || champion.hp<=0)return;
+    state.dialogueComplete=true;
+    this.releaseAshChampionFight();
+   },
+   onCancel:()=>{
+    if(this.ashChampionIntroState!==state)return;
+    state.dialogueStarted=false;
+    state.cameraLocked=false;
+   }
+  });
+  if(!started){
+   if(releasedFocus)this.acquireStoryFocus('ashChampionReveal');
+   return false;
+  }
+
+  state.dialogueStarted=true;
+  // The common dialogue returns all the way to gameplay zoom, not to the
+  // reveal's intermediate close-up. It also owns the only remaining vignette.
+  if(this.dialogueSystem?.cameraRestore)this.dialogueSystem.cameraRestore.zoom=state.restoreZoom;
+  if(state.vignette?.active){
+   this.tweens.killTweensOf?.(state.vignette);
+   state.vignette.destroy();
+  }
+  state.vignette=null;
+  for(const object of state.ashFx||[]){
+   if(!object?.active)continue;
+   this.tweens.killTweensOf?.(object);
+   object.destroy();
+  }
+  state.ashFx=[];
+  return true;
+ }
+
  releaseAshChampionFight(){
   const state=this.ashChampionIntroState;
-  if(!state || state.released)return false;
+  if(!state || state.released || !state.dialogueComplete)return false;
   state.released=true;
   const champion=state.champion;
   const now=this.time.now;
@@ -7551,16 +7649,8 @@ createAshFieldsEnvironment(objects,zone){
    this.showWaveBanner(def?.name||'BROKEN SAINT','CHAMPION ENGAGED',def?.rewardColor||'#ffe59a');
   }
 
-  const cam=this.cameras.main;
-  cam.zoomTo(state.restoreZoom||cam.zoom,300,'Sine.easeInOut',true);
-  cam.pan(this.player.x,this.player.y,300,'Sine.easeInOut',true);
-  this.time.delayedCall(315,()=>{
-   this.releaseStoryFocus('ashChampionReveal');
-   if(this.gameOver || this.storyAnomalyCueState || this.ashChampionIntroState || this.storyDirector?.isBusy?.())return;
-   this.handleViewportResize?.();
-   cam.startFollow(this.player,true,1,1);
-   cam.centerOn(this.player.x,this.player.y);
-  });
+  // WorldDialogueSystem has already restored the camera and released its lock
+  // before invoking onComplete. Combat/music may now start without another pan.
   return true;
  }
 
@@ -7589,13 +7679,19 @@ createAshFieldsEnvironment(objects,zone){
   }
 
   const champion=state.champion;
-  if(!champion?.active){
+  if(!champion?.active || champion.hp<=0 || this.gameOver){
    this.setHeroFocusInteraction('ashChampionReveal',false);
+   if(this.dialogueSystem?.active?.target===champion)this.dialogueSystem.cancel();
+   for(const object of state.ashFx||[])object?.destroy?.();
+   this.releaseStoryFocus('ashChampionReveal');
    if(state.vignette?.active)state.vignette.destroy();
    this.ashChampionIntroState=null;
-   this.setupBackgroundMusic();
+   if(!this.gameOver)this.setupBackgroundMusic();
    return false;
   }
+
+  // The common dialogue owns camera/UI until its last line is acknowledged.
+  if(state.dialogueStarted)return true;
 
   champion.storyDormant=true;
   champion.body?.setVelocity?.(0,0);
@@ -7613,6 +7709,14 @@ createAshFieldsEnvironment(objects,zone){
    }else{
     cam.centerOn(state.focusX,state.focusY);
    }
+   // The camera worldView is refreshed at render time. Keep the Broken Saint
+   // mask aligned after the final pan/zoom and on viewport changes, just as
+   // the dialogue mask is; an existing texture alone is not a visible overlay.
+   this.updateStoryAnomalyVignette(state,cam);
+  }
+
+  if(!state.materializationStarted && time>=state.materializeAt){
+   this.beginAshChampionMaterialization(state);
   }
 
   if(!state.smokeFading && time>=state.smokeFadeAt){
@@ -7630,7 +7734,7 @@ createAshFieldsEnvironment(objects,zone){
     this.tweens.add({targets:state.vignette,alpha:0,duration:ASH_CHAMPION_VIGNETTE_FADE_MS,ease:'Sine.easeIn'});
    }
   }
-  if(time>=state.attackAt)return this.releaseAshChampionFight();
+  if(time>=state.dialogueAt)this.beginBrokenSaintIntroDialogue();
   return true;
  }
 
@@ -7655,7 +7759,10 @@ createAshFieldsEnvironment(objects,zone){
   state.vignetteKeyW=null;
   state.vignetteKeyH=null;
   this.updateStoryAnomalyVignette(state,cam);
-  this.tweens.add({targets:vignette,alpha:1,duration:Math.max(0,fadeMs||0),ease:'Sine.easeOut'});
+  // Dialogue clients animate alpha in their unpaused update loop. A zero
+  // duration must be immediate, without relying on a paused TweenManager.
+  if(fadeMs>0)this.tweens.add({targets:vignette,alpha:1,duration:fadeMs,ease:'Sine.easeOut'});
+  else vignette.setAlpha(1);
   return vignette;
  }
 
@@ -7793,197 +7900,73 @@ createAshFieldsEnvironment(objects,zone){
    .setVisible(source.visible!==false);
  }
 
- getStoryAnomalyThought(){
-  if(!Array.isArray(this.storyAnomalyRecentThoughts)) this.storyAnomalyRecentThoughts=[];
-  const recent=new Set(this.storyAnomalyRecentThoughts);
-  const available=STORY_ANOMALY_THOUGHTS.filter(line=>!recent.has(line));
-  const pool=available.length?available:STORY_ANOMALY_THOUGHTS;
-  const thought=pool[Math.floor(Math.random()*pool.length)]||STORY_ANOMALY_THOUGHTS[0];
-  this.storyAnomalyRecentThoughts.push(thought);
-  if(this.storyAnomalyRecentThoughts.length>STORY_ANOMALY_RECENT_THOUGHT_LIMIT){
-   this.storyAnomalyRecentThoughts.splice(0,this.storyAnomalyRecentThoughts.length-STORY_ANOMALY_RECENT_THOUGHT_LIMIT);
-  }
-  return thought;
+ getStoryAnomalyCue(enemy){
+  return enemy?.storyAnomaly?.definition||null;
  }
 
- highlightStoryAnomaly(enemy,{durationMs=5000}={}){
-  if(!enemy?.active || !this.add || this.gameOver) return false;
-  if(this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active || this.levelChoiceOpen || this.championRewardOpen) return false;
+ getStoryAnomalyEnemyLine(enemy){
+  const cue=this.getStoryAnomalyCue(enemy);
+  return cue?.dialogue?.find(line=>line.speaker!=='hero')?.text||cue?.mobLine||'...';
+ }
 
-  if(!Array.isArray(this.storyAnomalyCueQueue)) this.storyAnomalyCueQueue=[];
+ getStoryAnomalyHeroLine(enemy){
+  const cue=this.getStoryAnomalyCue(enemy);
+  return cue?.dialogue?.find(line=>line.speaker==='hero')?.text||cue?.heroLine||'';
+ }
 
-  if(this.storyAnomalyCueState){
-   if(this.storyAnomalyCueState.enemy===enemy) return false;
-   if(this.storyAnomalyCueQueue.length<4){
-    this.storyAnomalyCueQueue.push({enemy,durationMs});
+ highlightStoryAnomaly(enemy,{cue=null}={}){
+  if(!enemy?.active || enemy.hp<=0 || this.storyAnomalyCueState || this.gameOver)return false;
+  const anomalyCue=cue||this.getStoryAnomalyCue(enemy);
+  const lines=anomalyCue?.dialogue||[
+   {speaker:'npc',text:this.getStoryAnomalyEnemyLine(enemy)},
+   {speaker:'hero',text:this.getStoryAnomalyHeroLine(enemy)}
+  ];
+  const dialogue=this.dialogueSystem;
+  const started=dialogue?.begin({
+   target:enemy,owner:'storyAnomaly',kind:'anomaly',initiator:'npc',
+   speakerName:anomalyCue?.speakerName||'Скелет',lines,
+   eventId:anomalyCue?.id||null,once:anomalyCue?.once!==false,
+   onComplete:()=>{
+    this.finishStoryAnomalyHighlight();
+    this.storyEnemyAnomalies?.finishDialogue(enemy);
+   },
+   onCancel:()=>{
+    this.finishStoryAnomalyHighlight();
+    this.storyEnemyAnomalies?.cancelDialogue(enemy);
    }
-   return false;
-  }
-
-  if(!this.acquireStoryFocus('storyAnomaly')) return false;
-
-  const cam=this.cameras.main;
-  const focusMs=Phaser.Math.Clamp(Math.floor(durationMs)||5000,4800,5200);
-  const restoreZoom=cam.zoom;
-  // The vignette is intentionally not created yet. Camera pan/zoom must finish
-  // first so the mask is generated against the final, stable worldView.
+  });
+  if(!started)return false;
   const outline=this.createStoryAnomalyOutline(enemy);
-
-  const anomalyUiScale=lkWorldUiScale(this,cam);
-  const label=lkAddText(this,enemy.x,enemy.y-68*anomalyUiScale,this.getStoryAnomalyThought(enemy),{
-   fontSize:'22px',
-   color:'#fff2b5',
-   stroke:'#171007',
-   strokeThickness:4
-  }).setOrigin(0.5).setDepth(221).setScale(anomalyUiScale);
-
-  label.setAlpha(0);
-
-  const focusZoom=Math.min(restoreZoom*1.08,restoreZoom+0.14);
-  const focusX=((this.player?.x||enemy.x)+enemy.x)*0.5;
-  const focusY=((this.player?.y||enemy.y)+enemy.y)*0.5-18;
+  outline?.setAlpha(0.88);
   this.storyAnomalyCueState={
-   enemy,vignette:null,outline,label,endsAt:this.time.now+focusMs,restoreZoom,focusZoom,
-   focusX,focusY,
-   cameraSettledAt:this.time.now+340,
-   cameraLocked:false,
-   vignetteKeyX:null,vignetteKeyY:null,vignetteKeyW:null,vignetteKeyH:null
+   enemy,cue:anomalyCue,outline,
+   // Diagnostics refer to the shared mask; there is only one camera/UI owner.
+   get vignette(){return dialogue.dialogueVignetteState?.vignette||null;},
+   get cameraLocked(){return Boolean(dialogue.dialogueVignetteState?.cameraLocked);}
   };
-  if(outline){
-   this.tweens.add({targets:outline,alpha:0.88,duration:180,delay:70,ease:'Sine.easeOut'});
-  }
-  this.tweens.add({targets:label,alpha:1,y:'-=8',duration:190,delay:110,ease:'Sine.easeOut'});
-
-  // Cancel the hero's current auto-attack presentation immediately. No new
-  // sword attacks or skills can start until the focus beat ends.
-  this.playerAttackUntil=this.time.now;
-  if(this.activeAttackFx?.active){
-   try{this.activeAttackFx.destroy();}catch{}
-   this.activeAttackFx=null;
-  }
-  if(this.meleeAttack){
-   this.meleeAttack.lastAttack=this.time.now;
-  }
-
-  // Cancel every other enemy windup. During the five-second line they are
-  // completely frozen: no walking, attacking, knockback drift, or crowd separation.
-  for(const other of this.enemies||[]){
-   if(!other?.active || other.type==='champion')continue;
-   other.pendingMeleeHitAt=0;
-   other.pendingMeleeDamage=0;
-   other.pendingMeleeRange=0;
-   other.attackAnimUntil=0;
-   other.lastAttack=Math.max(other.lastAttack||0,this.time.now);
-   other.lastShot=Math.max(other.lastShot||0,this.time.now);
-  }
-
-  // Existing mage shots join the cinematic freeze immediately. Cache their
-  // motion so they can resume after the five-second story beat instead of
-  // crossing the frozen hero while the player cannot react.
-  for(const projectile of this.projectiles||[]){
-   if(!projectile?.active)continue;
-   if(!projectile.storyAnomalyFrozenAt){
-    projectile.storyAnomalyFrozenAt=this.time.now;
-    projectile.storyAnomalyFreezeVX=projectile.body?.velocity?.x||0;
-    projectile.storyAnomalyFreezeVY=projectile.body?.velocity?.y||0;
-    projectile.storyAnomalyFreezeAnim=Boolean(projectile.anims?.isPlaying);
-   }
-   projectile.body?.setVelocity?.(0,0);
-   if(projectile.anims?.isPlaying)projectile.anims.pause();
-  }
-
-  cam.stopFollow();
-  cam.pan(this.storyAnomalyCueState.focusX,this.storyAnomalyCueState.focusY,320,'Sine.easeOut',true);
-  cam.zoomTo(focusZoom,320,'Sine.easeOut',true);
   return true;
  }
 
  isStoryAnomalyMomentActive(time=this.time?.now||0){
   const state=this.storyAnomalyCueState;
-  return Boolean(state?.enemy?.active && time<state.endsAt);
+  return Boolean(state?.enemy?.active && this.dialogueSystem?.active?.owner==='storyAnomaly');
  }
 
  updateStoryAnomalyCue(time=0){
   const state=this.storyAnomalyCueState;
-  if(!state) return;
-  const enemy=state.enemy;
-  if(!enemy?.active || enemy.hp<=0 || time>=state.endsAt){
+  if(!state)return;
+  if(!state.enemy?.active || state.enemy.hp<=0){
+   if(this.dialogueSystem?.active?.owner==='storyAnomaly')this.dialogueSystem.cancel();
    this.finishStoryAnomalyHighlight();
    return;
   }
-
-  const bob=Math.sin(time*0.01)*4;
-  const cam=this.cameras.main;
   this.syncStoryAnomalyOutline(state);
-  if(state.label?.active){
-   const uiScale=lkWorldUiScale(this,cam);
-   state.label.setScale(uiScale).setPosition(enemy.x,enemy.y-(68-bob)*uiScale);
-  }
-
-  // Once the opening pan/zoom is over, snap to the exact final composition.
-  // Only then may the vignette exist; rebuilding it during camera motion caused
-  // the dark gradient to visibly drift off-centre.
-  if(time>=state.cameraSettledAt && this.player?.active){
-   if(!state.cameraLocked){
-    cam.setZoom(state.focusZoom);
-    cam.centerOn(state.focusX,state.focusY);
-    state.cameraLocked=true;
-    this.createSettledStoryVignette(state,cam,{fadeMs:280});
-   }else{
-    cam.centerOn(state.focusX,state.focusY);
-   }
-  }
  }
 
  finishStoryAnomalyHighlight(){
   const state=this.storyAnomalyCueState;
-  if(!state) return;
-
   this.storyAnomalyCueState=null;
-
-  // The thought vanishes first and the soft vignette opens back up just before
-  // the skeleton enters its short release beat and bolts away.
-  const fadeTargets=[state.vignette,state.outline,state.label].filter(object=>object?.active);
-  if(fadeTargets.length){
-   this.tweens.add({
-    targets:fadeTargets,alpha:0,duration:120,ease:'Sine.easeIn',
-    onComplete:()=>{
-     for(const object of fadeTargets){try{object?.destroy();}catch{}}
-    }
-   });
-  }
-
-  // Prevent an auto-sword swing from firing on the exact frame control returns.
-  if(this.meleeAttack)this.meleeAttack.lastAttack=this.time.now;
-
-  // A shot that was frozen on top of the hero would otherwise deal unavoidable
-  // damage on the first frame after control returns. Dispel only that small
-  // unsafe bubble; farther shots resume their original flight normally.
-  for(const projectile of this.projectiles||[]){
-   if(!projectile?.active || !projectile.storyAnomalyFrozenAt)continue;
-   const distance=Phaser.Math.Distance.Between(projectile.x,projectile.y,this.player.x,this.player.y);
-   if(distance<(this.player.hitRadius||16)+54)projectile.destroy();
-  }
-
-  const cam=this.cameras.main;
-  const restoreZoom=state.restoreZoom||cam.zoom;
-  cam.zoomTo(restoreZoom,260,'Sine.easeInOut',true);
-  cam.pan(this.player.x,this.player.y,260,'Sine.easeInOut',true);
-  this.time.delayedCall(275,()=>{
-   this.releaseStoryFocus('storyAnomaly');
-   if(this.gameOver || this.storyAnomalyCueState || this.storyDirector?.isBusy?.() || this.woundedKnightInteractions?.active) return;
-   this.handleViewportResize?.();
-   cam.startFollow(this.player,true,1,1);
-   cam.centerOn(this.player.x,this.player.y);
-  });
-
-  if(this.storyAnomalyCueQueue?.length){
-   const next=this.storyAnomalyCueQueue.shift();
-   this.time.delayedCall(360,()=>{
-    if(!next?.enemy?.active || this.gameOver || this.storyAnomalyCueState || this.isStoryFocusLocked()) return;
-    this.highlightStoryAnomaly(next.enemy,{durationMs:next.durationMs});
-   });
-  }
+  state?.outline?.destroy?.();
  }
 
  isBrokenSaintEscortWaveCleared(){
@@ -8444,6 +8427,7 @@ createAshFieldsEnvironment(objects,zone){
   this.updateLowHealthState();
   this.devTools?.update(time,delta);
   let traceSectionAt=this.beginSubsystemTrace();
+  this.dialogueSystem?.update(time);
   this.woundedKnightInteractions?.update(time);
   this.updateStoryAnomalyCue(time);
   this.updateAshAltarChampionStory(this.time.now);
@@ -8716,6 +8700,10 @@ createAshFieldsEnvironment(objects,zone){
    const storyAnomaly=!devFreezeAI
     ? this.storyEnemyAnomalies?.updateEnemy(e,time,distance)
     : null;
+
+   // An NPC can begin a dialogue inside this AI iteration. Stop this frame
+   // immediately; the shared dialogue has already paused physics and timers.
+   if(this.dialogueSystem?.active || this.gameplayPaused)return;
 
    if(storyAnomaly){
     if(storyAnomaly.kind==='vanished') continue;
@@ -9483,6 +9471,7 @@ class HUDScene extends Phaser.Scene {
   const x=cx-panelW/2,y=cy-panelH/2;
   const radius=mobile?9:12;
   this.eventBannerPanel.clear();
+  this.eventBannerPanel.dialogueLocalBounds={left:x,top:y,right:x+panelW+4,bottom:y+panelH+4};
   this.eventBannerPanel.fillStyle(0x070605,0.34); this.eventBannerPanel.fillRoundedRect(x+4,y+4,panelW,panelH,radius);
   this.eventBannerPanel.fillStyle(0x15130f,0.78); this.eventBannerPanel.fillRoundedRect(x,y,panelW,panelH,radius);
   this.eventBannerPanel.lineStyle(mobile?1.5:2,0x8c7447,0.82); this.eventBannerPanel.strokeRoundedRect(x,y,panelW,panelH,radius);
@@ -9808,6 +9797,45 @@ class HUDScene extends Phaser.Scene {
   this.restartButton.on('pointerdown',()=>{ if(this.mainScene?.gameOver) this.mainScene.scene.restart(); });
  }
 
+ // Canvas-space rectangles for shared world dialogue. Graphics have no useful
+ // getBounds(): their drawn geometry is recorded in layout(), before editor
+ // transforms. Apply those transforms here just like the renderer does.
+ getDialogueAvoidBounds(){
+  if(this.sys?.isVisible?.()===false)return [];
+  const cam=this.cameras.main;
+  const objects=[this.heroPanelShell,this.levelBadgeSimple,this.levelText,
+   this.hpFrame,this.hpText,this.xpFrame,this.manaRingsSimple,...(this.manaGems||[]),
+   this.wavePanel,this.waveTitle,this.waveSub,this.championPanel,this.bossName,
+   this.bossHpBack,this.bossHpText,this.eventBannerPanel,this.eventBannerTitle,this.eventBannerSub,
+   ...(this.skills||[]).flatMap(s=>[s.back,s.key,s.label]),
+   this.joyBack,this.joyKnob,this.fullscreenButton];
+  const result=[];
+  for(const object of objects){
+   if(!object?.active)continue;
+   let visible=true;
+   for(let p=object;p;p=p.parentContainer){
+    if(p.visible===false || p.alpha===0){visible=false;break;}
+   }
+   if(!visible)continue;
+   let bounds=object.dialogueLocalBounds;
+   if(bounds){
+    const matrix=object.getWorldTransformMatrix();
+    const points=[[bounds.left,bounds.top],[bounds.right,bounds.top],
+     [bounds.left,bounds.bottom],[bounds.right,bounds.bottom]].map(([x,y])=>matrix.transformPoint(x,y));
+    bounds={left:Math.min(...points.map(p=>p.x)),right:Math.max(...points.map(p=>p.x)),
+     top:Math.min(...points.map(p=>p.y)),bottom:Math.max(...points.map(p=>p.y))};
+   }else bounds=object.getBounds?.();
+   if(!bounds || ![bounds.left,bounds.right,bounds.top,bounds.bottom].every(Number.isFinite))continue;
+   const zx=cam.zoomX||cam.zoom||1,zy=cam.zoomY||cam.zoom||1;
+   const ox=cam.width*(cam.originX??0),oy=cam.height*(cam.originY??0);
+   const dx=(cam.x||0)+ox*(1-zx)-(cam.scrollX||0)*(object.scrollFactorX??1)*zx;
+   const dy=(cam.y||0)+oy*(1-zy)-(cam.scrollY||0)*(object.scrollFactorY??1)*zy;
+   result.push({left:bounds.left*zx+dx,right:bounds.right*zx+dx,
+    top:bounds.top*zy+dy,bottom:bounds.bottom*zy+dy});
+  }
+  return result;
+ }
+
  getDevUiGroups(){
   return {
    heroShell:{label:'Hero panel background',priority:0,objects:[this.heroPanelShell],boundsObjects:[this.levelText,this.hpFrame,this.xpFrame]},
@@ -9958,6 +9986,7 @@ class HUDScene extends Phaser.Scene {
 
   // Simple level badge: same dark centre, one clean gold ring, no ornamental spikes.
   this.levelBadgeSimple.clear();
+  this.levelBadgeSimple.dialogueLocalBounds={left:badgeX-levelR,top:badgeY-levelR,right:badgeX+levelR,bottom:badgeY+levelR};
   this.levelBadgeSimple.fillStyle(0x171512,0.98);
   this.levelBadgeSimple.fillCircle(badgeX,badgeY,levelR-2);
   this.levelBadgeSimple.lineStyle(Math.max(2,Math.round(4*uiScale)),0xd39a35,1);
@@ -10006,6 +10035,7 @@ class HUDScene extends Phaser.Scene {
   const xpBottom=Math.round(xpY+xpH*0.5);
   const shellBottomPad=Math.max(4,Math.round(7*uiScale));
   const bodyH=Math.round((xpBottom+shellBottomPad)-bodyY);
+  this.heroPanelShell.dialogueLocalBounds={left:bodyX,top:bodyY,right:bodyX+bodyW,bottom:bodyY+bodyH};
   this.heroPanelShell.fillStyle(0x080706,0.50);
   this.heroPanelShell.fillRoundedRect(bodyX,bodyY,bodyW,bodyH,shellRadius);
   this.heroPanelShell.lineStyle(Math.max(1,Math.round(1.5*uiScale)),0x8f743b,0.58);
@@ -10020,6 +10050,7 @@ class HUDScene extends Phaser.Scene {
   const clusterW=manaR*6+ringGap*2;
   const clusterCx=Math.round(bodyX+bodyW*0.5);
   const manaCenters=[clusterCx-(manaR*2+ringGap),clusterCx,clusterCx+(manaR*2+ringGap)];
+  this.manaRingsSimple.dialogueLocalBounds={left:manaCenters[0]-manaR,top:manaY-manaR,right:manaCenters[2]+manaR,bottom:manaY+manaR};
   manaCenters.forEach(cx=>{
    this.manaRingsSimple.fillStyle(0x171512,0.96);
    this.manaRingsSimple.fillCircle(cx,manaY,manaR-1);
@@ -10040,6 +10071,7 @@ class HUDScene extends Phaser.Scene {
   const cx=screenCx;
   const waveX=cx-waveW/2,waveY=top;
   this.wavePanel.clear();
+  this.wavePanel.dialogueLocalBounds={left:waveX,top:waveY,right:waveX+waveW,bottom:waveY+waveH};
   this.wavePanel.fillStyle(0x15130f,0.90); this.wavePanel.fillRoundedRect(waveX,waveY,waveW,waveH,mobile?7:9);
   this.wavePanel.lineStyle(mobile?1.5:2,0x7c6842,0.9); this.wavePanel.strokeRoundedRect(waveX,waveY,waveW,waveH,mobile?7:9);
   this.waveTitle.setPosition(cx,waveY+(mobile?15:20)).setFontSize(mobile?14:21);
@@ -10049,6 +10081,7 @@ class HUDScene extends Phaser.Scene {
   const bossH=waveH;
   const bossX=screenCx-bossW/2,bossY=waveY;
   this.championPanel.clear();
+  this.championPanel.dialogueLocalBounds={left:bossX,top:bossY,right:bossX+bossW,bottom:bossY+bossH};
   this.championPanel.fillStyle(0x15110d,0.94); this.championPanel.fillRoundedRect(bossX,bossY,bossW,bossH,mobile?7:9);
   this.championPanel.lineStyle(mobile?1.5:2,0xa28346,0.95); this.championPanel.strokeRoundedRect(bossX,bossY,bossW,bossH,mobile?7:9);
   this.bossName.setPosition(screenCx,bossY+(mobile?13:17)).setFontSize(mobile?12:17);
