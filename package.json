@@ -3,7 +3,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "validate": "node scripts/validate-project.mjs && node scripts/validate-story-vignette.mjs && node scripts/validate-world-dialogue.mjs && node scripts/validate-dialogue-layout.mjs && node scripts/validate-sword-pulse.mjs && node scripts/validate-champion-retry.mjs && node scripts/validate-broken-saint-hearts.mjs"
+    "validate": "node scripts/validate-project.mjs && node scripts/validate-story-vignette.mjs && node scripts/validate-world-dialogue.mjs && node scripts/validate-dialogue-layout.mjs && node scripts/validate-sword-pulse.mjs && node scripts/validate-champion-retry.mjs && node scripts/validate-broken-saint-hearts.mjs && node scripts/validate-zone2-terrain.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0",

@@ -10,7 +10,11 @@ const methods=names.map(name=>{
  assert.ok(start>=0,`missing ${name}`);
  return source.slice(start,source.indexOf('\n }',start)+3);
 });
-const Phaser={Math:{Angle:{Between:(x1,y1,x2,y2)=>Math.atan2(y2-y1,x2-x1)}}};
+const Phaser={Math:{
+ Angle:{Between:(x1,y1,x2,y2)=>Math.atan2(y2-y1,x2-x1)},
+ FloatBetween:(min,max)=>(min+max)/2,
+ Between:(min,max)=>Math.round((min+max)/2)
+}};
 const runtime=vm.runInNewContext(`({${methods.join(',')}})`,{BALANCE:{HEART_HEAL:25},Phaser});
 function image(x,y){
  return {active:true,x,y,setDepth(){return this;},setScale(){return this;}};
@@ -26,9 +30,13 @@ assert.equal(scene.lastTween.x,220);assert.equal(scene.lastTween.y,100);
 const knight={active:true,x:100,y:100};
 const knightHeart=scene.spawnStoryKnightHeart(knight);
 assert.equal(knightHeart.source,'woundedKnight');assert.equal(knightHeart.healAmount,25);
-assert.match(source,/\[0\.75,0\.50,0\.25\]/);
+assert.match(source,/\[0\.75,0\.25\]/);
+assert.doesNotMatch(source,/\[0\.75,0\.50,0\.25\]/);
 assert.match(source,/healAmount:Math\.round\(\(this\.player\.maxHp\|\|100\)\*0\.30\)/);
 assert.match(source,/const dropped=e\.brokenSaintHeartDrops/);
+assert.match(source,/const angle=Phaser\.Math\.FloatBetween\(0,Math\.PI\*2\)/);
+assert.match(source,/source==='melee:champion' && attacker\?\.championKind==='brokenSaint'/);
+assert.match(source,/enemy\.hp=Math\.max\(0,enemy\.hp-applied\)/);
 assert.match(wounded,/На, держи\. Тебе это пригодится\./);
 assert.match(wounded,/spawnStoryKnightHeart\?\.\(entry\.sprite\)/);
-console.log('Broken Saint health regression PASSED: three thresholds, 30% boss hearts, expiry/pickup delay, knight dialogue reward, and reusable ordinary hearts.');
+console.log('Broken Saint health regression PASSED: two thresholds, random heart throws, HP-zero death gate, melee firewall, knight dialogue reward, and reusable ordinary hearts.');

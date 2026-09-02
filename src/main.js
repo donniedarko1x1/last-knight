@@ -118,6 +118,7 @@ const ASH_CHAMPION_SMOKE_ANIM_KEY='ash_champion_smoke_spin';
 const ASH_SWORD_PULSE_ANIM_KEY='ash_sword_pulse';
 const ASH_SWORD_PULSE_ACTIVE_MS=400;
 const ASH_SWORD_PULSE_CYCLE_MS=ASH_SWORD_PULSE_ACTIVE_MS+1500;
+const ZONE2_SOFT_FIRE_GLOW_TEXTURE='zone2_soft_fire_glow';
 const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
 const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
 const ASH_SWORD_PRELUDE_RETURN_MS=800;
@@ -257,7 +258,8 @@ const LOADING_SCREEN_STATUS='Loading Ash Fields...';
 const INITIAL_ASSET_CATEGORIES=[
  ASSET_CATEGORY.CORE,
  ASSET_CATEGORY.PROLOGUE,
- ASSET_CATEGORY.REGION_ASH
+ ASSET_CATEGORY.REGION_ASH,
+ ASSET_CATEGORY.REGION_RUINS
 ];
 
 class LastKnightUiLayoutEditor {
@@ -757,6 +759,10 @@ class LastKnightDevTools {
     <details class="lkdev-section" open><summary>TRAVEL</summary><div class="lkdev-body">
      <div class="lkdev-grid4"><button data-action="travel" data-value="400">Start</button><button data-action="travel" data-value="900">x900</button><button data-action="travel" data-value="1900">x1900</button><button data-action="travel" data-value="2900">x2900</button></div>
      <div class="lkdev-row"><button data-action="travel" data-value="2260">Sword</button><button data-action="travel" data-value="3030">Altar</button><button data-action="travel" data-value="3700">Boss Gate</button></div>
+     <div class="lkdev-label">Zone jump · bypasses progression gates for testing</div>
+     <div class="lkdev-grid3"><button data-action="jumpZone" data-value="0">ZONE 1</button><button data-action="jumpZone" data-value="1">ZONE 2</button><button data-action="jumpZone" data-value="2">ZONE 3</button><button data-action="jumpZone" data-value="3">ZONE 4</button><button data-action="jumpZone" data-value="4">ZONE 5</button></div>
+     <div class="lkdev-label">Wave jump · resets active combat and starts the selected wave</div>
+     <div class="lkdev-grid4"><button data-action="jumpWave" data-value="1">WAVE 1</button><button data-action="jumpWave" data-value="2">WAVE 2</button><button data-action="jumpWave" data-value="3">WAVE 3</button><button data-action="jumpWave" data-value="4">WAVE 4</button><button data-action="jumpWave" data-value="5">WAVE 5</button></div>
      <div class="lkdev-row"><input id="lkdev-goto-x" type="number" min="0" max="18400" step="10" value="2000"><button data-action="gotoX">GO X</button></div>
     </div></details>
 
@@ -901,6 +907,8 @@ class LastKnightDevTools {
    case 'cooldown':s.meleeAttack.cooldown=Math.max(100,s.meleeAttack.cooldown+Number(value));break;
    case 'radius':s.meleeAttack.radius=Math.max(20,s.meleeAttack.radius+Number(value));break;
    case 'travel':this.teleport(Number(value));break;
+   case 'jumpZone':this.jumpToZone(Number(value));break;
+   case 'jumpWave':this.jumpToWave(Number(value));break;
    case 'gotoX':this.teleport(Number(document.getElementById('lkdev-goto-x')?.value||0));break;
    case 'envToggle':this.envVisibility[value]=!this.envVisibility[value];this.applyAllEnvironmentVisibility();break;
    case 'groundOnly':this.toggleGroundOnly();break;
@@ -1016,6 +1024,8 @@ class LastKnightDevTools {
  resetUpgrades(){const s=this.scene;s.meleeAttack.level=1;s.meleeAttack.damage=15;s.meleeAttack.cooldown=1000;s.meleeAttack.radius=99;s.weaponLevels={sword:1};}
  applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;if(this.scene.enemyAshCollider)this.scene.enemyAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
  teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.progressionBalanceZoneIndex=s.currentWorldZoneIndex;s.applyRegionalHeroBalance(s.progressionBalanceZoneIndex,false);s.recalculateCurrentWaveRegionBalance();s.updateWorldStreaming();}
+ jumpToZone(index){const s=this.scene,zone=WORLD_DESIGN.ZONES[index];if(!zone)return;this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.pendingWorldAdvance=null;s.awaitingWorldAdvance=false;s.worldAdvanceTargetZone=null;s.waveIntermission=false;s.nextWaveAt=Number.POSITIVE_INFINITY;const x=Math.min(zone.end-300,zone.start+(index===0?400:360));this.teleport(x);s.showWaveBanner(`DEV · ${zone.name}`,'Zone loaded · progression gate bypassed','#bfe8ff');}
+ jumpToWave(wave){const s=this.scene;const safeWave=Phaser.Math.Clamp(Math.round(wave)||1,1,5);this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.waveIntermission=false;s.nextWaveAt=Number.POSITIVE_INFINITY;s.startWave(safeWave,false,{suppressBanner:false});}
 
  toggleGroundOnly(){const on=!(this.groundOnly||false);this.groundOnly=on;if(on){this.envVisibility.props=false;this.envVisibility.landmarks=false;}else{this.envVisibility.props=true;this.envVisibility.trees=true;this.envVisibility.rocks=true;this.envVisibility.grass=true;this.envVisibility.landmarks=true;}this.applyAllEnvironmentVisibility();}
  toggleCollisionTest(){this.collisionTest=!this.collisionTest;const f=this.scene.devFlags;if(this.collisionTest){this.collisionTestPrevious={godMode:f.godMode,autoSpawnsDisabled:f.autoSpawnsDisabled,propColliders:this.overlayFlags.propColliders,hitboxes:this.overlayFlags.hitboxes,safeLane:this.overlayFlags.safeLane};f.godMode=true;f.autoSpawnsDisabled=true;this.deleteOrdinaryEnemies();this.deleteChampion();this.overlayFlags.propColliders=true;this.overlayFlags.hitboxes=true;this.overlayFlags.safeLane=true;}else if(this.collisionTestPrevious){f.godMode=this.collisionTestPrevious.godMode;f.autoSpawnsDisabled=this.collisionTestPrevious.autoSpawnsDisabled;this.overlayFlags.propColliders=this.collisionTestPrevious.propColliders;this.overlayFlags.hitboxes=this.collisionTestPrevious.hitboxes;this.overlayFlags.safeLane=this.collisionTestPrevious.safeLane;this.collisionTestPrevious=null;}this.refreshStateButtons();}
@@ -3033,7 +3043,21 @@ class MainScene extends Phaser.Scene {
      {key:'ash_sword_pulse_01_cutout'}
     ],
     duration:ASH_SWORD_PULSE_ACTIVE_MS,
-    repeat:0
+   repeat:0
+   });
+  }
+
+  // Road of the Black Banners: slow ambient fire cycles. The four image frames
+  // are deliberately restrained; they add readable warmth without competing
+  // with enemy, projectile or interaction effects.
+  for(const prop of ['campfire','torch','lantern','embers','wagon']){
+   const key=`zone2_${prop}_burn`;
+   if(this.anims.exists(key)) continue;
+   this.anims.create({
+    key,
+    frames:Array.from({length:4},(_,i)=>({key:`zone2_${prop}_${String(i).padStart(2,'0')}`})),
+    frameRate:3,
+    repeat:-1
    });
   }
 
@@ -4624,6 +4648,116 @@ createAshFieldsEnvironment(objects,zone){
  this.createAshBattlefieldCasualties(objects);
 }
 
+createRuinedKingdomTerrainEnvironment(objects,zone){
+ const baseKey='zone2_ground_base_01';
+ if(!this.textures.exists(baseKey)) return;
+ const baseTexture=this.textures.get(baseKey).getSourceImage();
+ const tileW=baseTexture.width;
+ const tileH=baseTexture.height;
+ const width=zone.end-zone.start;
+
+ // Same approved minimal composition as Ash Fields: native fill and four
+ // cardinal borders. There are no road, corner, rotation or mirror tiles.
+ for(let y=0;y<STAGE0.WORLD_HEIGHT;y+=tileH){
+  for(let x=zone.start;x<zone.end;x+=tileW){
+   const cropW=Math.min(tileW,zone.end-x);
+   const cropH=Math.min(tileH,STAGE0.WORLD_HEIGHT-y);
+   if(cropW<=0||cropH<=0) continue;
+   const tile=this.add.image(x,y,baseKey).setOrigin(0,0).setDepth(-110);
+   if(cropW<tileW||cropH<tileH) tile.setCrop(0,0,cropW,cropH);
+   objects.push(tile);
+  }
+ }
+
+ const northTexture=this.textures.get('zone2_edge_north_01').getSourceImage();
+ const southTexture=this.textures.get('zone2_edge_south_01').getSourceImage();
+ const westTexture=this.textures.get('zone2_edge_west_01').getSourceImage();
+ const eastTexture=this.textures.get('zone2_edge_east_01').getSourceImage();
+ for(let x=zone.start;x<zone.end;x+=northTexture.width){
+  const cropW=Math.min(northTexture.width,zone.end-x);
+  if(cropW<=0) continue;
+  const north=this.add.image(x,0,'zone2_edge_north_01').setOrigin(0,0).setDepth(-104);
+  const south=this.add.image(x,STAGE0.WORLD_HEIGHT,'zone2_edge_south_01').setOrigin(0,1).setDepth(-104);
+  if(cropW<northTexture.width){
+   north.setCrop(0,0,cropW,northTexture.height);
+   south.setCrop(0,0,cropW,southTexture.height);
+  }
+  objects.push(north,south);
+ }
+ for(let y=0;y<STAGE0.WORLD_HEIGHT;y+=westTexture.height){
+  const cropH=Math.min(westTexture.height,STAGE0.WORLD_HEIGHT-y);
+  if(cropH<=0) continue;
+  const west=this.add.image(zone.start,y,'zone2_edge_west_01').setOrigin(0,0).setDepth(-103);
+  const east=this.add.image(zone.end,y,'zone2_edge_east_01').setOrigin(1,0).setDepth(-103);
+  if(cropH<westTexture.height){
+   west.setCrop(0,0,westTexture.width,cropH);
+   east.setCrop(0,0,eastTexture.width,cropH);
+  }
+  objects.push(west,east);
+ }
+
+ // Sparse warm points tell the player where people once tried to hold the
+ // road. Orange means a human trace; the later necromantic palette stays free
+ // to use its own sickly green warning language.
+ const ensureSoftFireGlow=()=>{
+  if(this.textures.exists(ZONE2_SOFT_FIRE_GLOW_TEXTURE)) return ZONE2_SOFT_FIRE_GLOW_TEXTURE;
+  const size=192;
+  const texture=this.textures.createCanvas(ZONE2_SOFT_FIRE_GLOW_TEXTURE,size,size);
+  const ctx=texture?.context;
+  if(!ctx) return null;
+  const mid=size*0.5;
+  const gradient=ctx.createRadialGradient(mid,mid,2,mid,mid,mid);
+  gradient.addColorStop(0,'rgba(255,241,186,0.95)');
+  gradient.addColorStop(0.14,'rgba(255,171,61,0.74)');
+  gradient.addColorStop(0.42,'rgba(255,94,28,0.28)');
+  gradient.addColorStop(0.72,'rgba(204,51,14,0.08)');
+  gradient.addColorStop(1,'rgba(112,24,8,0)');
+  ctx.clearRect(0,0,size,size);
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,size,size);
+  texture.refresh();
+  return ZONE2_SOFT_FIRE_GLOW_TEXTURE;
+ };
+ const softGlowKey=ensureSoftFireGlow();
+ const roadY=WORLD_DESIGN.ROUTE_Y;
+ const lightProps=[
+  // These first three are deliberately on the very first Zone 2 screen.
+  {prop:'campfire',x:zone.start+410,y:roadY+100,scale:0.25,glow:82},
+  {prop:'torch',x:zone.start+660,y:roadY-120,scale:0.19,glow:60},
+  {prop:'lantern',x:zone.start+880,y:roadY+70,scale:0.23,glow:58},
+  {prop:'embers',x:zone.start+1120,y:roadY-145,scale:0.22,glow:56},
+  {prop:'wagon',x:zone.start+1420,y:roadY+115,scale:0.32,glow:94},
+  {prop:'torch',x:zone.start+1740,y:roadY-150,scale:0.19,glow:60},
+  {prop:'campfire',x:zone.start+2080,y:roadY+145,scale:0.24,glow:80},
+  {prop:'lantern',x:zone.start+2420,y:roadY-115,scale:0.22,glow:56},
+  {prop:'embers',x:zone.start+2770,y:roadY+125,scale:0.21,glow:54},
+  {prop:'wagon',x:zone.start+3070,y:roadY-115,scale:0.31,glow:90},
+  {prop:'torch',x:zone.start+3370,y:roadY+150,scale:0.18,glow:56}
+ ];
+ for(const placement of lightProps){
+  const firstFrame=`zone2_${placement.prop}_00`;
+  if(!this.textures.exists(firstFrame)) continue;
+  const glow=softGlowKey?this.add.image(placement.x,placement.y+14,softGlowKey)
+   .setDisplaySize(placement.glow*2.2,placement.glow*1.32)
+   .setDepth(3).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.42):null;
+  const sprite=this.add.sprite(placement.x,placement.y,firstFrame)
+   .setOrigin(0.5,0.82).setScale(placement.scale).setDepth(5).setVisible(true)
+   .play(`zone2_${placement.prop}_burn`);
+  if(glow){
+   this.tweens.add({
+    targets:glow,
+    alpha:{from:0.30,to:0.52},
+    duration:900+Math.round(placement.glow*3),
+    yoyo:true,
+    repeat:-1,
+    ease:'Sine.easeInOut'
+   });
+  }
+  if(glow) objects.push(glow);
+  objects.push(sprite);
+ }
+}
+
 
 
  loadWorldZone(index){
@@ -4635,6 +4769,9 @@ createAshFieldsEnvironment(objects,zone){
 
   if(index===0){
    this.createAshFieldsEnvironment(objects,zone);
+  }
+  if(index===1){
+   this.createRuinedKingdomTerrainEnvironment(objects,zone);
   }
 
   // Until a biome receives approved art, keep its streamed chunk visually empty.
@@ -5598,10 +5735,13 @@ createAshFieldsEnvironment(objects,zone){
 
  spawnStoryKnightHeart(knight){
   if(!knight?.active || !this.player)return null;
-  const angle=Phaser.Math.Angle.Between(knight.x,knight.y,this.player.x,this.player.y);
+  // This is a gift, not an aimed projectile: never throw it directly through
+  // the hero. A random nearby landing point also reads much more naturally.
+  const angle=Phaser.Math.FloatBetween(0,Math.PI*2);
+  const distance=Phaser.Math.Between(82,148);
   const target=this.findNearestFreeGroundPoint(
-   knight.x+Math.cos(angle)*96,
-   knight.y+Math.sin(angle)*96,
+   knight.x+Math.cos(angle)*distance,
+   knight.y+Math.sin(angle)*distance,
    20,180,16
   );
   return this.throwHealthHeart(knight.x,knight.y-18,target.x,target.y,{
@@ -5776,15 +5916,16 @@ createAshFieldsEnvironment(objects,zone){
    this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
 
    // Recovery is the accessibility valve for the first champion; his attacks
-   // stay untouched. Each threshold can drop exactly one heart per attempt.
+   // stay untouched. He may offer exactly two hearts per attempt.
    const hpRatio=e.hp/Math.max(1,e.maxHp);
    const dropped=e.brokenSaintHeartDrops||(e.brokenSaintHeartDrops=new Set());
-   const threshold=[0.75,0.50,0.25].find(value=>hpRatio<=value&&!dropped.has(value));
+   const threshold=[0.75,0.25].find(value=>hpRatio<=value&&!dropped.has(value));
    if(threshold!==undefined){
     dropped.add(threshold);
-    const angle=Phaser.Math.Angle.Between(e.x,e.y,this.player.x,this.player.y);
+    const angle=Phaser.Math.FloatBetween(0,Math.PI*2);
+    const distance=Phaser.Math.Between(96,158);
     const target=this.findNearestFreeGroundPoint(
-     e.x+Math.cos(angle)*118,e.y+Math.sin(angle)*118,22,180,16
+     e.x+Math.cos(angle)*distance,e.y+Math.sin(angle)*distance,22,180,16
     );
     this.throwHealthHeart(e.x,e.y,target.x,target.y,{
      healAmount:Math.round((this.player.maxHp||100)*0.30),
@@ -6961,8 +7102,12 @@ createAshFieldsEnvironment(objects,zone){
   if(!enemy || !enemy.active || enemy.hp<=0 || amount<=0) return false;
 
   const applied=Math.max(1,Math.round(amount));
-  enemy.hp-=applied;
-  if(enemy.hp<=0) this.markEnemyDefeated(enemy);
+  // Keep game state and the boss UI in lockstep even on the killing hit.
+  // The death sequence is allowed to start only after the authoritative value
+  // has reached literal zero; this prevents a stale-looking HP bar on death.
+  enemy.hp=Math.max(0,enemy.hp-applied);
+  if(enemy===this.activeChampion) this.updateChampionBar();
+  if(enemy.hp===0) this.markEnemyDefeated(enemy);
 
   // Special/relic damage was previously almost invisible, so working DOTs
   // looked broken. A small throttled tick makes every proc testable in-game.
@@ -7105,6 +7250,9 @@ createAshFieldsEnvironment(objects,zone){
  damagePlayer(amount,source='enemy',attacker=null){
   if(this.devFlags?.godMode) return false;
   if(this.gameOver || this.dialogueSystem?.active || amount<=0) return false;
+  // Broken Saint is a ranged-area champion. He must never gain a delayed
+  // contact/melee hit from generic enemy state, even if such state is stale.
+  if(source==='melee:champion' && attacker?.championKind==='brokenSaint') return false;
   const now=this.time.now;
   // A mage bolt that was already in flight must never punish the player while
   // the five-second story anomaly has deliberately frozen the whole combat beat.

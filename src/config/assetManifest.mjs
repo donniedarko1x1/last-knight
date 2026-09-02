@@ -6,7 +6,8 @@
 export const ASSET_CATEGORY={
  CORE:'CORE',
  PROLOGUE:'PROLOGUE',
- REGION_ASH:'REGION_ASH'
+ REGION_ASH:'REGION_ASH',
+ REGION_RUINS:'REGION_RUINS'
 };
 
 export const ASSET_REQUIREMENT={
@@ -43,7 +44,7 @@ const json=(category,requirement,key,url)=>add(category,requirement,'json',key,u
 const pad2=(n)=>String(n).padStart(2,'0');
 const R=ASSET_REQUIREMENT.REQUIRED;
 const O=ASSET_REQUIREMENT.OPTIONAL;
-const {CORE,PROLOGUE,REGION_ASH}=ASSET_CATEGORY;
+const {CORE,PROLOGUE,REGION_ASH,REGION_RUINS}=ASSET_CATEGORY;
 
 // ---------------------------------------------------------------------------
 // PROLOGUE — cinematic frame is reusable; page images are released after use.
@@ -195,6 +196,28 @@ const brokenSaintSourceDirs={down:'down',down_left:'down_right',left:'right',up_
 for(const [dir,sourceDir] of Object.entries(brokenSaintSourceDirs)){
  for(let i=0;i<4;i++) image(REGION_ASH,R,`broken_saint_${dir}_walk_${pad2(i)}`,`/assets/redraw/champion/broken_saint/${sourceDir}_walk_${pad2(i)}.png`);
  for(let i=0;i<3;i++) image(REGION_ASH,R,`broken_saint_${dir}_attack_${pad2(i)}`,`/assets/redraw/champion/broken_saint/${sourceDir}_attack_${pad2(i)}.png`);
+}
+
+// ---------------------------------------------------------------------------
+// REGION_RUINS — Road of the Black Banners.
+// Zone 2 follows the approved Ash Fields pattern: one seamless ground tile
+// and four non-mirrored directional boundary overlays.
+// ---------------------------------------------------------------------------
+const zone2Ground=[
+ 'zone2_ground_base_01','zone2_edge_north_01','zone2_edge_south_01',
+ 'zone2_edge_west_01','zone2_edge_east_01'
+];
+for(const key of zone2Ground){
+ image(REGION_RUINS,R,key,`/assets/environment/ruined_kingdom/ground_minimal/${key}.png`);
+}
+
+// Zone 2 light accents: each prop has four authored loop frames. They stay in
+// the region package, so the dev jump to Zone 2 previews the final ambience.
+for(const prop of ['campfire','torch','lantern','embers','wagon']){
+ for(let frame=0;frame<4;frame++){
+  const key=`zone2_${prop}_${pad2(frame)}`;
+  image(REGION_RUINS,R,key,`/assets/environment/ruined_kingdom/light_props/${key}.png`);
+ }
 }
 
 export const ASSET_MANIFEST=Object.freeze(manifest);
