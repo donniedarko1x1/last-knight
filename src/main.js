@@ -47,8 +47,9 @@ import {
  releaseTextureKeys
 } from './config/assetManifest.mjs';
 
-// Player builds never expose the internal scene tuner or its shortcuts.
-const DEV_BUILD=false;
+// The scene tuner is intentionally hidden from the game UI and is opened only
+// by the developer shortcut below.
+const DEV_BUILD=true;
 
 // DEV HiDPI experiment. Phaser 3.90 no longer honors the old GameConfig `resolution`
 // option, so this build renders a larger backing canvas and lets ScaleManager FIT it
@@ -600,7 +601,7 @@ class LastKnightUiLayoutEditor {
 class LastKnightDevTools {
  constructor(scene){
   this.scene=scene;
-  this.enabled=false;
+  this.enabled=DEV_BUILD;
   this.open=false;
   this.editMode=false;
   this.selected=null;
@@ -651,7 +652,7 @@ class LastKnightDevTools {
   this.wheelHandler=(pointer,gameObjects,deltaX,deltaY,deltaZ)=>this.handleCameraWheel(pointer,deltaY);
   this.contextMenuHandler=(event)=>{if(this.freeCamera||this.editMode)event.preventDefault();};
   this.keyHandler=(event)=>{
-   if(event.key==='F2'){event.preventDefault();this.togglePanel();}
+   if(event.key.toLowerCase()==='g'){event.preventDefault();this.togglePanel();}
    if(event.key==='Escape' && this.editMode){this.setEditMode(false);}
   };
  }
@@ -718,13 +719,6 @@ class LastKnightDevTools {
  }
 
  buildDom(){
-  this.button=document.createElement('button');
-  this.button.id='lk-dev-button';
-  this.button.textContent='DEV';
-  this.button.title='Scene Tuner (F2)';
-  this.button.onclick=()=>this.togglePanel();
-  document.body.appendChild(this.button);
-
   const root=document.createElement('div');
   root.id='lk-dev-panel';
   root.innerHTML=`
@@ -3484,8 +3478,9 @@ class MainScene extends Phaser.Scene {
 
   this.updateWorldStreaming();
 
-  // The scene tuner is intentionally omitted from player builds.
-  this.devTools=null;
+  // Hidden developer panel: toggled exclusively with G, never by a UI button.
+  this.devTools=new LastKnightDevTools(this);
+  this.devTools.install();
 
   this.scale.on('resize',this.handleViewportResize,this);
   this.scale.on('resize',this.syncOrientationPause,this);
@@ -5580,6 +5575,40 @@ createAshFieldsEnvironment(objects,zone){
   this.championHazards=[];
  }
 
+ spawnHealthHeart(x,y,{healAmount=BALANCE.HEART_HEAL,expiresIn=30000,source='world',pickupDelay=0}={}){
+  const heart=this.add.image(x,y,'health_heart').setDepth(12);
+  this.physics.add.existing(heart);
+  heart.healAmount=Math.max(1,Math.round(healAmount));
+  heart.expiresAt=this.time.now+expiresIn;
+  heart.pickupAt=this.time.now+pickupDelay;
+  heart.source=source;
+  this.hearts.push(heart);
+  return heart;
+ }
+
+ throwHealthHeart(fromX,fromY,targetX,targetY,options={}){
+  const heart=this.spawnHealthHeart(fromX,fromY,{...options,pickupDelay:420});
+  heart.setScale(0.74);
+  this.tweens.add({
+   targets:heart,x:targetX,y:targetY,scale:1,
+   duration:420,ease:'Quad.easeOut'
+  });
+  return heart;
+ }
+
+ spawnStoryKnightHeart(knight){
+  if(!knight?.active || !this.player)return null;
+  const angle=Phaser.Math.Angle.Between(knight.x,knight.y,this.player.x,this.player.y);
+  const target=this.findNearestFreeGroundPoint(
+   knight.x+Math.cos(angle)*96,
+   knight.y+Math.sin(angle)*96,
+   20,180,16
+  );
+  return this.throwHealthHeart(knight.x,knight.y-18,target.x,target.y,{
+   healAmount:BALANCE.HEART_HEAL,expiresIn:30000,source:'woundedKnight'
+  });
+ }
+
  spawnChampionHazard(x,y,radius,delay,duration,damage,color=0xffd76a,kind='mark'){
   let visual;
   let beamVisual=null;
@@ -5745,6 +5774,23 @@ createAshFieldsEnvironment(objects,zone){
 
   if(kind==='brokenSaint'){
    this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
+
+   // Recovery is the accessibility valve for the first champion; his attacks
+   // stay untouched. Each threshold can drop exactly one heart per attempt.
+   const hpRatio=e.hp/Math.max(1,e.maxHp);
+   const dropped=e.brokenSaintHeartDrops||(e.brokenSaintHeartDrops=new Set());
+   const threshold=[0.75,0.50,0.25].find(value=>hpRatio<=value&&!dropped.has(value));
+   if(threshold!==undefined){
+    dropped.add(threshold);
+    const angle=Phaser.Math.Angle.Between(e.x,e.y,this.player.x,this.player.y);
+    const target=this.findNearestFreeGroundPoint(
+     e.x+Math.cos(angle)*118,e.y+Math.sin(angle)*118,22,180,16
+    );
+    this.throwHealthHeart(e.x,e.y,target.x,target.y,{
+     healAmount:Math.round((this.player.maxHp||100)*0.30),
+     expiresIn:8000,source:'brokenSaint'
+    });
+   }
 
    if(!devNoChampionSkills && time>=e.nextSkillAt){
     e.nextSkillAt=time+3000;
@@ -6984,10 +7030,7 @@ createAshFieldsEnvironment(objects,zone){
 
    if(Math.random()<heartChance){
     const heartPos=this.findNearestFreeGroundPoint(deathX,deathY,20,520,16);
-    const heart=this.add.image(heartPos.x,heartPos.y,'health_heart').setDepth(12);
-    this.physics.add.existing(heart);
-    heart.expiresAt=time+30000;
-    this.hearts.push(heart);
+    this.spawnHealthHeart(heartPos.x,heartPos.y,{expiresIn:30000,source:'enemy'});
     this.heartPityKills=0;
    }
   }
@@ -9480,8 +9523,9 @@ createAshFieldsEnvironment(objects,zone){
     heart.x,heart.y,this.player.x,this.player.y
    );
 
-   if(heartDistance<38){
-    const healAmount=this.championRelics.has('ancientBlood') ? Math.round(BALANCE.HEART_HEAL*1.5) : BALANCE.HEART_HEAL;
+   if(time>=(heart.pickupAt||0) && heartDistance<38){
+    const baseHeal=heart.healAmount||BALANCE.HEART_HEAL;
+    const healAmount=this.championRelics.has('ancientBlood') ? Math.round(baseHeal*1.5) : baseHeal;
     const hpBefore=this.player.hp;
     this.player.hp=Math.min(
      this.player.maxHp||100,

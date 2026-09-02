@@ -31,7 +31,8 @@ const STORY_DIALOGUE=Object.freeze([
  Object.freeze({speaker:'hero',text:'А ты?'}),
  Object.freeze({speaker:'knight',text:'Я немного полежу здесь.'}),
  Object.freeze({speaker:'hero',text:'Я вернусь.'}),
- Object.freeze({speaker:'knight',text:'Не спеши. Мне уже некуда идти.'})
+ Object.freeze({speaker:'knight',text:'Не спеши. Мне уже некуда идти.'}),
+ Object.freeze({speaker:'knight',text:'На, держи. Тебе это пригодится.'})
 ]);
 
 const AMBIENT_DIALOGUES=Object.freeze([
@@ -386,6 +387,7 @@ class WoundedKnightInteractionSystem {
     if(entry.story){
      this.storyDirector?.setFlag?.(STORY_FLAG,true);
      this.storyDirector?.completeObjective?.(STORY_OBJECTIVE_ID);
+     this.scene?.spawnStoryKnightHeart?.(entry.sprite);
     }
    }
   });
