@@ -43,6 +43,7 @@ import {
  BROKEN_SAINT_SWORD_CINEMATIC_PAGE_KEYS,
  ASH_SWORD_PULSE_FRAME_KEYS,
  getAssetSpec,
+ getAssetsForCategories,
  queueAssetCategories,
  releaseTextureKeys
 } from './config/assetManifest.mjs';
@@ -1024,7 +1025,7 @@ class LastKnightDevTools {
  resetUpgrades(){const s=this.scene;s.meleeAttack.level=1;s.meleeAttack.damage=15;s.meleeAttack.cooldown=1000;s.meleeAttack.radius=99;s.weaponLevels={sword:1};}
  applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;if(this.scene.enemyAshCollider)this.scene.enemyAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
  teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.progressionBalanceZoneIndex=s.currentWorldZoneIndex;s.applyRegionalHeroBalance(s.progressionBalanceZoneIndex,false);s.recalculateCurrentWaveRegionBalance();s.updateWorldStreaming();}
- jumpToZone(index){const s=this.scene,zone=WORLD_DESIGN.ZONES[index];if(!zone)return;this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.pendingWorldAdvance=null;s.awaitingWorldAdvance=false;s.worldAdvanceTargetZone=null;s.waveIntermission=false;s.nextWaveAt=Number.POSITIVE_INFINITY;const x=Math.min(zone.end-300,zone.start+(index===0?400:360));this.teleport(x);s.showWaveBanner(`DEV · ${zone.name}`,'Zone loaded · progression gate bypassed','#bfe8ff');}
+ jumpToZone(index){const s=this.scene,zone=WORLD_DESIGN.ZONES[index];if(!zone)return;this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.pendingWorldAdvance=null;s.awaitingWorldAdvance=false;s.worldAdvanceTargetZone=null;const x=Math.min(zone.end-300,zone.start+(index===0?400:360));this.teleport(x);s.startZoneWaveSequence(index,{suppressBanner:true});s.showWaveBanner(`DEV · ${zone.name}`,'Zone loaded · wave sequence restarted','#bfe8ff');}
  jumpToWave(wave){const s=this.scene;const safeWave=Phaser.Math.Clamp(Math.round(wave)||1,1,5);this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.waveIntermission=false;s.nextWaveAt=Number.POSITIVE_INFINITY;s.startWave(safeWave,false,{suppressBanner:false});}
 
  toggleGroundOnly(){const on=!(this.groundOnly||false);this.groundOnly=on;if(on){this.envVisibility.props=false;this.envVisibility.landmarks=false;}else{this.envVisibility.props=true;this.envVisibility.trees=true;this.envVisibility.rocks=true;this.envVisibility.grass=true;this.envVisibility.landmarks=true;}this.applyAllEnvironmentVisibility();}
@@ -3175,6 +3176,8 @@ class MainScene extends Phaser.Scene {
   this.closedWorldGates=new Set();
   this.backtrackBlockers=[];
   this.lastStreamingZoneIndex=0;
+  this.releasedWorldTextureZones=new Set();
+  this.zoneEntryCameraHandoff=null;
 
   this.emptyScreenRushActive=false;
 
@@ -3805,12 +3808,14 @@ class MainScene extends Phaser.Scene {
  }
 
  getChampionForWave(wave){
-  return ({
-   5:'brokenSaint',
-   7:'necromancer',
-   9:'shieldWarden',
-   10:'hollowTree'
-  })[wave] || null;
+  const championsByZone=[
+   {5:'brokenSaint'},
+   {5:'necromancer'},
+   {5:'shieldWarden'},
+   {5:'hollowTree'},
+   {}
+  ];
+  return championsByZone[this.currentWorldZoneIndex]?.[wave] || null;
  }
 
  getChampionDefinition(kind){
@@ -4018,8 +4023,23 @@ class MainScene extends Phaser.Scene {
   return true;
  }
 
+ getForwardEnemySpawnFloor(padding=26){
+  // Once the player has crossed a progression gate, combat must read as
+  // something waiting ahead of him — never as enemies leaking in from the
+  // biome he has already left. Keep a modest distance in front of the hero
+  // as well, so top/bottom edge spawns cannot visually appear behind him.
+  if(!this.currentWorldZoneIndex) return this.clampWorldX(padding+6,padding+6);
+  const zone=WORLD_DESIGN.ZONES[this.currentWorldZoneIndex];
+  const entryGate=WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1];
+  const gateFloor=(entryGate?.x||zone?.start||0)+170;
+  const heroFloor=(this.player?.x||0)+96;
+  return this.clampWorldX(Math.max(gateFloor,heroFloor),padding+6);
+ }
+
  findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){
-  const startX=this.clampWorldX(x,padding+6);
+  const minX=arguments[2]?.minX??null;
+  const spawnFloor=minX??this.getForwardEnemySpawnFloor(padding);
+  const startX=Math.max(spawnFloor,this.clampWorldX(x,padding+6));
   const startY=this.clampWorldY(y,padding+6);
   const startCell=this.worldToNavCell(startX,startY);
   if(this.isNavCellWalkable(startCell.col,startCell.row) && this.isSafeEnemySpawnPoint(startX,startY,padding,minPlayerDistance)){
@@ -4027,10 +4047,23 @@ class MainScene extends Phaser.Scene {
   }
 
   const navPoint=this.findSafeNavSpawnPoint(startX,startY,{padding,minPlayerDistance,maxRadius});
-  if(navPoint) return navPoint;
+  if(navPoint && navPoint.x>=spawnFloor && this.isSafeEnemySpawnPoint(navPoint.x,navPoint.y,padding,minPlayerDistance)) return navPoint;
 
-  // Last-resort geometric fallback for malformed/debug-edited navigation layouts.
-  return this.findNearestFreeGroundPoint(startX,startY,searchStep,maxRadius,padding);
+  // Navigation's generic fallback is allowed to search in every direction.
+  // Zone travel is stricter: keep its last-resort search on the forward side
+  // of the hero and the sealed gate as well.
+  for(let radius=searchStep;radius<=maxRadius;radius+=searchStep){
+   for(let step=0;step<16;step++){
+    const angle=(Math.PI*2*step)/16;
+    const candidateX=Math.max(spawnFloor,this.clampWorldX(startX+Math.cos(angle)*radius,padding+6));
+    const candidateY=this.clampWorldY(startY+Math.sin(angle)*radius,padding+6);
+    if(this.isSafeEnemySpawnPoint(candidateX,candidateY,padding,minPlayerDistance)) return {x:candidateX,y:candidateY};
+   }
+  }
+
+  // A crowded scene is preferable to a skeleton visibly entering from the
+  // previous zone. The next spawn tick will find a clearer forward point.
+  return {x:startX,y:startY};
  }
 
  setEnemySteeredVelocity(enemy,vx,vy,time){
@@ -4798,6 +4831,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    this.markNavigationDirty();
   }
 
+  this.releaseRetiredWorldZoneTextures(index);
+
   const preview=this.loadedWorldPreviews.get(index);
   if(preview){
    for(const obj of preview){
@@ -4805,6 +4840,19 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    }
    this.loadedWorldPreviews.delete(index);
   }
+ }
+
+ releaseRetiredWorldZoneTextures(index){
+  // Region art is one-way streamed. Once the player is sealed into the next
+  // biome, none of the previous biome's images can be shown again, so release
+  // their GPU textures instead of merely hiding their game objects.
+  if(index!==0 || this.releasedWorldTextureZones?.has(index)) return;
+  const textureKeys=getAssetsForCategories([ASSET_CATEGORY.REGION_ASH])
+   .filter(entry=>entry.type==='image')
+   .map(entry=>entry.key);
+  releaseTextureKeys(this,textureKeys);
+  if(!this.releasedWorldTextureZones) this.releasedWorldTextureZones=new Set();
+  this.releasedWorldTextureZones.add(index);
  }
 
  createBiomePreview(fromIndex){
@@ -4920,6 +4968,78 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   );
  }
 
+ beginZoneEntryCameraHandoff(fromIndex,toIndex){
+  if(toIndex<=fromIndex || fromIndex<0) return;
+  const gate=WORLD_DESIGN.GATES[fromIndex];
+  if(!gate || this.zoneEntryCameraHandoff?.toIndex===toIndex) return;
+
+  this.zoneEntryCameraHandoff={
+   fromIndex,
+   toIndex,
+   gate,
+   armedAtX:gate.x+320,
+   started:false,
+   retired:false,
+   released:false,
+   startedAt:0,
+   duration:920,
+   targetOffsetX:0,
+   releaseStartedAt:0,
+   releaseAtX:0
+  };
+ }
+
+ setWorldCameraFollowOffset(x=0){
+  const cam=this.cameras?.main;
+  if(!cam) return;
+  if(typeof cam.setFollowOffset==='function') cam.setFollowOffset(x,0);
+  else if(cam.followOffset?.set) cam.followOffset.set(x,0);
+ }
+
+ updateZoneEntryCameraHandoff(time=0){
+  const handoff=this.zoneEntryCameraHandoff;
+  if(!handoff || handoff.toIndex!==this.currentWorldZoneIndex) return;
+  if(this.devTools?.freeCamera || this.devTools?.cameraLocked) return;
+  if(!handoff.started){
+   if(this.player.x<handoff.armedAtX) return;
+   const viewWidth=Math.max(1,this.cameras.main.worldView?.width||this.cameras.main.width/(this.cameras.main.zoom||1));
+   // Shift the follow target enough that the left camera edge is already to
+   // the right of the gate when the pan settles. The hero remains followed,
+   // merely held a little left of centre for this short transition.
+   const requiredOffset=Math.max(0,handoff.gate.x+72+viewWidth*0.5-this.player.x);
+   handoff.targetOffsetX=Math.max(viewWidth*0.35,requiredOffset+28);
+   handoff.releaseAtX=handoff.gate.x+viewWidth*0.5+110;
+   handoff.started=true;
+   handoff.startedAt=time;
+  }
+
+  if(!handoff.retired){
+   const progress=Phaser.Math.Clamp((time-handoff.startedAt)/handoff.duration,0,1);
+   this.setWorldCameraFollowOffset(Phaser.Math.Easing.Quadratic.Out(progress)*handoff.targetOffsetX);
+   if(progress<1) return;
+
+   // Only destroy the previous region after it has left the frame. This avoids
+   // a visible pop and immediately frees both objects and their textures.
+   this.createBacktrackSeal(handoff.gate);
+   this.unloadWorldZone(handoff.fromIndex);
+   handoff.retired=true;
+   return;
+  }
+
+  // Restore the usual centred follow only once a normal camera position can
+  // no longer reveal the old gate. Until then the intentional rightward bias
+  // keeps the first zone entirely out of view.
+  if(!handoff.released && this.player.x>=handoff.releaseAtX){
+   handoff.released=true;
+   handoff.releaseStartedAt=time;
+  }
+  if(handoff.released){
+   const progress=Phaser.Math.Clamp((time-handoff.releaseStartedAt)/720,0,1);
+   this.setWorldCameraFollowOffset((1-Phaser.Math.Easing.Quadratic.In(progress))*handoff.targetOffsetX);
+   if(progress>=1) this.zoneEntryCameraHandoff=null;
+  }
+ }
+
  updateRuntimeEnvironmentCulling(time=0){
   // Pure visibility optimisation: no props are removed and no collision or
   // navigation geometry changes. A generous off-camera margin makes the switch
@@ -4976,6 +5096,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
   // Current biome must always be present.
   this.loadWorldZone(zoneIndex);
+  this.updateZoneEntryCameraHandoff(this.time.now);
 
   // Stream the next biome near the transition so it can be glimpsed beyond
   // the gate and is ready the instant the champion opens the path.
@@ -5038,7 +5159,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   const nextIndex=this.getWorldZoneIndexAtX(this.player.x);
   if(nextIndex===this.currentWorldZoneIndex) return;
 
+  const previousIndex=this.currentWorldZoneIndex;
   this.currentWorldZoneIndex=nextIndex;
+  this.beginZoneEntryCameraHandoff(previousIndex,nextIndex);
   // The landmark keeps its silent pulse only inside the Ash Fields. It is
   // explicitly retired as soon as the hero crosses into the next zone.
   if(nextIndex>0) this.stopAshSwordAmbientAnimation();
@@ -5148,8 +5271,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    '#e2eadb'
   );
 
-  // Small arrival beat before combat resumes.
-  this.nextWaveAt=time+1250;
+  // Every biome owns a fresh 1–5 wave sequence. Its first encounter begins
+  // after the arrival beat instead of continuing the previous zone as Wave 6.
+  this.startZoneWaveSequence(arrivedZoneIndex,{delay:1250,suppressBanner:false});
  }
 
  getRegionBalance(index=this.progressionBalanceZoneIndex){
@@ -5198,7 +5322,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave),{concurrentChampion=false}={}){
   const baseTarget=wave===1 ? 10 : 8+wave*3;
   const targetBonus=profile?.targetBonus||0;
-  const postWaveBrokenSaint=wave===5 && championKind==='brokenSaint' && !concurrentChampion;
+  const postWaveBrokenSaint=this.currentWorldZoneIndex===0 && wave===5 && championKind==='brokenSaint' && !concurrentChampion;
   const championScale=(championKind && (concurrentChampion || !postWaveBrokenSaint)) ? 0.70 : 1;
   return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()));
  }
@@ -5246,15 +5370,19 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   if(view.top-margin>0) sides.push('top');
   if(view.right+margin<STAGE0.WORLD_WIDTH) sides.push('right');
   if(view.bottom+margin<STAGE0.WORLD_HEIGHT) sides.push('bottom');
-  if(view.left-margin>0) sides.push('left');
-  const side=Phaser.Utils.Array.GetRandom(sides.length ? sides : ['top','right','bottom','left']);
-  const minX=this.clampWorldX(view.left+pad,pad);
+  const forwardOnly=this.currentWorldZoneIndex>0;
+  if(!forwardOnly && view.left-margin>0) sides.push('left');
+  const fallbackSides=forwardOnly ? ['top','right','bottom'] : ['top','right','bottom','left'];
+  const side=Phaser.Utils.Array.GetRandom(sides.length ? sides : fallbackSides);
+  const spawnFloor=forwardOnly ? this.getForwardEnemySpawnFloor(pad) : this.clampWorldX(view.left+pad,pad);
+  const minX=Math.max(spawnFloor,this.clampWorldX(view.left+pad,pad));
   const maxX=this.clampWorldX(view.right-pad,pad);
+  const forwardMinX=Math.min(minX,maxX);
   const minY=this.clampWorldY(view.top+pad,pad);
   const maxY=this.clampWorldY(view.bottom-pad,pad);
-  if(side==='top') return {x:Phaser.Math.Between(Math.round(minX),Math.round(maxX)),y:this.clampWorldY(view.top-margin,pad)};
+  if(side==='top') return {x:Phaser.Math.Between(Math.round(forwardMinX),Math.round(maxX)),y:this.clampWorldY(view.top-margin,pad)};
   if(side==='right') return {x:this.clampWorldX(view.right+margin,pad),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
-  if(side==='bottom') return {x:Phaser.Math.Between(Math.round(minX),Math.round(maxX)),y:this.clampWorldY(view.bottom+margin,pad)};
+  if(side==='bottom') return {x:Phaser.Math.Between(Math.round(forwardMinX),Math.round(maxX)),y:this.clampWorldY(view.bottom+margin,pad)};
   return {x:this.clampWorldX(view.left-margin,pad),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
  }
 
@@ -7663,14 +7791,19 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    if(!this.ashSwordLandmark?.active||Phaser.Math.Distance.Between(this.player.x,this.player.y,this.ashSwordLandmark.x,this.ashSwordLandmark.y)>260)return false;
    state.phase='cinematic';this.playAshSwordPulseSfx();
    const complete=()=>{
-    this.stopAshSwordPulseSfx();
-    // The gate is the next visible objective, but it deliberately remains
-    // closed until the next approved progression beat is implemented.
+   this.stopAshSwordPulseSfx();
+    // The sword cinematic is the final gate beat: open the passage now, then
+    // point the player through it. Keeping the old physical blocker here made
+    // the Zone 2 route impossible to enter.
     const gate=WORLD_DESIGN.GATES.find(entry=>entry.champion==='brokenSaint');
     if(gate){
-     this.ensureProgressionGate(gate.fromZone);
-     const gateObject=this.worldGateObjects.get(gate.id);
-     this.ashAltarObjectiveMarker?.setTarget(gateObject?.visible||gateObject?.blocker,{worldOffsetY:0});
+     this.requestWorldAdvance('brokenSaint');
+     this.beginWorldTravel();
+     this.ashAltarObjectiveMarker?.setTarget({
+      x:gate.x+180,
+      y:WORLD_DESIGN.ROUTE_Y,
+      active:true
+     },{worldOffsetY:0});
     }
     state.phase='gateMarker';
    };
@@ -7893,6 +8026,18 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  getWaveProfile(wave){
+  if(this.currentWorldZoneIndex===1){
+   // Road of the Black Banners deliberately has its own cadence. These are
+   // encounter identities, not copies of the Ash Fields wave script.
+   const ruinedKingdomProfiles={
+    1:{name:'ROAD AMBUSH',subtitle:'The dead rise from the wreckage',spawnInterval:1080,mageEvery:99,shieldEvery:99,targetBonus:-1},
+    2:{name:'FOG CALLERS',subtitle:'Break the casters before they box you in',spawnInterval:980,mageEvery:3,shieldEvery:99,targetBonus:0},
+    3:{name:'BANNER WALL',subtitle:'Shield-bearers hold the road',spawnInterval:1060,mageEvery:5,shieldEvery:3,targetBonus:1},
+    4:{name:'THE LOST CAMP',subtitle:'A mixed assault closes from the ruins',spawnInterval:900,mageEvery:4,shieldEvery:4,targetBonus:2},
+    5:{name:'CHAPEL APPROACH',subtitle:'Something guards the way forward',spawnInterval:940,mageEvery:4,shieldEvery:5,targetBonus:2}
+   };
+   return ruinedKingdomProfiles[wave] || ruinedKingdomProfiles[5];
+  }
   const baseInterval=Math.max(760,1050-(wave-1)*18);
 
   if(wave>1 && wave%5===0){
@@ -7905,6 +8050,22 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    return {name:'ARCANE PRESSURE',subtitle:'More ranged threats',spawnInterval:baseInterval,mageEvery:4,shieldEvery:7,targetBonus:0};
   }
   return {name:wave===1?'THE OUTSKIRTS':'MIXED ASSAULT',subtitle:wave===1?'The dead are approaching':'Balanced enemy pressure',spawnInterval:baseInterval,mageEvery:5,shieldEvery:6,targetBonus:0};
+ }
+
+ startZoneWaveSequence(zoneIndex=this.currentWorldZoneIndex,{delay=0,suppressBanner=false}={}){
+  this.currentWorldZoneIndex=zoneIndex;
+  this.wave=0;
+  this.spawned=0;
+  this.waveTarget=0;
+  this.waveProfile=null;
+  this.waveIntermission=true;
+  this.postWaveChampionKind=null;
+  this.championEventActive=false;
+  this.lastSpawn=this.time.now;
+  this.storyWaveGateWasActive=false;
+  this.ashSwordPreludeQueuedAt=0;
+  this.nextWaveAt=this.time.now+Math.max(0,delay);
+  if(delay<=0) this.startWave(1,false,{suppressBanner});
  }
 
 
@@ -7956,7 +8117,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  isAshAltarStoryGateActive(){
-  return Boolean(
+  return this.currentWorldZoneIndex===0 && Boolean(
    this.wave===4 &&
    this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,false) &&
    !this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false)
@@ -8628,7 +8789,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  isBrokenSaintEscortWaveCleared(){
   const champion=this.activeChampion;
   if(
-   this.wave!==5 || !champion?.active || champion.hp<=0 ||
+   this.currentWorldZoneIndex!==0 || this.wave!==5 || !champion?.active || champion.hp<=0 ||
    champion.championKind!=='brokenSaint' || champion.ignoreAshAltarCollision ||
    this.spawned<this.waveTarget || this.storyEnemyAnomalies?.hasPendingReturns?.()
   ) return false;
@@ -8675,12 +8836,12 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.waveIntermission=false;
   this.waveProfile=this.getWaveProfile(wave);
   const championKind=this.getChampionForWave(wave);
-  const isPostWaveBrokenSaint=wave===5 && championKind==='brokenSaint' && !preSpawnedChampion;
+  const isPostWaveBrokenSaint=this.currentWorldZoneIndex===0 && wave===5 && championKind==='brokenSaint' && !preSpawnedChampion;
   this.postWaveChampionKind=isPostWaveBrokenSaint?championKind:null;
   this.championEventActive=Boolean(championKind && !isPostWaveBrokenSaint);
   this.waveSpawnInterval=this.calculateWaveSpawnInterval(this.waveProfile);
   this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind,{concurrentChampion:preSpawnedChampion});
-  this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);
+  if(this.currentWorldZoneIndex===0) this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);
 
   this.waveText.setText(`WAVE ${wave}`);
   this.waveSubText.setText(
@@ -8711,18 +8872,20 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  beginWaveIntermission(time){
   if(this.waveIntermission) return;
   this.waveIntermission=true;
-  if(this.wave===2 && !this.ashSwordPulseCompleted){
+  if(this.currentWorldZoneIndex===0 && this.wave===2 && !this.ashSwordPulseCompleted){
    this.ashSwordPreludeQueuedAt=time+1000;
    this.nextWaveAt=Number.POSITIVE_INFINITY;
    this.waveSubText.setText('');
    return;
   }
   const woundedStoryGate=Boolean(
+   this.currentWorldZoneIndex===0 &&
    this.wave===3 &&
    this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
    !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
   );
   const altarStoryGate=Boolean(
+   this.currentWorldZoneIndex===0 &&
    this.wave===4 &&
    this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,false) &&
    !this.storyDirector?.getFlag?.(ASH_ALTAR_CHAMPION_STORY.fightStartedFlag,false)
@@ -9242,13 +9405,14 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   traceSectionAt=this.endSubsystemTrace('worldStreaming',traceSectionAt);
 
   if(this.waveIntermission){
-   if(this.wave===2&&!this.ashSwordPulseCompleted&&this.ashSwordPreludeQueuedAt&&time>=this.ashSwordPreludeQueuedAt){
+   if(this.currentWorldZoneIndex===0&&this.wave===2&&!this.ashSwordPulseCompleted&&this.ashSwordPreludeQueuedAt&&time>=this.ashSwordPreludeQueuedAt){
     this.ashSwordPreludeQueuedAt=0;this.beginAshSwordPrelude(time);return;
    }
    if(this.awaitingWorldAdvance){
     this.updateWorldTravel(time);
    } else {
     const woundedStoryGateActive=Boolean(
+     this.currentWorldZoneIndex===0 &&
      this.wave===3 &&
      this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,false) &&
      !this.storyDirector?.getFlag?.(ASH_WOUNDED_KNIGHT_STORY.metFlag,false)
@@ -9294,9 +9458,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     } else if(this.pendingWorldAdvance){
      this.beginWorldTravel();
     } else {
-     if(this.wave===3){
+     if(this.currentWorldZoneIndex===0 && this.wave===3){
       this.storyDirector?.setFlag?.(ASH_WOUNDED_KNIGHT_STORY.waveClearedFlag,true);
-     }else if(this.wave===4){
+     }else if(this.currentWorldZoneIndex===0 && this.wave===4){
       this.storyDirector?.setFlag?.(ASH_ALTAR_CHAMPION_STORY.waveClearedFlag,true);
       this.activateAshAltarChampionObjective();
      }
@@ -10138,10 +10302,15 @@ class HUDScene extends Phaser.Scene {
 
  layoutEventBanner(){
   if(!this.eventBannerPanel) return;
-  const logical=lkLogicalSceneSize(this),w=logical.width,h=logical.height;
+  const logical=lkLogicalSceneSize(this);
+  // Resize can briefly report a zero-sized logical viewport while Phaser is
+  // rebuilding its canvas. Text.setWordWrapWidth rejects values below one
+  // character, so keep the banner layout valid through that transient frame.
+  const w=Math.max(240,Number(logical.width)||0);
+  const h=Math.max(180,Number(logical.height)||0);
   const mobile=Boolean(this.mainScene?.isTouchDevice || h<560 || w<900);
   const cx=w/2,cy=h/2;
-  const panelW=Math.min(mobile?420:620,w-(mobile?28:64));
+  const panelW=Math.max(180,Math.min(mobile?420:620,w-(mobile?28:64)));
   const panelH=mobile?104:126;
   const x=cx-panelW/2,y=cy-panelH/2;
   const radius=mobile?9:12;
@@ -10150,8 +10319,8 @@ class HUDScene extends Phaser.Scene {
   this.eventBannerPanel.fillStyle(0x070605,0.34); this.eventBannerPanel.fillRoundedRect(x+4,y+4,panelW,panelH,radius);
   this.eventBannerPanel.fillStyle(0x15130f,0.78); this.eventBannerPanel.fillRoundedRect(x,y,panelW,panelH,radius);
   this.eventBannerPanel.lineStyle(mobile?1.5:2,0x8c7447,0.82); this.eventBannerPanel.strokeRoundedRect(x,y,panelW,panelH,radius);
-  this.eventBannerTitle.setPosition(cx,cy-(mobile?15:19)).setFontSize(mobile?24:32).setWordWrapWidth(panelW-28,true);
-  this.eventBannerSub.setPosition(cx,cy+(mobile?23:28)).setFontSize(mobile?12:16).setWordWrapWidth(panelW-34,true);
+  this.eventBannerTitle.setPosition(cx,cy-(mobile?15:19)).setFontSize(mobile?24:32).setWordWrapWidth(Math.max(80,panelW-28),true);
+  this.eventBannerSub.setPosition(cx,cy+(mobile?23:28)).setFontSize(mobile?12:16).setWordWrapWidth(Math.max(80,panelW-34),true);
  }
 
  makeSkillButton(index,title,kind){
