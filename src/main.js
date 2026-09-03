@@ -134,6 +134,30 @@ const ZONE2_TERRAIN_KEYS=Object.freeze([
  'zone2_ground_base_01','zone2_edge_north_01','zone2_edge_south_01',
  'zone2_edge_west_01','zone2_edge_east_01'
 ]);
+const CROW_TEXTURE_SPECS=Object.freeze([
+ ['crown_1_1','/assets/environment/ruined_kingdom/crows/crown-1/crown-1-1.png'],
+ ['crown_1_2','/assets/environment/ruined_kingdom/crows/crown-1/crown-1-2.png'],
+ ['crown_1_3','/assets/environment/ruined_kingdom/crows/crown-1/crown-1-3.png'],
+ ['crown_2_1','/assets/environment/ruined_kingdom/crows/crown-2/crown-2-1.png'],
+ ['crown_2_2','/assets/environment/ruined_kingdom/crows/crown-2/crown-2-2.png'],
+ ['crown_2_3','/assets/environment/ruined_kingdom/crows/crown-2/crown-2-3.png'],
+ ['crown_3_1','/assets/environment/ruined_kingdom/crows/crown-3/crown-3-1.png'],
+ ['crown_3_2','/assets/environment/ruined_kingdom/crows/crown-3/crown-3-2.png'],
+ ['crown_3_3','/assets/environment/ruined_kingdom/crows/crown-3/crown-3-3.png'],
+ ['crown_takeoff_1','/assets/environment/ruined_kingdom/crows/crown-takeoff/crow_takeoff_01_01.png'],
+ ['crown_takeoff_2','/assets/environment/ruined_kingdom/crows/crown-takeoff/crow_takeoff_01_02.png'],
+ ['crown_takeoff_3','/assets/environment/ruined_kingdom/crows/crown-takeoff/crow_takeoff_01_03.png'],
+ ['crown_fly_1','/assets/environment/ruined_kingdom/crows/crown-fly/fly-1.png'],
+ ['crown_fly_2','/assets/environment/ruined_kingdom/crows/crown-fly/fly-2.png'],
+ ['crown_fly_3','/assets/environment/ruined_kingdom/crows/crown-fly/fly-3.png'],
+ ['crown_fly_4','/assets/environment/ruined_kingdom/crows/crown-fly/fly-4.png']
+]);
+const CROW_VISUAL_SCALE=0.18;
+const CROW_TRIGGER_RADIUS=150;
+const CROW_TAKEOFF_MS=470;
+const CROW_FLIGHT_LIFETIME_MS=7600;
+const CROW_FLOCK_BIRD_MIN=5;
+const CROW_FLOCK_BIRD_MAX=20;
 const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
 const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
 const ASH_SWORD_PRELUDE_RETURN_MS=800;
@@ -2239,7 +2263,10 @@ class PreloadScene extends Phaser.Scene {
   this.cameras.main.setOrigin(0,0).setZoom(LK_RENDER_SCALE);
   this.buildLoadingScreen();
   const queued=queueAssetCategories(this,INITIAL_ASSET_CATEGORIES);
-  this.queuedAssetCount=queued.length;
+  for(const [key,url] of CROW_TEXTURE_SPECS){
+   if(!this.textures.exists(key)) this.load.image(key,url);
+  }
+  this.queuedAssetCount=queued.length+CROW_TEXTURE_SPECS.length;
   this.registerLoadingEvents();
   this.load.start();
  }
@@ -3787,6 +3814,19 @@ class MainScene extends Phaser.Scene {
    });
   }
 
+  // Crows: calm sitting motion, brisk takeoff, then steady methodical wingbeats.
+  for(let variant=1;variant<=3;variant++){
+   const key=`crown_idle_${variant}`;
+   if(this.anims.exists(key)) continue;
+   this.anims.create({key,frames:[1,2,3].map(i=>({key:`crown_${variant}_${i}`})),frameRate:2.15,repeat:-1});
+  }
+  if(!this.anims.exists('crown_takeoff')){
+   this.anims.create({key:'crown_takeoff',frames:[1,2,3].map(i=>({key:`crown_takeoff_${i}`})),duration:CROW_TAKEOFF_MS,repeat:0});
+  }
+  if(!this.anims.exists('crown_fly')){
+   this.anims.create({key:'crown_fly',frames:[1,2,3,4].map(i=>({key:`crown_fly_${i}`})),frameRate:5.4,repeat:-1});
+  }
+
  }
 
  constructor(){
@@ -3909,6 +3949,8 @@ class MainScene extends Phaser.Scene {
   this.releasedWorldTextureZones=new Set();
 
   this.emptyScreenRushActive=false;
+  this.crows=[];
+  this.crowFlocks=new Map();
 
   // DEV Scene Tuner state. These collections are populated only by environment art.
   this.devEnvironmentObjects=[];
@@ -4064,6 +4106,8 @@ class MainScene extends Phaser.Scene {
   this.lastStreamingZoneIndex=this.currentWorldZoneIndex;
 
   this.emptyScreenRushActive=false;
+  this.crows=[];
+  this.crowFlocks=new Map();
 
   this.devEnvironmentObjects=[];
   this.devEnvironmentShadows=[];
@@ -4815,6 +4859,17 @@ class MainScene extends Phaser.Scene {
    if(e.type!=='captain')this.skeletonSpawned++;
   }
 
+  // A fully-upgraded Ash Fields build should meet a real difficulty step on
+  // entering later regions instead of deleting their opening mobs instantly.
+  // Captains own authored stats below, so this applies to ordinary enemies only.
+  if(this.currentWorldZoneIndex>0 && e.type!=='captain'){
+   const regionalHpFactor=1.35+Math.max(0,this.currentWorldZoneIndex-1)*0.12;
+   const regionalSpeedFactor=1.08+Math.max(0,this.currentWorldZoneIndex-1)*0.025;
+   e.hp=Math.ceil(e.hp*regionalHpFactor);
+   e.maxHp=e.hp;
+   e.speed=Math.round(e.speed*regionalSpeedFactor);
+  }
+
   e.lastAttack=0;
   e.lastShot=0;
   e.attackAnimUntil=0;
@@ -5072,10 +5127,22 @@ class MainScene extends Phaser.Scene {
   return this.clampWorldX(Math.max(gateFloor,heroFloor),padding+6);
  }
 
- findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){
-  const minX=arguments[2]?.minX??null;
+
+ getCurrentZoneEnemySpawnCeiling(padding=26){
+  const zoneIndex=Phaser.Math.Clamp(this.currentWorldZoneIndex||0,0,WORLD_DESIGN.ZONES.length-1);
+  const zone=WORLD_DESIGN.ZONES[zoneIndex];
+  const exitGate=WORLD_DESIGN.GATES[zoneIndex];
+  const boundaryX=exitGate?.x ?? zone?.end ?? STAGE0.WORLD_WIDTH;
+  // Keep ordinary enemies visibly inside their own biome rather than letting
+  // off-camera edge spawns appear on the far side of the progression gate.
+  return this.clampWorldX(boundaryX-96,padding+6);
+ }
+
+ findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360,minX=null,maxX=null}={}){
   const spawnFloor=minX??this.getForwardEnemySpawnFloor(padding);
-  const startX=Math.max(spawnFloor,this.clampWorldX(x,padding+6));
+  const spawnCeiling=maxX??this.getCurrentZoneEnemySpawnCeiling(padding);
+  const safeFloor=Math.min(spawnFloor,spawnCeiling);
+  const startX=Phaser.Math.Clamp(this.clampWorldX(x,padding+6),safeFloor,spawnCeiling);
   const startY=this.clampWorldY(y,padding+6);
   const startCell=this.worldToNavCell(startX,startY);
   if(this.isNavCellWalkable(startCell.col,startCell.row) && this.isSafeEnemySpawnPoint(startX,startY,padding,minPlayerDistance)){
@@ -5083,7 +5150,7 @@ class MainScene extends Phaser.Scene {
   }
 
   const navPoint=this.findSafeNavSpawnPoint(startX,startY,{padding,minPlayerDistance,maxRadius});
-  if(navPoint && navPoint.x>=spawnFloor && this.isSafeEnemySpawnPoint(navPoint.x,navPoint.y,padding,minPlayerDistance)) return navPoint;
+  if(navPoint && navPoint.x>=safeFloor && navPoint.x<=spawnCeiling && this.isSafeEnemySpawnPoint(navPoint.x,navPoint.y,padding,minPlayerDistance)) return navPoint;
 
   // Navigation's generic fallback is allowed to search in every direction.
   // Zone travel is stricter: keep its last-resort search on the forward side
@@ -5091,7 +5158,7 @@ class MainScene extends Phaser.Scene {
   for(let radius=searchStep;radius<=maxRadius;radius+=searchStep){
    for(let step=0;step<16;step++){
     const angle=(Math.PI*2*step)/16;
-    const candidateX=Math.max(spawnFloor,this.clampWorldX(startX+Math.cos(angle)*radius,padding+6));
+    const candidateX=Phaser.Math.Clamp(this.clampWorldX(startX+Math.cos(angle)*radius,padding+6),safeFloor,spawnCeiling);
     const candidateY=this.clampWorldY(startY+Math.sin(angle)*radius,padding+6);
     if(this.isSafeEnemySpawnPoint(candidateX,candidateY,padding,minPlayerDistance)) return {x:candidateX,y:candidateY};
    }
@@ -5718,6 +5785,179 @@ createAshFieldsEnvironment(objects,zone){
  this.createAshBattlefieldCasualties(objects);
 }
 
+createRuinedKingdomCrowFlock(objects,zone){
+ if(!zone || !this.textures.exists('crown_1_1'))return;
+ const flockId='ruined_wagon_crows_01';
+ if(this.crowFlocks?.has(flockId))return;
+
+ // Keep the ambient flock only around the first burning wagon in Ruined Kingdom.
+ // Birds are distributed on two loose elliptical rings so even a 20-crow flock
+ // never collapses into one pile in the wagon centre.
+ const centerX=zone.start+1420;
+ const centerY=WORLD_DESIGN.ROUTE_Y+115;
+ const birdCount=Phaser.Math.Between(CROW_FLOCK_BIRD_MIN,CROW_FLOCK_BIRD_MAX);
+ const flock={id:flockId,centerX,centerY,triggered:false,crows:[]};
+ this.crowFlocks.set(flockId,flock);
+
+ const startAngle=Phaser.Math.FloatBetween(0,Math.PI*2);
+ for(let index=0;index<birdCount;index++){
+  const ring=index%2;
+  const angle=startAngle+(index/birdCount)*Math.PI*2+Phaser.Math.FloatBetween(-0.12,0.12);
+  const radiusX=(ring===0?142:224)*Phaser.Math.FloatBetween(0.88,1.12);
+  const radiusY=(ring===0?82:132)*Phaser.Math.FloatBetween(0.88,1.12);
+  const x=centerX+Math.cos(angle)*radiusX+Phaser.Math.Between(-8,8);
+  const y=centerY+Math.sin(angle)*radiusY+Phaser.Math.Between(-6,6);
+  const variant=Phaser.Math.Between(1,3);
+  const flip=Math.random()<0.5;
+  const shadow=this.add.ellipse(x,y+4,23,8,0x000000,0.24).setDepth(5.4);
+  const sprite=this.add.sprite(x,y,`crown_${variant}_1`)
+   .setOrigin(0.5,0.82)
+   .setScale(CROW_VISUAL_SCALE*Phaser.Math.FloatBetween(0.94,1.08))
+   .setFlipX(flip)
+   .setDepth(7.2);
+  sprite.play({key:`crown_idle_${variant}`,startFrame:index%3});
+  const crow={
+   flockId,index,variant,sprite,shadow,state:'idle',groundX:x,groundY:y,homeX:x,homeY:y,
+   idleSide:(index%2===0?1:-1)*Phaser.Math.FloatBetween(0.75,1.2),
+   idlePhase:Phaser.Math.Between(0,2),
+   altitude:0,launchAt:0,takeoffAt:0,flyAt:0,flightEndsAt:0,speed:0,angle:0,exitAngle:0,
+   turnSign:index%2===0?1:-1,turnUntil:0,retiring:false,scatterAngle:null,maneuverQueue:[],nextManeuverAt:0
+  };
+  flock.crows.push(crow);
+  this.crows.push(crow);
+  objects.push(shadow,sprite);
+ }
+}
+
+scatterCrowFlock(flock,time=this.time.now){
+ if(!flock || flock.triggered || !this.player?.active)return false;
+ flock.triggered=true;
+ const shuffled=[...flock.crows].filter(crow=>crow?.sprite?.active);
+ Phaser.Utils.Array.Shuffle(shuffled);
+ const baseAngle=Math.atan2(flock.centerY-this.player.y,flock.centerX-this.player.x);
+ const count=Math.max(1,shuffled.length);
+ shuffled.forEach((crow,order)=>{
+  const spread=((order/count)*Math.PI*2)+Phaser.Math.FloatBetween(-0.22,0.22);
+  crow.scatterAngle=baseAngle+spread;
+  crow.launchAt=time+order*Phaser.Math.Between(18,42)+Phaser.Math.Between(0,45);
+  crow.state='alert';
+ });
+ return true;
+}
+
+beginCrowTakeoff(crow,time=this.time.now){
+ if(!crow?.sprite?.active || !this.player?.active)return;
+ let dx=crow.groundX-this.player.x,dy=crow.groundY-this.player.y;
+ let len=Math.hypot(dx,dy);
+ if(len<8){dx=crow.index%2===0?1:-1;dy=Phaser.Math.FloatBetween(-0.45,0.45);len=Math.hypot(dx,dy);}
+ dx/=len;dy/=len;
+ const awayAngle=Math.atan2(dy,dx);
+ const preferredAngle=Number.isFinite(crow.scatterAngle)?crow.scatterAngle:awayAngle;
+ crow.angle=preferredAngle+Phaser.Math.FloatBetween(-0.28,0.28);
+ crow.exitAngle=preferredAngle+Phaser.Math.FloatBetween(-0.45,0.45);
+ const maneuverCount=Math.random()<0.65?2:1;
+ crow.maneuverQueue=[];
+ for(let i=0;i<maneuverCount;i++){
+  const sign=Math.random()<0.5?-1:1;
+  crow.maneuverQueue.push(preferredAngle + sign*Phaser.Math.FloatBetween(0.45,1.3) + Phaser.Math.FloatBetween(-0.2,0.2));
+ }
+ crow.nextManeuverAt=time+CROW_TAKEOFF_MS+Phaser.Math.Between(550,1050);
+ crow.speed=Phaser.Math.Between(64,84);
+ crow.state='takeoff';crow.takeoffAt=time;crow.turnUntil=time+Phaser.Math.Between(620,1120);
+ crow.turnSign=Math.random()<0.5?-1:1;
+ crow.sprite.setOrigin(0.5,0.72).setDepth(23).setFlipX(Math.cos(crow.angle)<0).play('crown_takeoff',true);
+}
+
+beginCrowFlight(crow,time=this.time.now){
+ if(!crow?.sprite?.active)return;
+ crow.state='fly';crow.flyAt=time;crow.flightEndsAt=time+CROW_FLIGHT_LIFETIME_MS+Phaser.Math.Between(-900,1200);
+ crow.speed=Math.max(105,crow.speed+Phaser.Math.Between(38,58));
+ crow.sprite.setOrigin(0.5,0.62).setDepth(24).play('crown_fly',true);
+}
+
+retireCrow(crow){
+ if(!crow)return;
+ if(crow.sprite?.active)crow.sprite.destroy();
+ if(crow.shadow?.active)crow.shadow.destroy();
+ crow.state='gone';crow.retiring=false;
+}
+
+updateCrows(time,delta){
+ if(!this.crows?.length || !this.player?.active)return;
+ const dt=Math.min(0.05,Math.max(0,delta||0)/1000);
+ for(const flock of this.crowFlocks?.values?.()||[]){
+  if(flock.triggered)continue;
+  let nearest=Infinity;
+  for(const crow of flock.crows){
+   if(!crow?.sprite?.active)continue;
+   nearest=Math.min(nearest,Phaser.Math.Distance.Between(crow.groundX,crow.groundY,this.player.x,this.player.y));
+  }
+  if(nearest<=CROW_TRIGGER_RADIUS)this.scatterCrowFlock(flock,time);
+ }
+ for(const crow of this.crows){
+  const sprite=crow?.sprite;
+  if(!sprite?.active)continue;
+  const frameIndex=Math.max(0,(sprite.anims?.currentFrame?.index||1)-1);
+  if(crow.state==='idle' || crow.state==='alert'){
+   const idleFrame=(frameIndex+(crow.idlePhase||0))%3;
+   const side=[0,1.35,-0.75][idleFrame]*(crow.idleSide||1);
+   const bob=[0,-1.75,0.8][idleFrame];
+   sprite.setPosition(crow.groundX+side,crow.groundY+bob);
+   if(crow.shadow?.active)crow.shadow.setPosition(crow.groundX+side*0.34,crow.groundY+4+bob*0.08).setAlpha(0.24);
+   if(crow.state==='alert' && time>=crow.launchAt)this.beginCrowTakeoff(crow,time);
+   continue;
+  }
+  if(crow.state==='takeoff'){
+   const t=Phaser.Math.Clamp((time-crow.takeoffAt)/CROW_TAKEOFF_MS,0,1);
+   const speed=crow.speed+(114-crow.speed)*t;
+   crow.groundX+=Math.cos(crow.angle)*speed*dt;
+   crow.groundY+=Math.sin(crow.angle)*speed*dt;
+   crow.altitude=36*(1-Math.pow(1-t,2));
+   const wingBob=frameIndex%2===0?-0.8:0.8;
+   sprite.setFlipX(Math.cos(crow.angle)<0).setPosition(crow.groundX,crow.groundY-crow.altitude+wingBob);
+   if(crow.shadow?.active){
+    const ss=Math.max(0.55,1-crow.altitude/90);
+    crow.shadow.setPosition(crow.groundX,crow.groundY+4).setScale(ss,ss).setAlpha(Math.max(0.08,0.24-crow.altitude*0.004));
+   }
+   if(t>=1)this.beginCrowFlight(crow,time);
+   continue;
+  }
+  if(crow.state==='fly'){
+   const flightAge=time-crow.flyAt;
+   if(crow.maneuverQueue?.length && time>=crow.nextManeuverAt){
+    crow.exitAngle=crow.maneuverQueue.shift();
+    crow.turnUntil=time+Phaser.Math.Between(260,620);
+    crow.turnSign=Math.random()<0.5?-1:1;
+    crow.nextManeuverAt=time+Phaser.Math.Between(850,1550);
+   }
+   if(time<crow.turnUntil){
+    crow.angle+=crow.turnSign*0.42*dt;
+   } else {
+    const diff=Math.atan2(Math.sin(crow.exitAngle-crow.angle),Math.cos(crow.exitAngle-crow.angle));
+    crow.angle+=Phaser.Math.Clamp(diff,-0.72*dt,0.72*dt);
+   }
+   const accel=Math.min(1,flightAge/1200);
+   const targetSpeed=Phaser.Math.Linear(118,166,accel);
+   crow.speed=Phaser.Math.Linear(crow.speed,targetSpeed,Math.min(1,dt*1.8));
+   crow.groundX+=Math.cos(crow.angle)*crow.speed*dt;
+   crow.groundY+=Math.sin(crow.angle)*crow.speed*dt;
+   crow.altitude=40+Math.sin(flightAge*0.0048+crow.index)*5.4;
+   const flapBob=frameIndex%2===0?-1:1;
+   sprite.setFlipX(Math.cos(crow.angle)<0).setPosition(crow.groundX,crow.groundY-crow.altitude+flapBob);
+   if(crow.shadow?.active)crow.shadow.setPosition(crow.groundX,crow.groundY+4).setScale(0.52,0.44).setAlpha(0.075);
+   const flock=this.crowFlocks.get(crow.flockId);
+   const far=flock?Phaser.Math.Distance.Between(crow.groundX,crow.groundY,flock.centerX,flock.centerY)>1450:false;
+   const outside=crow.groundX<-120||crow.groundX>STAGE0.WORLD_WIDTH+120||crow.groundY<-180||crow.groundY>STAGE0.WORLD_HEIGHT+180;
+   if(!crow.retiring && (time>=crow.flightEndsAt||far||outside)){
+    crow.retiring=true;
+    this.tweens.add({targets:[sprite,crow.shadow].filter(o=>o?.active),alpha:0,duration:260,onComplete:()=>this.retireCrow(crow)});
+   }
+  }
+ }
+ this.crows=this.crows.filter(crow=>Boolean(crow?.sprite?.active) && crow?.state!=='gone');
+}
+
+
 createRuinedKingdomTerrainEnvironment(objects,zone){
  // Preserve the supplied artwork exactly on disk, but create matching
  // in-memory copies for Zone 2. A modest uniform lift makes the hero and
@@ -5866,6 +6106,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   if(glow) objects.push(glow);
   objects.push(sprite);
  }
+
+ // One ambient flock around the first burning wagon in Ruined Kingdom.
+ this.createRuinedKingdomCrowFlock(objects,zone);
 }
 
 
@@ -5939,11 +6182,95 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   // No preview art is drawn until approved transition assets exist on disk.
   this.loadedWorldPreviews.set(fromIndex,[]);
  }
+
+
+ addWorldGateStoneBar(pieces,x1,y1,x2,y2,thickness=28,depth=-19){
+  const dx=x2-x1;
+  const dy=y2-y1;
+  const length=Math.hypot(dx,dy);
+  if(length<=0 || !this.textures.exists('cinematic_stone_bar')) return;
+
+  const source=this.textures.get('cinematic_stone_bar').getSourceImage();
+  const aspect=(source?.width && source?.height) ? source.width/source.height : 3.2;
+  const segmentLength=Math.max(thickness*0.92,thickness*aspect);
+  const count=Math.max(1,Math.ceil(length/segmentLength));
+  const angle=Math.atan2(dy,dx);
+  const ux=dx/length;
+  const uy=dy/length;
+
+  for(let i=0;i<count;i++){
+   const along=Math.min(length-segmentLength/2,segmentLength*(i+0.5));
+   const safeAlong=Math.max(segmentLength/2,along);
+   const x=x1+ux*safeAlong;
+   const y=y1+uy*safeAlong;
+   const piece=this.add.image(x,y,'cinematic_stone_bar')
+    .setOrigin(0.5)
+    .setDepth(depth)
+    .setDisplaySize(segmentLength+1,thickness)
+    .setRotation(angle)
+    .setFlipX(i%2===1);
+   pieces.push(piece);
+  }
+ }
+
+ addWorldGateStoneJoint(pieces,x,y,size=42,depth=-18){
+  if(!this.textures.exists('cinematic_stone_joint')) return null;
+  const joint=this.add.image(x,y,'cinematic_stone_joint')
+   .setOrigin(0.5)
+   .setDepth(depth)
+   .setDisplaySize(size,size);
+  pieces.push(joint);
+  return joint;
+ }
+
+ createWorldGateBoundary(gate){
+  if(!gate) return {pieces:[], openingHalfHeight:150};
+  const pieces=[];
+  const openingHalfHeight=154;
+  const openingTop=WORLD_DESIGN.ROUTE_Y-openingHalfHeight;
+  const openingBottom=WORLD_DESIGN.ROUTE_Y+openingHalfHeight;
+  const topMargin=52;
+  const bottomMargin=STAGE0.WORLD_HEIGHT-52;
+  const thickness=30;
+  const lintelHalfSpan=82;
+
+  const shadowBand=this.add.rectangle(gate.x,STAGE0.WORLD_HEIGHT/2,68,STAGE0.WORLD_HEIGHT,0x090907,0.22).setDepth(-22);
+  pieces.push(shadowBand);
+
+  this.addWorldGateStoneBar(pieces,gate.x,topMargin,gate.x,openingTop-thickness*0.45,thickness,-19);
+  this.addWorldGateStoneBar(pieces,gate.x,openingBottom+thickness*0.45,gate.x,bottomMargin,thickness,-19);
+  this.addWorldGateStoneBar(pieces,gate.x-lintelHalfSpan,openingTop,gate.x+lintelHalfSpan,openingTop,thickness,-19);
+  this.addWorldGateStoneBar(pieces,gate.x-lintelHalfSpan,openingBottom,gate.x+lintelHalfSpan,openingBottom,thickness,-19);
+
+  this.addWorldGateStoneJoint(pieces,gate.x,openingTop,44,-18);
+  this.addWorldGateStoneJoint(pieces,gate.x,openingBottom,44,-18);
+  this.addWorldGateStoneJoint(pieces,gate.x-lintelHalfSpan,openingTop,34,-18);
+  this.addWorldGateStoneJoint(pieces,gate.x+lintelHalfSpan,openingTop,34,-18);
+  this.addWorldGateStoneJoint(pieces,gate.x-lintelHalfSpan,openingBottom,34,-18);
+  this.addWorldGateStoneJoint(pieces,gate.x+lintelHalfSpan,openingBottom,34,-18);
+
+  // The stone boundary is real level geometry, not decoration. Keep only the
+  // central opening passable after the progression seal is removed.
+  const wallWidth=58;
+  const topWallHeight=Math.max(1,openingTop);
+  const bottomWallHeight=Math.max(1,STAGE0.WORLD_HEIGHT-openingBottom);
+  const topWall=this.add.rectangle(gate.x,topWallHeight/2,wallWidth,topWallHeight,0x000000,0).setDepth(-21);
+  const bottomWall=this.add.rectangle(gate.x,openingBottom+bottomWallHeight/2,wallWidth,bottomWallHeight,0x000000,0).setDepth(-21);
+  this.physics.add.existing(topWall,true);
+  this.physics.add.existing(bottomWall,true);
+  this.worldGateGroup.add(topWall);
+  this.worldGateGroup.add(bottomWall);
+  pieces.push(topWall,bottomWall);
+
+  return {pieces,wallBlockers:[topWall,bottomWall],openingHalfHeight,openingTop,openingBottom};
+ }
  ensureProgressionGate(index){
   if(index<0 || index>=WORLD_DESIGN.GATES.length) return;
 
   const gate=WORLD_DESIGN.GATES[index];
   if(this.worldGateObjects.has(gate.id)) return;
+
+  const boundary=this.createWorldGateBoundary(gate);
 
   const blocker=this.add.rectangle(
    gate.x,
@@ -5960,16 +6287,17 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   const visible=this.add.rectangle(
    gate.x,
    WORLD_DESIGN.ROUTE_Y,
-   38,
-   820,
+   42,
+   Math.max(220,(boundary.openingHalfHeight||150)*2-24),
    gate.color,
    0.16
-  ).setStrokeStyle(3,gate.color,0.62).setDepth(-19);
+  ).setStrokeStyle(3,gate.color,0.62).setDepth(-18.6);
 
   const label=lkAddText(this,
-   gate.x-28,
-   WORLD_DESIGN.ROUTE_Y-350,
-   `LOCKED\n${gate.name}`,
+   gate.x-36,
+   (boundary.openingTop||WORLD_DESIGN.ROUTE_Y-150)-48,
+   `LOCKED
+${gate.name}`,
    {
     fontSize:'15px',
     align:'right',
@@ -5984,6 +6312,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    blocker,
    visible,
    label,
+   boundary,
    unlocked:false
   });
  }
@@ -6167,6 +6496,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   if(nextIndex===this.currentWorldZoneIndex) return;
 
   this.currentWorldZoneIndex=nextIndex;
+  // The right-hand camera wall follows the active biome. Crossing the gate is
+  // the exact moment the next region becomes visible.
+  this.applyWorldCameraBounds();
   this.captureZoneEntryCheckpoint();
   // The landmark keeps its silent pulse only inside the Ash Fields. It is
   // explicitly retired as soon as the hero crosses into the next zone.
@@ -6276,6 +6608,14 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    `${zone.subtitle} · Max HP ${this.player.maxHp} · melee +${regionBalance.meleeDamageBonus}`,
    '#e2eadb'
   );
+
+  if(this.ashAltarObjectiveMarker){
+   this.ashAltarObjectiveMarker.clearTarget?.();
+   this.ashAltarObjectiveMarker.hide?.();
+  }
+  if(this.brokenSaintSwordEpilogue?.phase==='gateMarker'){
+   this.brokenSaintSwordEpilogue=null;
+  }
 
   // Each biome owns local waves 1–5; the HUD displays their global numbers.
   // The first encounter here is global Wave 6, after the arrival beat.
@@ -6392,18 +6732,25 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
  calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave),{concurrentChampion=false}={}){
   if(isCaptainEncounter(this.currentWorldZoneIndex,wave))return CAPTAIN.skeletonCount+1;
-  const baseTarget=wave===1 ? 10 : 8+wave*3;
+  const globalPressure=Math.max(1,this.getGlobalWave?.()||wave||1);
+  const pressureWave=this.currentWorldZoneIndex>0
+   ? Math.max(wave,Math.round(globalPressure*0.72 + wave*0.28))
+   : wave;
+  const baseTarget=pressureWave===1 ? 10 : 8+pressureWave*3;
   const targetBonus=profile?.targetBonus||0;
   const postWaveBrokenSaint=this.currentWorldZoneIndex===0 && wave===5 && championKind==='brokenSaint' && !concurrentChampion;
   const championScale=(championKind && (concurrentChampion || !postWaveBrokenSaint)) ? 0.70 : 1;
-  return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()));
+  const regionPressure=this.currentWorldZoneIndex>0 ? 1 + this.currentWorldZoneIndex*0.05 : 1;
+  return Math.max(1,Math.ceil((baseTarget+targetBonus)*championScale*this.getWavePopulationMultiplier()*regionPressure));
  }
 
  calculateWaveSpawnInterval(profile=this.waveProfile){
   if(profile?.captainEncounter)return CAPTAIN.spawnInterval;
   const baseInterval=profile?.spawnInterval||1050;
   const spawnRate=this.getRegionBalance().spawnRateMultiplier;
-  return Math.max(520,Math.round(baseInterval/Math.max(0.1,spawnRate)));
+  const globalPressure=Math.max(1,this.getGlobalWave?.()||this.wave||1);
+  const onwardPressure=this.currentWorldZoneIndex>0 ? Math.max(1,1+Math.max(0,globalPressure-5)*0.035) : 1;
+  return Math.max(460,Math.round(baseInterval/Math.max(0.1,spawnRate*onwardPressure)));
  }
 
  recalculateCurrentWaveRegionBalance(){
@@ -6439,24 +6786,25 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  getSpawnPointAroundCamera(margin=52){
   const view=this.cameras.main.worldView;
   const pad=42;
+  const zoneCeiling=this.getCurrentZoneEnemySpawnCeiling(pad);
   const sides=[];
   if(view.top-margin>0) sides.push('top');
-  if(view.right+margin<STAGE0.WORLD_WIDTH) sides.push('right');
+  if(view.right+margin<zoneCeiling) sides.push('right');
   if(view.bottom+margin<STAGE0.WORLD_HEIGHT) sides.push('bottom');
   const forwardOnly=this.currentWorldZoneIndex>0;
   if(!forwardOnly && view.left-margin>0) sides.push('left');
   const fallbackSides=forwardOnly ? ['top','right','bottom'] : ['top','right','bottom','left'];
   const side=Phaser.Utils.Array.GetRandom(sides.length ? sides : fallbackSides);
   const spawnFloor=forwardOnly ? this.getForwardEnemySpawnFloor(pad) : this.clampWorldX(view.left+pad,pad);
-  const minX=Math.max(spawnFloor,this.clampWorldX(view.left+pad,pad));
-  const maxX=this.clampWorldX(view.right-pad,pad);
+  const minX=Math.min(zoneCeiling,Math.max(spawnFloor,this.clampWorldX(view.left+pad,pad)));
+  const maxX=Math.max(minX,Math.min(zoneCeiling,this.clampWorldX(view.right-pad,pad)));
   const forwardMinX=Math.min(minX,maxX);
   const minY=this.clampWorldY(view.top+pad,pad);
   const maxY=this.clampWorldY(view.bottom-pad,pad);
   if(side==='top') return {x:Phaser.Math.Between(Math.round(forwardMinX),Math.round(maxX)),y:this.clampWorldY(view.top-margin,pad)};
-  if(side==='right') return {x:this.clampWorldX(view.right+margin,pad),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
+  if(side==='right') return {x:Math.min(zoneCeiling,this.clampWorldX(view.right+margin,pad)),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
   if(side==='bottom') return {x:Phaser.Math.Between(Math.round(forwardMinX),Math.round(maxX)),y:this.clampWorldY(view.bottom+margin,pad)};
-  return {x:this.clampWorldX(view.left-margin,pad),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
+  return {x:Math.min(zoneCeiling,this.clampWorldX(view.left-margin,pad)),y:Phaser.Math.Between(Math.round(minY),Math.round(maxY))};
  }
 
  getEdgeSpawnPoint(margin=64){
@@ -6469,9 +6817,17 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   return gate?gate.x+120:0;
  }
 
+ getZoneCameraMaxX(zoneIndex=this.currentWorldZoneIndex){
+  const exitGate=WORLD_DESIGN.GATES[zoneIndex];
+  // Do not reveal the next biome until the hero has actually crossed the gate.
+  // Once updateWorldRegion() advances the zone index, this limit moves forward.
+  return exitGate?.x ?? STAGE0.WORLD_WIDTH;
+ }
+
  applyWorldCameraBounds(){
   const minX=Math.max(0,this.worldCameraMinX||0);
-  this.cameras.main.setBounds(minX,0,STAGE0.WORLD_WIDTH-minX,STAGE0.WORLD_HEIGHT);
+  const maxX=Math.max(minX+1,this.getZoneCameraMaxX());
+  this.cameras.main.setBounds(minX,0,maxX-minX,STAGE0.WORLD_HEIGHT);
  }
 
  updateWorldCameraBoundary(){
@@ -8192,6 +8548,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
    this.applySkillDamage(enemy,damage,'skill:tremor',0xffd77a,0);
    if(!enemy.active || enemy.hp<=0 || !enemy.body) continue;
+   if(this.isCaptainCastUninterruptible(enemy)) continue;
 
    // Strong in the centre, progressively softer near the edge. Enemy class then
    // modifies the displacement so heavy targets keep their identity.
@@ -8255,6 +8612,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
    this.applySkillDamage(enemy,initialDamage,'skill:lift',0x9dd7ff,16);
    if(!enemy.active || enemy.hp<=0) continue;
+   if(this.isCaptainCastUninterruptible(enemy)) continue;
 
    let liftMs=1200;
    let heightMin=118,heightMax=146;
@@ -10051,8 +10409,15 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   }
  }
 
+ isCaptainCastUninterruptible(enemy,time=this.time.now){
+  return Boolean(enemy?.type==='captain' && (enemy.captainPhase==='windup' || enemy.captainPhase==='command'));
+ }
+
  applyEnemyHitReaction(enemy,angle,baseForce=120){
   if(!enemy || !enemy.active || !enemy.body) return;
+  // Once the Captain commits to a strike/command, damage still lands but player
+  // hit reactions cannot cancel, shove or stagger the cast.
+  if(this.isCaptainCastUninterruptible(enemy)) return;
   let resistance={skeleton:1.0,mage:0.88,shield:0.48,champion:0.30}[enemy.type] || 0.75;
   let staggerMs={skeleton:135,mage:120,shield:85,champion:60}[enemy.type] || 100;
 
@@ -10491,6 +10856,7 @@ ${combatStyleCards[2].desc}`,()=>{
   if(this.updateBrokenSaintSwordEpilogue(this.time.now))return;
 
   this.captainSystem?.update(time);
+  this.updateCrows(time,delta);
 
   this.updateMana(time);
   this.updateAshSwordPulse(time);

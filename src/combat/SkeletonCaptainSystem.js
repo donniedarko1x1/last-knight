@@ -100,12 +100,12 @@ export default class SkeletonCaptainSystem {
     if(e?.active && e.hp<=0)this.onDeath(e,now);else this.remove(e);
     continue;
    }
-   if(now<(e.staggerUntil||0) || now<(e.skillLiftUntil||0) || now<(e.skillTremorUntil||0)){
-    if(e.captainPhase==='windup' || e.captainPhase==='command'){
-     e.captainPhase='walk';e.captainImpactAt=0;e.captainNextStrike=now+1800;
-     e.captainCommandSoldiers=null;
-     e.captainTelegraph?.destroy();e.captainTelegraph=null;this.barks.remove(e);
-    }
+   // Windup and command are committed actions. Player CC may have set a timer
+   // immediately before the phase began, but it must not cancel the Captain's
+   // telegraphed strike or ring command once he has committed to it.
+   const committed=e.captainPhase==='windup' || e.captainPhase==='command';
+   if(!committed && (now<(e.staggerUntil||0) || now<(e.skillLiftUntil||0) || now<(e.skillTremorUntil||0))){
+    stop(e);
    }
   }
   const soldiers=this.soldiers();

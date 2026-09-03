@@ -1,8 +1,8 @@
 // First encounter tuning. All durations use the scene clock (milliseconds).
 export const CAPTAIN=Object.freeze({
- zone:1, localWave:1, skeletonCount:16, maxLivingSoldiers:10, spawnInterval:1400,
- captainOrdinal:5, bodyScale:1.15, speedFactor:.55, damage:10,
- commandMs:1000, maxCommandsPerWave:2, firstCommandMinMs:5000, firstCommandMaxMs:10000,
+ zone:1, localWave:1, skeletonCount:22, maxLivingSoldiers:14, spawnInterval:900,
+ captainOrdinal:4, bodyScale:1.15, speedFactor:.58, damage:11,
+ commandMs:1000, maxCommandsPerWave:2, firstCommandMinMs:2600, firstCommandMaxMs:4200,
  commandCooldownMinMs:14000, commandCooldownMaxMs:24000,
  ringRadius:145, ringMinRadius:52, ringGatherMs:4000, ringContractMs:5000,
  ringEscapeTolerance:18, ringSpeed:240, minSoldiers:3,
