@@ -168,10 +168,55 @@ const BROKEN_SAINT_ESSENCE_ICON_KEYS=Object.freeze({
  [BROKEN_SAINT_ESSENCE_IDS.discipline]:'broken_saint_essence_discipline'
 });
 
+const COMBAT_STYLE_ICON_KEYS=Object.freeze({
+ crowdbreak:'combat_style_crowdbreak_icon',
+ duelist:'combat_style_duelist_icon',
+ echo:'combat_style_echo_icon'
+});
+const COMBAT_STYLE_ART_SPECS=Object.freeze({
+ crowdbreak:{key:COMBAT_STYLE_ICON_KEYS.crowdbreak,url:'/assets/ui/combat_styles/path_crowdbreak.png'},
+ duelist:{key:COMBAT_STYLE_ICON_KEYS.duelist,url:'/assets/ui/combat_styles/path_duelist.png'},
+ echo:{key:COMBAT_STYLE_ICON_KEYS.echo,url:'/assets/ui/combat_styles/path_echo.png'}
+});
+const COMBAT_STYLE_DISPLAY=Object.freeze({
+ crowdbreak:{shortName:'Расколотого строя',name:'ПУТЬ РАСКОЛОТОГО СТРОЯ',desc:'Обычные удары мечом сильнее отбрасывают обычных скелетов.',meta:'КОНТРОЛЬ ТОЛПЫ · МЕЧ',iconKey:COMBAT_STYLE_ICON_KEYS.crowdbreak},
+ duelist:{shortName:'Последнего приговора',name:'ПУТЬ ПОСЛЕДНЕГО ПРИГОВОРА',desc:'Если в радиусе удара остаётся только один враг, меч наносит ему на 45% больше урона.',meta:'ДУЭЛЬ · УРОН ПО ОДИНОЧНОЙ ЦЕЛИ',iconKey:COMBAT_STYLE_ICON_KEYS.duelist},
+ echo:{shortName:'Отклика',name:'ПУТЬ ОТКЛИКА',desc:'Использование любого навыка заряжает меч. Следующий обычный удар расходует заряд и наносит на 70% больше урона.',meta:'СИНЕРГИЯ НАВЫКОВ · ВСПЛЕСК УРОНА',iconKey:COMBAT_STYLE_ICON_KEYS.echo}
+});
+const SKILL_EVOLUTION_DISPLAY_NAMES=Object.freeze({
+ [BROKEN_SAINT_EVOLUTION_IDS.pilgrimPath]:'Путь паломника',
+ [BROKEN_SAINT_EVOLUTION_IDS.verdict]:'Приговор',
+ [BROKEN_SAINT_EVOLUTION_IDS.saintStance]:'Стойкость святого'
+});
+const RELIC_DISPLAY_NAMES=Object.freeze({
+ [BROKEN_SAINT_RELIC_IDS.crackedHalo]:'Треснувший нимб',
+ [BROKEN_SAINT_RELIC_IDS.saintsNail]:'Гвоздь святого',
+ [BROKEN_SAINT_RELIC_IDS.ashRosary]:'Пепельные чётки'
+});
+const ESSENCE_DISPLAY_NAMES=Object.freeze({
+ [BROKEN_SAINT_ESSENCE_IDS.body]:'Эссенция тела',
+ [BROKEN_SAINT_ESSENCE_IDS.will]:'Эссенция воли',
+ [BROKEN_SAINT_ESSENCE_IDS.discipline]:'Эссенция дисциплины'
+});
+
 function lkAddText(scene,...args){
  const text=scene.add.text(...args);
  text?.setResolution?.(LK_TEXT_RESOLUTION);
  return text;
+}
+
+function lkReadableUnlockName(id,map){
+ return map?.[id] || id || 'неизвестно';
+}
+function lkReadableUnlockList(ids,map){
+ const values=(ids||[]).map(id=>lkReadableUnlockName(id,map)).filter(Boolean);
+ return values.length ? values.join(', ') : 'нет';
+}
+function lkCombatStyleShortName(id){
+ return COMBAT_STYLE_DISPLAY[id]?.shortName || 'не выбран';
+}
+function lkCombatStyleCards(){
+ return ['crowdbreak','duelist','echo'].map(id=>({id,...COMBAT_STYLE_DISPLAY[id]}));
 }
 
 function lkCssViewport(){
@@ -2175,6 +2220,7 @@ class BootScene extends Phaser.Scene {
   [title,subtitle,loading,pct].forEach(t=>t.setResolution?.(LK_TEXT_RESOLUTION));
   const useMobileLoadingArt=typeof window!=='undefined' && (window.matchMedia?.('(pointer: coarse)').matches || (navigator.maxTouchPoints||0)>0);
   this.load.image(LOADING_ART_KEY,useMobileLoadingArt?'/assets/ui/loading_key_art_mobile.jpg':'/assets/ui/loading_key_art_4k.jpg');
+  Object.values(COMBAT_STYLE_ART_SPECS).forEach(spec=>this.load.image(spec.key,spec.url));
  }
 }
 
@@ -2899,6 +2945,7 @@ class GameMenuScene extends Phaser.Scene {
   this.title=lkAddText(this,0,0,'LAST KNIGHT',{fontFamily:'Georgia, serif',fontSize:'34px',fontStyle:'bold',color:'#f0dfaf',stroke:'#120d09',strokeThickness:5}).setOrigin(0.5).setDepth(3);
   this.subtitle=lkAddText(this,0,0,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'13px',fontStyle:'bold',color:'#bfae84',letterSpacing:2}).setOrigin(0.5).setDepth(3);
   this.statusText=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#d9cfb0',align:'center',wordWrap:{width:520,useAdvancedWrap:true}}).setOrigin(0.5).setDepth(20);
+  this.buildFullscreenControl();
   this._menuResizeHandler=()=>this.redrawCurrentView();
   this.scale.on('resize',this._menuResizeHandler);
   this._menuEscHandler=()=>{if(this.mode==='session')this.resumeGame();};
@@ -2906,8 +2953,10 @@ class GameMenuScene extends Phaser.Scene {
   this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
    if(this._menuResizeHandler)this.scale.off('resize',this._menuResizeHandler);
    if(this._menuEscHandler)this.input.keyboard?.off('keydown-ESC',this._menuEscHandler);
+   if(this._menuFullscreenChangeHandler && typeof document!=='undefined')document.removeEventListener('fullscreenchange',this._menuFullscreenChangeHandler);
    this._menuResizeHandler=null;
    this._menuEscHandler=null;
+   this._menuFullscreenChangeHandler=null;
   });
   this.renderMenu();
   // Root menu arrives from the loading-screen blackout, so reveal it as one
@@ -2925,6 +2974,59 @@ class GameMenuScene extends Phaser.Scene {
   if(!cam)return;
   cam.setViewport(0,0,Math.max(1,this.scale.width),Math.max(1,this.scale.height));
   cam.setScroll(0,0).setOrigin(0,0).setZoom(Math.max(0.01,LK_RENDER_SCALE||1));
+ }
+
+ buildFullscreenControl(){
+  this.fullscreenButton=this.add.circle(0,0,20,0x11100e,0.88).setStrokeStyle(2,0xc4a662,0.82).setDepth(40).setInteractive({useHandCursor:true});
+  this.fullscreenIcon=this.add.graphics().setDepth(41);
+  this.fullscreenButton.on('pointerdown',()=>this.toggleFullscreen());
+  this._menuFullscreenChangeHandler=()=>{this.drawFullscreenControl();this.redrawCurrentView();};
+  if(typeof document!=='undefined')document.addEventListener('fullscreenchange',this._menuFullscreenChangeHandler);
+  this.drawFullscreenControl();
+ }
+
+ drawFullscreenControl(metrics=this.getMetrics()){
+  if(!this.fullscreenButton || !this.fullscreenIcon)return;
+  const radius=metrics.mobile?18:20;
+  const x=metrics.w-(metrics.mobile?14:22)-radius;
+  const y=(metrics.mobile?14:20)+radius;
+  this.fullscreenButton.setPosition(x,y).setRadius(radius).setStrokeStyle(metrics.mobile?1.6:2,0xc4a662,0.82);
+  const active=typeof document!=='undefined' && Boolean(document.fullscreenElement);
+  const g=this.fullscreenIcon;
+  g.clear();
+  g.lineStyle(2.2,0xf1dfaa,0.95);
+  const r=active?8:10, arm=active?7:6;
+  if(!active){
+   g.beginPath();
+   g.moveTo(x-r,y-r+arm); g.lineTo(x-r,y-r); g.lineTo(x-r+arm,y-r);
+   g.moveTo(x+r-arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r+arm);
+   g.moveTo(x-r,y+r-arm); g.lineTo(x-r,y+r); g.lineTo(x-r+arm,y+r);
+   g.moveTo(x+r-arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r-arm);
+   g.strokePath();
+  } else {
+   g.beginPath();
+   g.moveTo(x-r-arm,y-r); g.lineTo(x-r,y-r); g.lineTo(x-r,y-r-arm);
+   g.moveTo(x+r+arm,y-r); g.lineTo(x+r,y-r); g.lineTo(x+r,y-r-arm);
+   g.moveTo(x-r-arm,y+r); g.lineTo(x-r,y+r); g.lineTo(x-r,y+r+arm);
+   g.moveTo(x+r+arm,y+r); g.lineTo(x+r,y+r); g.lineTo(x+r,y+r+arm);
+   g.strokePath();
+  }
+ }
+
+ async toggleFullscreen(){
+  if(typeof document==='undefined') return;
+  try{
+   if(document.fullscreenElement){
+    if(document.exitFullscreen) await document.exitFullscreen();
+   } else {
+    const target=document.documentElement;
+    const request=target.requestFullscreen || target.webkitRequestFullscreen;
+    if(request) await request.call(target);
+   }
+  }catch(error){
+   console.warn('[GameMenuScene] Fullscreen toggle failed',error);
+  }
+  this.time.delayedCall(60,()=>this.redrawCurrentView());
  }
 
  redrawCurrentView(){
@@ -2990,6 +3092,7 @@ class GameMenuScene extends Phaser.Scene {
    this.panelHaze.fillStyle(0x0b0906,tiny?0.22:0.18);
    this.panelHaze.fillRoundedRect(x-3,y-3,panelW+6,panelH+6,hazeRadius+2);
   }
+  this.drawFullscreenControl(metrics);
   this.panel.clear();
   this.panel.fillStyle(0x000000,0.28);this.panel.fillRoundedRect(x+7,y+8,panelW,panelH,14);
   this.panel.fillStyle(0x13110e,this.mode==='root'?0.94:0.97);this.panel.fillRoundedRect(x,y,panelW,panelH,14);
@@ -3003,7 +3106,7 @@ class GameMenuScene extends Phaser.Scene {
    .setWordWrapWidth(Math.max(120,panelW-32),true);
  }
 
- addButton(label,y,action,{enabled=true,width=null,fontSize=null,danger=false,height=null,x=null}={}){
+ addButton(label,y,action,{enabled=true,width=null,fontSize=null,danger=false,height=null,x=null,minimal=false}={}){
   const m=this.getMetrics();
   const cx=Number.isFinite(x)?x:m.cx;
   const w=width||Math.min(m.panelW-(m.short?34:70),m.mobile?400:440);
@@ -3011,12 +3114,24 @@ class GameMenuScene extends Phaser.Scene {
   const fill=danger?0x38201d:0x22241d;
   const hover=danger?0x50302a:0x30362a;
   const stroke=danger?0xa76f5f:0x8d7b4c;
-  const card=this.add.rectangle(cx,y,w,h,fill,enabled?0.96:0.42).setStrokeStyle(1.7,stroke,enabled?0.9:0.35).setDepth(5);
+  const cardAlpha=minimal?0.001:(enabled?0.96:0.42);
+  const card=this.add.rectangle(cx,y,w,h,fill,cardAlpha).setDepth(5);
+  if(minimal) card.setStrokeStyle(0,stroke,0);
+  else card.setStrokeStyle(1.7,stroke,enabled?0.9:0.35);
   const text=lkAddText(this,cx,y,label,{fontFamily:'Arial, sans-serif',fontSize:`${fontSize|| (m.tiny?9:m.short?10:m.compact?12:m.mobile?14:16)}px`,fontStyle:'bold',color:enabled?'#f2e7c8':'#756f61',align:'center'}).setOrigin(0.5).setDepth(6);
   if(enabled){
-   card.setInteractive({useHandCursor:true});text.setInteractive({useHandCursor:true});
-   const over=()=>card.setFillStyle(hover,1),out=()=>card.setFillStyle(fill,0.96),down=()=>action?.();
+   card.setInteractive({useHandCursor:true});
+   const over=()=>{
+    if(minimal) text.setColor(danger?'#ffb7a6':'#f3dfa0');
+    else card.setFillStyle(hover,1);
+   };
+   const out=()=>{
+    if(minimal) text.setColor('#f2e7c8');
+    else card.setFillStyle(fill,0.96);
+   };
+   const down=()=>action?.();
    card.on('pointerover',over);card.on('pointerout',out);card.on('pointerdown',down);
+   text.setInteractive({useHandCursor:true});
    text.on('pointerover',over);text.on('pointerout',out);text.on('pointerdown',down);
   }
   this.remember(card,text);
@@ -3063,7 +3178,11 @@ class GameMenuScene extends Phaser.Scene {
   const used=buttonH*count+gap*(count-1);
   const startY=top+Math.max(0,(bottom-top-used)/2)+buttonH/2;
   labels.forEach((entry,i)=>this.addButton(entry[0],startY+i*(buttonH+gap),entry[1],{
-   enabled:entry[2],danger:Boolean(entry[3]),height:buttonH,fontSize:m.tiny?8:m.short?10:null
+   enabled:entry[2],
+   danger:Boolean(entry[3]),
+   height:buttonH,
+   fontSize:this.mode==='root'?(m.tiny?11:m.short?13:m.compact?15:m.mobile?18:20):(m.tiny?8:m.short?10:null),
+   minimal:this.mode==='root'
   }));
   if(this.mode==='root')this.statusText.setText('«Продолжить» работает только во время активной игры. Для сохранений используйте «Загрузить».');
  }
@@ -3212,8 +3331,7 @@ class GameMenuScene extends Phaser.Scene {
   if(!stats){
    const empty=lkAddText(this,m.cx,m.cy,'Нет активной или сохранённой сессии.',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?9:short?11:15}px`,color:'#d8ccb0'}).setOrigin(0.5).setDepth(6);this.remember(empty);
   }else{
-   const pathNames={crowdbreak:'Расколотого строя',duelist:'Последнего приговора',echo:'Отклика'};
-   if(short){
+      if(short){
     const left=[
      `Уровень: ${stats.level}  XP: ${stats.xp}/${stats.xpRequired}`,
      `HP: ${Math.ceil(stats.hp)}/${Math.ceil(stats.maxHp)}`,
@@ -3227,10 +3345,10 @@ class GameMenuScene extends Phaser.Scene {
     const right=[
      `Удар: ${stats.sword?.cooldown||0} мс`,
      `Радиус: ${stats.sword?.radius||0}`,
-     `Путь: ${pathNames[stats.combatStyle]||'не выбран'}`,
-     `Навыки: ${(stats.skillEvolutions||[]).join(', ')||'нет'}`,
-     `Реликвии: ${(stats.relics||[]).join(', ')||'нет'}`,
-     `Эссенции: ${(stats.essences||[]).join(', ')||'нет'}`,
+     `Путь: ${lkCombatStyleShortName(stats.combatStyle)}`,
+     `Навыки: ${lkReadableUnlockList(stats.skillEvolutions,SKILL_EVOLUTION_DISPLAY_NAMES)}`,
+     `Реликвии: ${lkReadableUnlockList(stats.relics,RELIC_DISPLAY_NAMES)}`,
+     `Эссенции: ${lkReadableUnlockList(stats.essences,ESSENCE_DISPLAY_NAMES)}`,
      `HP ×${Number(stats.multipliers?.hp||1).toFixed(2)}`,
      `Откат ×${Number(stats.multipliers?.skillRecovery||1).toFixed(2)}`
     ];
@@ -3252,11 +3370,11 @@ class GameMenuScene extends Phaser.Scene {
      `Меч: уровень ${stats.sword?.level||1}`,
      `Урон: ${stats.sword?.effectiveDamage||0}  (база ${stats.sword?.baseDamage||0})`,
      `Скорость удара: ${stats.sword?.cooldown||0} мс    Радиус: ${stats.sword?.radius||0}`,
-     `Путь: ${pathNames[stats.combatStyle]?`Путь ${pathNames[stats.combatStyle]}`:'не выбран'}`,
+     `Путь: ${stats.combatStyle?`Путь ${lkCombatStyleShortName(stats.combatStyle)}`:'не выбран'}`,
      '',
-     `Эволюции навыков: ${(stats.skillEvolutions||[]).join(', ')||'нет'}`,
-     `Реликвии: ${(stats.relics||[]).join(', ')||'нет'}`,
-     `Эссенции: ${(stats.essences||[]).join(', ')||'нет'}`,
+     `Эволюции навыков: ${lkReadableUnlockList(stats.skillEvolutions,SKILL_EVOLUTION_DISPLAY_NAMES)}`,
+     `Реликвии: ${lkReadableUnlockList(stats.relics,RELIC_DISPLAY_NAMES)}`,
+     `Эссенции: ${lkReadableUnlockList(stats.essences,ESSENCE_DISPLAY_NAMES)}`,
      '',
      `Множитель HP: ×${Number(stats.multipliers?.hp||1).toFixed(2)}`,
      `Реген маны: ${stats.manaRegenMs||0} мс    Восстановление навыков: ×${Number(stats.multipliers?.skillRecovery||1).toFixed(2)}`
@@ -10085,14 +10203,18 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.levelChoiceOpen=true;
   this.levelChoiceKind='combatStyle';
   this.setGameplayPaused('levelChoice',true);
+  const combatStyleCards=lkCombatStyleCards();
   this.currentLevelChoices=[
-   ['Путь Расколотого строя\nОбычные удары мечом сильнее отбрасывают обычных скелетов.',()=>{
+   [`${combatStyleCards[0].name}
+${combatStyleCards[0].desc}`,()=>{
     this.combatStyle='crowdbreak';
    }],
-   ['Путь Последнего приговора\nЕсли в радиусе удара остаётся только один враг, меч наносит ему на 45% больше урона.',()=>{
+   [`${combatStyleCards[1].name}
+${combatStyleCards[1].desc}`,()=>{
     this.combatStyle='duelist';
    }],
-   ['Путь Отклика\nИспользование любого навыка заряжает меч. Следующий обычный удар расходует заряд и наносит на 70% больше урона.',()=>{
+   [`${combatStyleCards[2].name}
+${combatStyleCards[2].desc}`,()=>{
     this.combatStyle='echo';
    }]
   ];
@@ -10102,7 +10224,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    hudScene.showLevelChoices(this.level,this.currentLevelChoices.map(([label])=>label),{
     variant:'combatStyle',
     title:'ПАМЯТЬ КЛИНКА',
-    intro:'Меч отозвался на твою руку.\nТы не помнишь, кем был. Но клинок помнит, как ты сражался.'
+    intro:'Меч отозвался на твою руку.\nТы не помнишь, кем был. Но клинок помнит, как ты сражался.',
+    choiceCards:combatStyleCards
    });
    this.levelChoiceObjects=[];
    return true;
@@ -11095,6 +11218,7 @@ class HUDScene extends Phaser.Scene {
   this.buildSkillCluster();
   this.buildJoystick();
   this.buildGameOver();
+  this.ensureCombatStyleIconTextures();
   this.buildLevelChoiceOverlay();
   this.buildChampionRewardOverlay();
   this.buildMenuButton();
@@ -11158,6 +11282,23 @@ class HUDScene extends Phaser.Scene {
   const read=(name)=>Math.max(0,parseFloat(s.getPropertyValue(name))||0);
   return {top:read('--safe-top'),right:read('--safe-right'),bottom:read('--safe-bottom'),left:read('--safe-left')};
  }
+
+ ensureCombatStyleIconTextures(){
+  const missing=Object.values(COMBAT_STYLE_ART_SPECS).filter(spec=>!this.textures.exists(spec.key));
+  if(!missing.length) return;
+  let hadQueue=false;
+  for(const spec of missing){
+   this.load.image(spec.key,spec.url);
+   hadQueue=true;
+  }
+  if(hadQueue){
+   this.load.once('complete',()=>{
+    if(this.levelChoiceVisible) this.layoutLevelChoiceOverlay();
+   });
+   this.load.start();
+  }
+ }
+
 
  addPanelGraphics(depth=10){
   const g=this.add.graphics().setDepth(depth);
@@ -11500,6 +11641,7 @@ class HUDScene extends Phaser.Scene {
  buildLevelChoiceOverlay(){
   this.levelChoiceVisible=false;
   this.levelChoiceLabels=[];
+  this.levelChoiceCardData=[];
   this.levelChoiceOptions={};
   this.levelChoiceButtons=[];
   this.levelChoiceShade=this.add.rectangle(0,0,100,100,0x050403,0.58).setOrigin(0).setDepth(108).setVisible(false);
@@ -11509,12 +11651,18 @@ class HUDScene extends Phaser.Scene {
 
   for(let i=0;i<3;i++){
    const card=this.add.rectangle(0,0,100,44,0x243323,0.96).setStrokeStyle(2,0x789561,0.88).setDepth(110).setVisible(false).setInteractive({useHandCursor:true});
+   const iconBack=this.add.circle(0,0,32,0x1b1710,0.98).setStrokeStyle(2,0x8f7445,0.92).setDepth(111).setVisible(false);
+   const icon=this.add.image(0,0,COMBAT_STYLE_ICON_KEYS.crowdbreak).setDepth(112).setVisible(false);
+   const glyph=lkAddText(this,0,0,'✦',{fontFamily:'Georgia, serif',fontSize:'28px',fontStyle:'bold',color:'#f0dfa5',stroke:'#18120d',strokeThickness:4}).setOrigin(0.5).setDepth(112).setVisible(false);
+   const name=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'18px',fontStyle:'bold',color:'#f5e9c8',stroke:'#17110c',strokeThickness:3,wordWrap:{width:360,useAdvancedWrap:true},align:'left'}).setOrigin(0,0.5).setDepth(112).setVisible(false);
+   const desc=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'13px',color:'#ded2b8',stroke:'#17110c',strokeThickness:2,wordWrap:{width:360,useAdvancedWrap:true},align:'left'}).setOrigin(0,0.5).setDepth(112).setVisible(false);
+   const meta=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'10px',fontStyle:'bold',color:'#d7c186',stroke:'#17110c',strokeThickness:2,wordWrap:{width:360,useAdvancedWrap:true},align:'left'}).setOrigin(0,0.5).setDepth(112).setVisible(false);
    const label=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'18px',fontStyle:'bold',color:'#ffffff',stroke:'#14210f',strokeThickness:3,wordWrap:{width:360,useAdvancedWrap:true},align:'center'}).setOrigin(0.5).setDepth(111).setVisible(false).setInteractive({useHandCursor:true});
-   card.on('pointerover',()=>{ if(this.levelChoiceVisible) card.setFillStyle(0x30482c,1); });
-   card.on('pointerout',()=>card.setFillStyle(0x243323,0.96));
+   card.on('pointerover',()=>{ if(this.levelChoiceVisible) card.setFillStyle(this.levelChoiceOptions?.variant==='combatStyle'?0x26211a:0x30482c,1); });
+   card.on('pointerout',()=>card.setFillStyle(this.levelChoiceOptions?.variant==='combatStyle'?0x171612:0x243323,0.96));
    card.on('pointerdown',()=>this.mainScene?.selectLevelChoice?.(i));
    label.on('pointerdown',()=>this.mainScene?.selectLevelChoice?.(i));
-   this.levelChoiceButtons.push({card,label});
+   this.levelChoiceButtons.push({card,label,iconBack,icon,glyph,name,desc,meta});
   }
  }
 
@@ -11522,15 +11670,28 @@ class HUDScene extends Phaser.Scene {
   this.levelChoiceVisible=true;
   this.levelChoiceLabels=labels.slice(0,3);
   this.levelChoiceOptions=options||{};
+  this.levelChoiceCardData=Array.isArray(this.levelChoiceOptions.choiceCards) && this.levelChoiceOptions.choiceCards.length
+   ?this.levelChoiceOptions.choiceCards.slice(0,3)
+   :this.levelChoiceLabels.map(label=>({label}));
+  const combatStyle=this.levelChoiceOptions?.variant==='combatStyle';
   this.levelChoiceTitle.setText(this.levelChoiceOptions.title || `LEVEL ${level} - CHOOSE UPGRADE`);
   this.levelChoiceIntro.setText(this.levelChoiceOptions.intro || '').setVisible(Boolean(this.levelChoiceOptions.intro));
   this.levelChoiceShade.setVisible(true);
   this.levelChoicePanel.setVisible(true);
   this.levelChoiceTitle.setVisible(true);
   this.levelChoiceButtons.forEach((entry,i)=>{
-   const visible=Boolean(this.levelChoiceLabels[i]);
-   entry.card.setVisible(visible).setFillStyle(0x243323,0.96);
-   entry.label.setVisible(visible).setText(this.levelChoiceLabels[i] || '');
+   const cardData=this.levelChoiceCardData[i];
+   const visible=Boolean(cardData || this.levelChoiceLabels[i]);
+   entry.card.setVisible(visible).setFillStyle(combatStyle?0x171612:0x243323,0.96);
+   entry.label.setVisible(visible && !combatStyle).setText(this.levelChoiceLabels[i] || cardData?.label || '');
+   entry.iconBack.setVisible(visible && combatStyle);
+   entry.name.setVisible(visible && combatStyle).setText(cardData?.name || '');
+   entry.desc.setVisible(visible && combatStyle).setText(cardData?.desc || '');
+   entry.meta.setVisible(visible && combatStyle && Boolean(cardData?.meta)).setText(cardData?.meta || '');
+   const hasIcon=visible && combatStyle && Boolean(cardData?.iconKey) && this.textures.exists(cardData.iconKey);
+   entry.icon.setVisible(hasIcon);
+   if(hasIcon) entry.icon.setTexture(cardData.iconKey);
+   entry.glyph.setVisible(visible && combatStyle && !hasIcon).setText(cardData?.glyph || '✦');
   });
   this.layoutLevelChoiceOverlay();
   this.layoutEventBanner();
@@ -11539,14 +11700,17 @@ class HUDScene extends Phaser.Scene {
  hideLevelChoices(){
   this.levelChoiceVisible=false;
   this.levelChoiceLabels=[];
+  this.levelChoiceCardData=[];
   this.levelChoiceOptions={};
   this.levelChoiceShade.setVisible(false);
   this.levelChoicePanel.setVisible(false);
   this.levelChoiceTitle.setVisible(false);
   this.levelChoiceIntro.setVisible(false).setText('');
-  this.levelChoiceButtons.forEach(({card,label})=>{
+  this.levelChoiceButtons.forEach(({card,label,iconBack,icon,glyph,name,desc,meta})=>{
    card.setVisible(false).setFillStyle(0x243323,0.96);
    label.setVisible(false).setText('');
+   iconBack.setVisible(false); icon.setVisible(false); glyph.setVisible(false);
+   name.setVisible(false).setText(''); desc.setVisible(false).setText(''); meta.setVisible(false).setText('');
   });
  }
 
@@ -11556,13 +11720,62 @@ class HUDScene extends Phaser.Scene {
   const mobile=Boolean(this.mainScene?.isTouchDevice || h<560 || w<900);
   const combatStyle=this.levelChoiceOptions?.variant==='combatStyle';
   const screenCx=w/2,screenCy=h/2;
-  const panelW=combatStyle
-   ?Math.min(mobile?Math.max(360,w-20):Math.max(720,w*0.82),w-(mobile?20:56))
-   :Math.min(mobile?420:560,w-(mobile?28:64));
-  const rowH=combatStyle?(mobile?82:96):(mobile?50:56);
+
+  if(combatStyle){
+   const compact=Boolean(this.mainScene?.isTouchDevice || h<520 || w<820);
+   const veryCompact=h<390;
+   const sideMargin=compact?10:34;
+   const panelW=Math.min(compact?720:900,w-sideMargin*2);
+   const cardH=veryCompact?84:(compact?94:118);
+   const gap=veryCompact?6:(compact?8:12);
+   const introVisible=Boolean(this.levelChoiceOptions?.intro);
+   const headerH=veryCompact?(introVisible?92:62):(compact?(introVisible?110:76):(introVisible?134:92));
+   const bottomPad=veryCompact?10:(compact?14:22);
+   const panelH=Math.min(h-8,headerH+cardH*3+gap*2+bottomPad);
+   const x=screenCx-panelW/2,y=screenCy-panelH/2,r=compact?10:13;
+   this.levelChoiceShade.setPosition(0,0).setSize(w,h).setDisplaySize(w,h);
+   this.levelChoicePanel.clear();
+   this.levelChoicePanel.fillStyle(0x060504,0.55); this.levelChoicePanel.fillRoundedRect(x+5,y+5,panelW,panelH,r);
+   this.levelChoicePanel.fillStyle(0x100f0c,0.985); this.levelChoicePanel.fillRoundedRect(x,y,panelW,panelH,r);
+   this.levelChoicePanel.lineStyle(compact?2:2.5,0x9b7d47,0.96); this.levelChoicePanel.strokeRoundedRect(x,y,panelW,panelH,r);
+   this.levelChoiceTitle.setPosition(screenCx,y+(veryCompact?18:(compact?22:28))).setFontSize(veryCompact?17:(compact?20:26)).setWordWrapWidth(panelW-54,true);
+   this.levelChoiceIntro.setPosition(screenCx,y+(veryCompact?56:(compact?58:71))).setFontSize(veryCompact?9.5:(compact?11:14)).setWordWrapWidth(Math.max(140,panelW-54),true);
+   const availableCardsH=Math.max(1,panelH-headerH-bottomPad-gap*2);
+   const actualCardH=Math.min(cardH,availableCardsH/3);
+   const cardW=panelW-(compact?18:30);
+   const startY=y+headerH+actualCardH/2;
+   this.levelChoiceButtons.forEach((entry,i)=>{
+    const visible=Boolean(this.levelChoiceCardData[i] || this.levelChoiceLabels[i]);
+    entry.card.setVisible(visible); entry.iconBack.setVisible(visible); entry.name.setVisible(visible); entry.desc.setVisible(visible);
+    if(!visible){
+     entry.icon.setVisible(false); entry.glyph.setVisible(false); entry.meta.setVisible(false); entry.label.setVisible(false);
+     return;
+    }
+    const yy=startY+i*(actualCardH+gap);
+    entry.card.setPosition(screenCx,yy).setSize(cardW,actualCardH).setDisplaySize(cardW,actualCardH).setStrokeStyle(2,0x8f7445,0.86);
+    const left=screenCx-cardW/2;
+    const iconRadius=veryCompact?28:(compact?34:42);
+    const iconX=left+(veryCompact?40:(compact?50:64));
+    entry.iconBack.setPosition(iconX,yy).setRadius(iconRadius).setStrokeStyle(2,0x8f7445,0.92);
+    const iconSize=iconRadius*2.0;
+    entry.icon.setPosition(iconX,yy).setDisplaySize(iconSize,iconSize);
+    entry.glyph.setPosition(iconX,yy).setFontSize(veryCompact?25:(compact?30:38));
+    const textX=left+(veryCompact?82:(compact?100:126));
+    const textRight=screenCx+cardW/2-(compact?10:16);
+    const textW=Math.max(120,textRight-textX);
+    entry.name.setPosition(textX,yy-actualCardH*0.29).setFontSize(veryCompact?14:(compact?16:19)).setWordWrapWidth(textW,true).setAlign('left');
+    entry.desc.setPosition(textX,yy).setFontSize(veryCompact?10:(compact?11.5:13.5)).setWordWrapWidth(textW,true).setAlign('left');
+    entry.meta.setPosition(textX,yy+actualCardH*0.32).setFontSize(veryCompact?8.5:(compact?9.5:10.5)).setWordWrapWidth(textW,true).setAlign('left').setVisible(Boolean(this.levelChoiceCardData[i]?.meta));
+    entry.label.setVisible(false);
+   });
+   return;
+  }
+
+  const panelW=Math.min(mobile?420:560,w-(mobile?28:64));
+  const rowH=mobile?50:56;
   const gap=mobile?12:14;
   const count=Math.max(1,this.levelChoiceLabels.length || 3);
-  const headerH=combatStyle?(mobile?138:158):(mobile?106:126);
+  const headerH=mobile?106:126;
   const panelH=headerH + (count*rowH) + ((count-1)*gap);
   const panelX=screenCx-panelW/2,panelY=screenCy-panelH/2;
   const radius=mobile?10:12;
@@ -11574,19 +11787,20 @@ class HUDScene extends Phaser.Scene {
   this.levelChoicePanel.lineStyle(mobile?2:2.5,0x8e7547,0.94); this.levelChoicePanel.strokeRoundedRect(panelX,panelY,panelW,panelH,radius);
   this.levelChoicePanel.lineStyle(1,0xd6bd7b,0.16); this.levelChoicePanel.strokeRoundedRect(panelX+4,panelY+4,panelW-8,panelH-8,Math.max(5,radius-4));
 
-  this.levelChoiceTitle.setPosition(screenCx,panelY+(mobile?24:29)).setFontSize(combatStyle?(mobile?18:24):(mobile?18:24));
+  this.levelChoiceTitle.setPosition(screenCx,panelY+(mobile?24:29)).setFontSize(mobile?18:24);
   this.levelChoiceIntro.setPosition(screenCx,panelY+(mobile?62:70)).setFontSize(mobile?11:14).setWordWrapWidth(Math.max(120,panelW-44),true);
 
-  const cardW=panelW-(combatStyle?(mobile?22:34):(mobile?34:48));
-  const startY=panelY+(combatStyle?(mobile?124:142):(mobile?76:94));
+  const cardW=panelW-(mobile?34:48);
+  const startY=panelY+(mobile?76:94);
   this.levelChoiceButtons.forEach((entry,i)=>{
    const visible=Boolean(this.levelChoiceLabels[i]);
    entry.card.setVisible(visible);
    entry.label.setVisible(visible);
+   entry.iconBack.setVisible(false); entry.icon.setVisible(false); entry.glyph.setVisible(false); entry.name.setVisible(false); entry.desc.setVisible(false); entry.meta.setVisible(false);
    if(!visible) return;
-   const y=startY+i*(rowH+gap);
-   entry.card.setPosition(screenCx,y).setSize(cardW,rowH).setDisplaySize(cardW,rowH).setStrokeStyle(2,0x789561,0.88);
-   entry.label.setPosition(screenCx,y).setFontSize(combatStyle?(mobile?13:17):(mobile?15:18)).setWordWrapWidth(cardW-(combatStyle?46:28),true).setAlign('center');
+   const yy=startY+i*(rowH+gap);
+   entry.card.setPosition(screenCx,yy).setSize(cardW,rowH).setDisplaySize(cardW,rowH).setStrokeStyle(2,0x789561,0.88);
+   entry.label.setPosition(screenCx,yy).setFontSize(mobile?15:18).setWordWrapWidth(cardW-28,true).setAlign('center');
   });
  }
 
