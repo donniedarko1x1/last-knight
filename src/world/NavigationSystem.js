@@ -418,7 +418,9 @@ class NavigationSystem {
   for(const e of list){
    if(!e.body?.velocity) continue;
    const base=Math.max(40,this.getEnemyMovementSpeed(e)||e.speed||80);
-   const maxSpeed=base*1.32+24;
+   // Do not clamp ring catch-up back below the hero's movement speed.
+   const formationCap=e.captainFormationTarget?.ring?(e.captainFormationSpeedLimit||0):0;
+   const maxSpeed=Math.max(base*1.32+24,formationCap);
    const len=e.body.velocity.length();
    if(len>maxSpeed && len>0) e.body.velocity.scale(maxSpeed/len);
   }

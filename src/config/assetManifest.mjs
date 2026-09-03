@@ -3,6 +3,8 @@
 // Categories are deliberately coarse so REGION_* groups can later be streamed
 // independently without changing gameplay code.
 
+import {CAPTAIN_FRAME_KEYS} from './captainConfig.mjs';
+
 export const ASSET_CATEGORY={
  CORE:'CORE',
  PROLOGUE:'PROLOGUE',
@@ -219,6 +221,11 @@ for(const prop of ['campfire','torch','lantern','embers','wagon']){
   image(REGION_RUINS,R,key,`/assets/environment/ruined_kingdom/light_props/${key}.png`);
  }
 }
+
+for(const key of CAPTAIN_FRAME_KEYS){
+ image(REGION_RUINS,R,key,`/assets/enemies/skeleton_captain/${key}.png`);
+}
+json(REGION_RUINS,R,'skeleton_captain_frames','/assets/enemies/skeleton_captain/frames.json');
 
 export const ASSET_MANIFEST=Object.freeze(manifest);
 const manifestByKey=new Map(ASSET_MANIFEST.map(entry=>[entry.key,entry]));

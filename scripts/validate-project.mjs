@@ -38,6 +38,8 @@ function pad2(n){return String(n).padStart(2,'0');}
 
 // 1) JS syntax.
 const syntaxFiles=['src/main.js','src/combat/HeroMelee.js','src/config/gameplayConfig.mjs','src/config/worldConfig.mjs','src/world/NavigationSystem.js','src/audio/AudioManager.js','src/ui/cinematicTransitions.js','src/story/StoryDirector.js','src/story/StoryObjectiveMarker.js','src/story/WoundedKnightInteractionSystem.js','src/story/WorldDialogueSystem.js','src/story/ChampionDialogueSystem.js','src/story/StoryEnemyAnomalySystem.js','src/story/BrokenSaintCinematics.js','src/story/storyEvents.js'];
+syntaxFiles.push('src/world/ZoneRestartState.mjs','src/combat/CaptainAttackTelegraph.mjs',
+ 'src/combat/SkeletonCaptainSystem.js','src/config/captainConfig.mjs');
 for(const file of syntaxFiles){
  const source=fs.readFileSync(path.join(root,file),'utf8');
  if(/^(?:<<<<<<<|=======|>>>>>>>)/m.test(source)) fail(`Unresolved Git conflict marker: ${file}`);
@@ -202,7 +204,7 @@ for(const [label,needle] of [
  ['decorative/blocking classification',"getAshPropPhysicsClass(prop,kind='grass')"],
  ['enemy/world collider','this.enemyAshCollider=this.physics.add.collider(this.enemyGroup,this.ashLandmarkColliderGroup,null,this.shouldEnemyCollideWithAshLandmark,this);'],
  ['selective Broken Saint altar collision','shouldEnemyCollideWithAshLandmark(objectA,objectB){'],
- ['obstacle steering','setEnemySteeredVelocity(enemy,vx,vy,time){'],
+ ['obstacle steering','setEnemySteeredVelocity(enemy,vx,vy,time,formationTarget=null){'],
  ['safe enemy spawn','findSafeEnemySpawnPoint(x,y,{padding=26,minPlayerDistance=120,searchStep=30,maxRadius=360}={}){'],
  ['mage projectile obstacle collision','this.isAshPathBlocked(lastProjectileX,lastProjectileY,projectile.x,projectile.y,6)'],
  ['wounded knight blockers','this.createAshWoundedKnights(objects);']
@@ -305,7 +307,7 @@ for(const [label,source,needle] of [
  ['grid rebuild',navigation,'rebuildNavigationGrid(){'],
  ['A* pathfinding',navigation,'findNavigationPath(startX,startY,targetX,targetY,enemy=null,maxVisited=3200){'],
  ['waypoint routing',navigation,'getEnemyNavigationWaypoint(enemy,time,targetX,targetY,radius){'],
- ['local steering retained',main,'setEnemySteeredVelocity(enemy,vx,vy,time){'],
+ ['local steering retained',main,'setEnemySteeredVelocity(enemy,vx,vy,time,formationTarget=null){'],
  ['soft enemy separation',navigation,'applyEnemySoftSeparation(time){'],
  ['stuck detector',navigation,'updateEnemyStuckState(enemy,time,intendedSpeed){'],
  ['navigation debug overlay',main,'this.overlayFlags.navigation'],

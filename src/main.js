@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import HeroMelee from './combat/HeroMelee.js';
+import SkeletonCaptainSystem from './combat/SkeletonCaptainSystem.js';
+import {captureZoneBuild,restoreZoneBuild,restartZoneIndex} from './world/ZoneRestartState.mjs';
+import {CAPTAIN,globalWave,isCaptainEncounter,shieldHpForWave} from './config/captainConfig.mjs';
 import {
  STAGE0,
  PURSUIT,
@@ -34,6 +37,11 @@ import {BROKEN_SAINT_INTRO_DIALOGUE,BROKEN_SAINT_AFTERMATH_PAGES,BROKEN_SAINT_SW
 import StoryEnemyAnomalySystem from './story/StoryEnemyAnomalySystem.js';
 import StoryObjectiveMarker from './story/StoryObjectiveMarker.js';
 import {PROLOGUE_STORY_PAGES,STORY_ANOMALY_DEFINITIONS,STORY_EVENTS,ASH_WOUNDED_KNIGHT_STORY,ASH_ALTAR_CHAMPION_STORY} from './story/storyEvents.js';
+import {
+ SAVE_SCHEMA_VERSION,
+ clearAutosave,getManualSaves,writeManualSave,deleteManualSave,
+ getGameSettings,setGameSettings,writeCharacterStats,clearCharacterStats,saveSummary
+} from './GamePersistence.js';
 import {
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
@@ -120,6 +128,12 @@ const ASH_SWORD_PULSE_ANIM_KEY='ash_sword_pulse';
 const ASH_SWORD_PULSE_ACTIVE_MS=400;
 const ASH_SWORD_PULSE_CYCLE_MS=ASH_SWORD_PULSE_ACTIVE_MS+1500;
 const ZONE2_SOFT_FIRE_GLOW_TEXTURE='zone2_soft_fire_glow';
+const ZONE2_TERRAIN_LIT_SUFFIX='_lit';
+const ZONE2_TERRAIN_BRIGHTNESS=1.20;
+const ZONE2_TERRAIN_KEYS=Object.freeze([
+ 'zone2_ground_base_01','zone2_edge_north_01','zone2_edge_south_01',
+ 'zone2_edge_west_01','zone2_edge_east_01'
+]);
 const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
 const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
 const ASH_SWORD_PRELUDE_RETURN_MS=800;
@@ -218,12 +232,21 @@ function lkApplyRenderScale(game,value,{remember=true}={}){
  }
  const canvas=game?.canvas;
  if(canvas){
-  canvas.style.width=`${css.width}px`;
-  canvas.style.height=`${css.height}px`;
+  // Render scale changes the backing-buffer resolution only. The visible game
+  // must always stay exactly the size of the #game host. Using percentages
+  // here (reinforced by index.html !important rules) prevents Phaser FIT from
+  // briefly shrinking/growing the canvas when quality is changed.
+  canvas.style.width='100%';
+  canvas.style.height='100%';
+  canvas.style.maxWidth='100%';
+  canvas.style.maxHeight='100%';
  }
  for(const scene of game?.scene?.getScenes?.(true)||[]){
   const key=scene?.sys?.settings?.key;
-  if(key==='HUDScene'){
+  if(key==='GameMenuScene'){
+   scene.syncLayoutCamera?.();
+   scene.redrawCurrentView?.();
+  }else if(key==='HUDScene'){
    scene.cameras?.main?.setOrigin?.(0,0);
    scene.cameras?.main?.setZoom?.(target);
    scene.layout?.();
@@ -252,7 +275,7 @@ function lkApplyRenderScale(game,value,{remember=true}={}){
 
 
 const LOADING_ART_KEY='lastknight_loading_art';
-const LOADING_SCREEN_STATUS='Loading Ash Fields...';
+const LOADING_SCREEN_STATUS='Loading';
 
 
 
@@ -1003,6 +1026,7 @@ class LastKnightDevTools {
 
  destroyEnemyEntity(enemy){
   if(!enemy) return;
+  this.scene.captainSystem?.remove(enemy);
   if(enemy.visual?.active)enemy.visual.destroy();
   if(enemy.auraVisual?.active)enemy.auraVisual.destroy();
   if(enemy.reflectVisual?.active)enemy.reflectVisual.destroy();
@@ -1012,7 +1036,7 @@ class LastKnightDevTools {
   if(this.scene.activeChampion===enemy){this.scene.activeChampion=null;this.scene.championEventActive=false;this.scene.championNameText?.setVisible(false);this.scene.championHpBack?.setVisible(false);this.scene.championHpFill?.setVisible(false);this.clearHazards();}
  }
  killOrdinaryEnemies(){for(const e of [...this.scene.enemies])if(e.active&&e.type!=='champion'){e.hp=0;this.scene.finalizeEnemyDeath(e,this.scene.time.now);}this.scene.enemies=this.scene.enemies.filter(e=>e?.active);}
- deleteOrdinaryEnemies(){for(const e of [...this.scene.enemies])if(e.type!=='champion')this.destroyEnemyEntity(e);this.clearProjectiles();}
+ deleteOrdinaryEnemies(){this.scene.captainSystem?.clear();for(const e of [...this.scene.enemies])if(e.type!=='champion')this.destroyEnemyEntity(e);this.clearProjectiles();}
 
  championKind(){return document.getElementById('lkdev-champion')?.value||'brokenSaint';}
  spawnSelectedChampion(){if(this.scene.activeChampion?.active)this.deleteChampion();this.scene.spawnChampion(this.championKind(),true);}
@@ -2131,13 +2155,14 @@ class BootScene extends Phaser.Scene {
   this.cameras.main.setOrigin(0,0).setZoom(LK_RENDER_SCALE);
   const logical=lkLogicalSceneSize(this),w=logical.width,h=logical.height;
   const cx=w/2,cy=h/2;
-  const title=lkAddText(this,cx,cy-48,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f0dfaf',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5);
-  const subtitle=lkAddText(this,cx,cy-14,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#c8b48a',letterSpacing:1}).setOrigin(0.5);
-  const frameW=Math.min(320,w-48),frameH=18;
-  const barBg=this.add.rectangle(cx,cy+32,frameW,frameH,0x130f0d,0.96).setStrokeStyle(2,0x8c7447,0.9);
-  const fill=this.add.rectangle(cx-frameW/2+4,cy+32,Math.max(1,frameW-8),frameH-8,0xc69e4f,1).setOrigin(0,0.5);
+  const title=lkAddText(this,cx,cy-62,'LAST KNIGHT',{fontFamily:'Georgia, serif',fontSize:'30px',fontStyle:'bold',color:'#f0dfaf',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5);
+  const subtitle=lkAddText(this,cx,cy-30,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#c8b48a',letterSpacing:1}).setOrigin(0.5);
+  const frameW=Math.min(360,w-48),frameH=18;
+  const barBg=this.add.rectangle(cx,cy+8,frameW,frameH,0x130f0d,0.96).setStrokeStyle(2,0x8c7447,0.9);
+  const fill=this.add.rectangle(cx-frameW/2+4,cy+8,Math.max(1,frameW-8),frameH-8,0xc69e4f,1).setOrigin(0,0.5);
   fill.displayWidth=0;
-  const pct=lkAddText(this,cx,cy+66,'0%',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#f5e4b3'}).setOrigin(0.5);
+  const pct=lkAddText(this,cx,cy+38,'0%',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#f5e4b3'}).setOrigin(0.5);
+  const loading=lkAddText(this,cx,cy+65,'Loading',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#dfd6c5'}).setOrigin(0.5);
   this.load.on('progress',(value)=>{
    fill.displayWidth=Math.max(2,(frameW-8)*value);
    pct.setText(`${Math.round(value*100)}%`);
@@ -2147,7 +2172,7 @@ class BootScene extends Phaser.Scene {
    pct.setText('100%');
    this.time.delayedCall(80,()=>this.scene.start('PreloadScene'));
   });
-  [title,subtitle,pct].forEach(t=>t.setResolution?.(LK_TEXT_RESOLUTION));
+  [title,subtitle,loading,pct].forEach(t=>t.setResolution?.(LK_TEXT_RESOLUTION));
   const useMobileLoadingArt=typeof window!=='undefined' && (window.matchMedia?.('(pointer: coarse)').matches || (navigator.maxTouchPoints||0)>0);
   this.load.image(LOADING_ART_KEY,useMobileLoadingArt?'/assets/ui/loading_key_art_mobile.jpg':'/assets/ui/loading_key_art_4k.jpg');
  }
@@ -2178,9 +2203,9 @@ class PreloadScene extends Phaser.Scene {
   this.overlayShadow=this.add.rectangle(0,0,100,100,0x000000,0.22).setDepth(2);
   this.overlay=this.add.rectangle(0,0,100,100,0x080706,0.62).setStrokeStyle(2,0x8e7547,0.92).setDepth(3);
   this.overlayInner=this.add.rectangle(0,0,100,100,0x12100d,0.38).setStrokeStyle(1,0xd9c180,0.18).setDepth(4);
-  this.loadingTitle=lkAddText(this,0,0,'LAST KNIGHT',{fontFamily:'Arial, sans-serif',fontSize:'30px',fontStyle:'bold',color:'#f1e0b1',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5).setDepth(5);
+  this.loadingTitle=lkAddText(this,0,0,'LAST KNIGHT',{fontFamily:'Georgia, serif',fontSize:'30px',fontStyle:'bold',color:'#f1e0b1',stroke:'#130e09',strokeThickness:4}).setOrigin(0.5).setDepth(5);
   this.loadingSubtitle=lkAddText(this,0,0,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#ccb68a',letterSpacing:1}).setOrigin(0.5).setDepth(5);
-  this.loadingStatus=lkAddText(this,0,0,LOADING_SCREEN_STATUS,{fontFamily:'Arial, sans-serif',fontSize:'14px',color:'#dfd6c5'}).setOrigin(0.5).setDepth(5);
+  this.loadingStatus=lkAddText(this,0,0,LOADING_SCREEN_STATUS,{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#dfd6c5'}).setOrigin(0.5).setDepth(5);
   this.progressBack=this.add.rectangle(0,0,100,18,0x100d0b,0.96).setStrokeStyle(2,0x8d7445,0.95).setDepth(5);
   this.progressFill=this.add.rectangle(0,0,100,10,0xc39a4a,1).setOrigin(0,0.5).setDepth(6);
   this.progressGlow=this.add.rectangle(0,0,100,3,0xf6d691,0.34).setOrigin(0,0.5).setDepth(6);
@@ -2209,29 +2234,27 @@ class PreloadScene extends Phaser.Scene {
   const bgScale=Math.max(w/this.bg.width,h/this.bg.height);
   this.bg.setPosition(cx,cy).setScale(bgScale);
   this.vignette.setPosition(0,0).setSize(w,h).setDisplaySize(w,h);
-  const overlayW=Math.min(mobile?Math.max(300,w*0.56):560,w-36);
-  const overlayH=mobile?162:186;
+  const overlayW=Math.min(mobile?Math.max(300,w*0.70):560,w-36);
+  const overlayH=mobile?176:198;
   this.overlayShadow.setPosition(cx,cy+4).setSize(overlayW,overlayH).setDisplaySize(overlayW,overlayH);
   this.overlay.setPosition(cx,cy).setSize(overlayW,overlayH).setDisplaySize(overlayW,overlayH);
   this.overlayInner.setPosition(cx,cy).setSize(overlayW-10,overlayH-10).setDisplaySize(overlayW-10,overlayH-10);
-  this.loadingTitle.setPosition(cx,cy-(mobile?42:50)).setFontSize(mobile?24:30);
-  this.loadingSubtitle.setPosition(cx,cy-(mobile?16:20)).setFontSize(mobile?13:15);
+  this.loadingTitle.setPosition(cx,cy-(mobile?61:70)).setFontSize(mobile?25:30);
+  this.loadingSubtitle.setPosition(cx,cy-(mobile?34:39)).setFontSize(mobile?12:14);
   const barW=overlayW-(mobile?42:64);
-  this.progressBack.setPosition(cx,cy+(mobile?18:22)).setSize(barW,20).setDisplaySize(barW,20);
-  this.progressFill.setPosition(cx-barW/2+5,cy+(mobile?18:22)).setSize(barW-10,10).setDisplaySize(Math.max(0,Math.min(barW-10,this.progressFill.displayWidth||0)),10);
-  this.progressGlow.setPosition(cx-barW/2+5,cy+(mobile?14:18)).setSize(barW-10,3).setDisplaySize(Math.max(0,Math.min(barW-10,this.progressGlow.displayWidth||0)),3);
-  this.progressPct.setPosition(cx,cy+(mobile?47:54)).setFontSize(mobile?14:15);
-  this.loadingStatus.setPosition(cx,cy+(mobile?73:82)).setFontSize(mobile?12:14);
-  this.retryHint.setPosition(cx,cy+(mobile?97:108)).setFontSize(mobile?11:13);
+  const barY=cy+(mobile?0:1);
+  this.progressBack.setPosition(cx,barY).setSize(barW,20).setDisplaySize(barW,20);
+  this.progressFill.setPosition(cx-barW/2+5,barY).setSize(barW-10,10).setDisplaySize(Math.max(0,Math.min(barW-10,this.progressFill.displayWidth||0)),10);
+  this.progressGlow.setPosition(cx-barW/2+5,barY-4).setSize(barW-10,3).setDisplaySize(Math.max(0,Math.min(barW-10,this.progressGlow.displayWidth||0)),3);
+  this.progressPct.setPosition(cx,cy+(mobile?29:31)).setFontSize(mobile?14:15);
+  // Keep Loading as the last normal line in the frame. Its baseline sits
+  // roughly one text-line above the inner bottom edge, as requested.
+  this.loadingStatus.setPosition(cx,cy+(mobile?57:62)).setFontSize(mobile?13:14);
+  this.retryHint.setPosition(cx,cy+(mobile?78:84)).setFontSize(mobile?11:12);
  }
+
  registerLoadingEvents(){
-  const totalFiles=Math.max(1,this.queuedAssetCount || this.load.list.size + this.load.inflight.size);
   this.load.on('progress',(value)=>this.setProgress(value));
-  this.load.on('fileprogress',(file)=>{
-   const raw=file?.key || LOADING_SCREEN_STATUS;
-   const friendly=String(raw).replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase());
-   this.loadingStatus.setText(`Loading: ${friendly}`);
-  });
   this.load.on('loaderror',(file)=>{
    const key=String(file?.key||'unknown');
    const spec=getAssetSpec(key);
@@ -2239,40 +2262,36 @@ class PreloadScene extends Phaser.Scene {
    if(optional){
     this.optionalLoadErrors.push(key);
     console.warn(`[AssetPipeline] Optional asset skipped: ${key}`,spec?.url||file?.url||'');
-    this.loadingStatus.setText(`Optional asset skipped: ${key.replace(/_/g,' ')}`);
     return;
    }
 
    this.loadingFailed=true;
    this.requiredLoadErrors.push(key);
    console.error(`[AssetPipeline] Required asset failed: ${key}`,spec?.url||file?.url||'');
-   this.loadingStatus.setText('Required asset failed');
+   this.loadingStatus.setText('Loading failed');
    this.retryHint.setVisible(true);
   });
   this.load.once('complete',()=>{
    if(this.loadingFailed){
-    const count=this.requiredLoadErrors.length;
-    this.loadingStatus.setText(`Loading failed (${count} required asset${count===1?'':'s'})`);
+    this.loadingStatus.setText('Loading failed');
     this.retryHint.setVisible(true);
     return;
    }
    this.setProgress(1);
-   const skipped=this.optionalLoadErrors.length;
-   this.loadingStatus.setText(skipped?`Opening prologue... (${skipped} optional skipped)`:'Opening prologue...');
+   this.loadingStatus.setText('Loading');
    this.time.delayedCall(220,()=>{
     this.cameras.main.fadeOut(220,0,0,0);
     this.time.delayedCall(230,()=>{
      if(this.loadingFailed) return;
-     // Loading key art is one-shot. Destroy the display object first, then
-     // release the shared texture before entering the cinematic scene.
      if(this.bg?.active) this.bg.destroy();
-     releaseTextureKeys(this,[LOADING_ART_KEY]);
-     this.scene.start('CinematicScene');
+     this.scene.start('GameMenuScene',{mode:'root'});
+     // releaseTextureKeys(this,[LOADING_ART_KEY]);
     });
    });
   });
-  this.loadingStatus.setText(`${LOADING_SCREEN_STATUS} (${totalFiles} assets)`);
+  this.loadingStatus.setText('Loading');
  }
+
  setProgress(value){
   const progress=Phaser.Math.Clamp(value,0,1);
   const maxW=(this.progressBack.displayWidth||this.progressBack.width)-10;
@@ -2468,7 +2487,7 @@ class CinematicScene extends Phaser.Scene {
 
   this.prologueMusic=this.sound.add(
    'bgm_veil_of_the_past',
-   {loop:true,volume:0.50}
+   {loop:true,volume:0.50*getGameSettings().musicVolume}
   );
 
   const startMusic=()=>{
@@ -2811,9 +2830,8 @@ class CinematicScene extends Phaser.Scene {
   }
 
   cinematicFadeOutAndRun(this,()=>{
-   // Prologue illustrations are one-shot textures. The reusable stone frame
-   // stays resident for future story cinematics, but the four large page images
-   // are released before gameplay begins.
+   // Prologue illustrations are one-shot textures. The root menu reloads
+   // these three pages on demand before a later "New Game" session.
    if(this.cinematicImage?.active) this.cinematicImage.destroy();
    releaseTextureKeys(this,PROLOGUE_PAGE_KEYS);
    this.scene.start('main');
@@ -2843,7 +2861,596 @@ class CinematicScene extends Phaser.Scene {
  }
 }
 
+
+class GameMenuScene extends Phaser.Scene {
+ constructor(){
+  super({key:'GameMenuScene'});
+  this.mode='root';
+  this.mainScene=null;
+  this.content=[];
+  this.statusText=null;
+ }
+
+ init(data={}){
+  this.mode=data?.mode==='session'?'session':'root';
+  this.mainScene=data?.mainScene||null;
+  this.currentView={type:'menu'};
+ }
+
+ create(){
+  this.cameras.main.setBackgroundColor('#090806');
+  this.syncLayoutCamera();
+  if(!this.mainScene && this.mode==='session')this.mainScene=this.scene.get('main');
+  // Save model v2: the root menu never owns a resumable live session.
+  // Persistent gameplay progress lives only in the three manual save slots.
+  if(this.mode==='root'){
+   clearAutosave();
+   clearCharacterStats();
+  }
+  this.menuBackgroundArt=this.textures.exists(LOADING_ART_KEY)
+   ?this.add.image(0,0,LOADING_ART_KEY).setOrigin(0.5).setDepth(0).setVisible(this.mode==='root')
+   :null;
+  this.menuBackgroundVignette=this.add.rectangle(0,0,100,100,0x000000,this.mode==='root'?0.18:0).setOrigin(0).setDepth(0.5);
+  this.background=this.add.rectangle(0,0,100,100,0x080706,this.mode==='session'?0.82:0.62).setOrigin(0).setDepth(1);
+  // Soft layered haze around the menu frame. This gives the background a
+  // frosted/blurred feel without an expensive full-screen blur pass.
+  this.panelHaze=this.add.graphics().setDepth(1.5);
+  this.panel=this.add.graphics().setDepth(2);
+  this.title=lkAddText(this,0,0,'LAST KNIGHT',{fontFamily:'Georgia, serif',fontSize:'34px',fontStyle:'bold',color:'#f0dfaf',stroke:'#120d09',strokeThickness:5}).setOrigin(0.5).setDepth(3);
+  this.subtitle=lkAddText(this,0,0,'ПЕПЕЛ КОРОЛЕВСТВА',{fontFamily:'Arial, sans-serif',fontSize:'13px',fontStyle:'bold',color:'#bfae84',letterSpacing:2}).setOrigin(0.5).setDepth(3);
+  this.statusText=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'12px',color:'#d9cfb0',align:'center',wordWrap:{width:520,useAdvancedWrap:true}}).setOrigin(0.5).setDepth(20);
+  this._menuResizeHandler=()=>this.redrawCurrentView();
+  this.scale.on('resize',this._menuResizeHandler);
+  this._menuEscHandler=()=>{if(this.mode==='session')this.resumeGame();};
+  this.input.keyboard?.on('keydown-ESC',this._menuEscHandler);
+  this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
+   if(this._menuResizeHandler)this.scale.off('resize',this._menuResizeHandler);
+   if(this._menuEscHandler)this.input.keyboard?.off('keydown-ESC',this._menuEscHandler);
+   this._menuResizeHandler=null;
+   this._menuEscHandler=null;
+  });
+  this.renderMenu();
+  // Root menu arrives from the loading-screen blackout, so reveal it as one
+  // continuous cinematic transition instead of a hard scene cut.
+  if(this.mode==='root')this.cameras.main.fadeIn(460,0,0,0);
+  // A FIT canvas can receive one final browser/ScaleManager size pass just
+  // after a scene transition. Re-sync on the next frames so the first menu
+  // paint is correct even before the user resizes the browser or opens DevTools.
+  this.time.delayedCall(0,()=>this.redrawCurrentView());
+  this.time.delayedCall(120,()=>this.redrawCurrentView());
+ }
+
+ syncLayoutCamera(){
+  const cam=this.cameras?.main;
+  if(!cam)return;
+  cam.setViewport(0,0,Math.max(1,this.scale.width),Math.max(1,this.scale.height));
+  cam.setScroll(0,0).setOrigin(0,0).setZoom(Math.max(0.01,LK_RENDER_SCALE||1));
+ }
+
+ redrawCurrentView(){
+  if(!this.sys?.isActive?.())return;
+  const view=this.currentView||{type:'menu'};
+  if(view.type==='settings')return this.showSettings();
+  if(view.type==='stats')return this.showStats();
+  if(view.type==='slots')return this.showSlots(view.mode||'load');
+  if(view.type==='confirm')return this.showConfirm(view.title,view.message,view.onConfirm);
+  if(view.type==='exitConfirm')return this.confirmExit();
+  return this.renderMenu();
+ }
+
+ clearContent(){
+  for(const obj of this.content){try{obj?.destroy?.();}catch{}}
+  this.content=[];
+  this.statusText?.setText('');
+ }
+
+ remember(...objects){this.content.push(...objects.filter(Boolean));return objects[0];}
+
+ getMetrics(){
+  const {width:w,height:h}=lkLogicalSceneSize(this);
+  const mobile=h<650||w<880;
+  const compact=h<590;
+  const short=h<470;
+  const tiny=h<340;
+  const sideMargin=mobile?Math.max(12,Math.min(28,w*0.04)):40;
+  const verticalMargin=short?8:(mobile?12:27);
+  const panelW=Math.max(260,Math.min(mobile?520:610,w-sideMargin*2));
+  const panelH=Math.max(1,Math.min(h-verticalMargin*2,mobile?620:660));
+  return {w,h,mobile,compact,short,tiny,cx:w/2,cy:h/2,panelW,panelH,x:w/2-panelW/2,y:h/2-panelH/2};
+ }
+
+ drawShell(metrics=this.getMetrics()){
+  const {w,h,cx,cy,panelW,panelH,x,y,mobile,compact,short,tiny}=metrics;
+  if(this.menuBackgroundArt){
+   const bgScale=Math.max(w/Math.max(1,this.menuBackgroundArt.width),h/Math.max(1,this.menuBackgroundArt.height));
+   this.menuBackgroundArt.setVisible(this.mode==='root').setPosition(cx,cy).setScale(bgScale);
+  }
+  if(this.menuBackgroundVignette){
+   this.menuBackgroundVignette
+    .setVisible(this.mode==='root')
+    .setFillStyle(0x000000,this.mode==='root'?(tiny?0.22:0.18):0)
+    .setPosition(0,0)
+    .setSize(w,h)
+    .setDisplaySize(w,h);
+  }
+  this.background
+   .setPosition(0,0)
+   .setFillStyle(0x080706,this.mode==='session'?0.82:(tiny?0.72:short?0.68:0.62))
+   .setSize(w,h)
+   .setDisplaySize(w,h);
+  this.panelHaze?.clear();
+  if(this.panelHaze && this.mode==='root'){
+   const hazePad=tiny?6:short?9:14;
+   const hazeRadius=tiny?12:16;
+   // Wide, low-alpha layers soften the key art immediately behind the frame.
+   this.panelHaze.fillStyle(0x050403,tiny?0.10:0.08);
+   this.panelHaze.fillRoundedRect(x-hazePad*1.8,y-hazePad*1.8,panelW+hazePad*3.6,panelH+hazePad*3.6,hazeRadius+8);
+   this.panelHaze.fillStyle(0x080604,tiny?0.16:0.13);
+   this.panelHaze.fillRoundedRect(x-hazePad,y-hazePad,panelW+hazePad*2,panelH+hazePad*2,hazeRadius+5);
+   this.panelHaze.fillStyle(0x0b0906,tiny?0.22:0.18);
+   this.panelHaze.fillRoundedRect(x-3,y-3,panelW+6,panelH+6,hazeRadius+2);
+  }
+  this.panel.clear();
+  this.panel.fillStyle(0x000000,0.28);this.panel.fillRoundedRect(x+7,y+8,panelW,panelH,14);
+  this.panel.fillStyle(0x13110e,this.mode==='root'?0.94:0.97);this.panel.fillRoundedRect(x,y,panelW,panelH,14);
+  this.panel.lineStyle(2,0x8e7547,0.96);this.panel.strokeRoundedRect(x,y,panelW,panelH,14);
+  this.panel.lineStyle(1,0xd9c180,0.18);this.panel.strokeRoundedRect(x+5,y+5,panelW-10,panelH-10,10);
+  this.title.setPosition(cx,y+(tiny?20:short?25:compact?30:mobile?42:48)).setFontSize(tiny?18:short?21:compact?24:mobile?28:34);
+  this.subtitle.setPosition(cx,y+(tiny?38:short?45:compact?53:mobile?72:82)).setFontSize(tiny?7:short?8:compact?9:mobile?11:13);
+  this.statusText
+   .setPosition(cx,y+panelH-(tiny?8:short?11:compact?16:24))
+   .setFontSize(tiny?7:short?8:compact?10:12)
+   .setWordWrapWidth(Math.max(120,panelW-32),true);
+ }
+
+ addButton(label,y,action,{enabled=true,width=null,fontSize=null,danger=false,height=null,x=null}={}){
+  const m=this.getMetrics();
+  const cx=Number.isFinite(x)?x:m.cx;
+  const w=width||Math.min(m.panelW-(m.short?34:70),m.mobile?400:440);
+  const h=height||(m.tiny?25:m.short?30:m.compact?38:m.mobile?43:48);
+  const fill=danger?0x38201d:0x22241d;
+  const hover=danger?0x50302a:0x30362a;
+  const stroke=danger?0xa76f5f:0x8d7b4c;
+  const card=this.add.rectangle(cx,y,w,h,fill,enabled?0.96:0.42).setStrokeStyle(1.7,stroke,enabled?0.9:0.35).setDepth(5);
+  const text=lkAddText(this,cx,y,label,{fontFamily:'Arial, sans-serif',fontSize:`${fontSize|| (m.tiny?9:m.short?10:m.compact?12:m.mobile?14:16)}px`,fontStyle:'bold',color:enabled?'#f2e7c8':'#756f61',align:'center'}).setOrigin(0.5).setDepth(6);
+  if(enabled){
+   card.setInteractive({useHandCursor:true});text.setInteractive({useHandCursor:true});
+   const over=()=>card.setFillStyle(hover,1),out=()=>card.setFillStyle(fill,0.96),down=()=>action?.();
+   card.on('pointerover',over);card.on('pointerout',out);card.on('pointerdown',down);
+   text.on('pointerover',over);text.on('pointerout',out);text.on('pointerdown',down);
+  }
+  this.remember(card,text);
+  return {card,text};
+ }
+
+ renderMenu(){
+  if(!this.sys?.isActive?.())return;
+  this.currentView={type:'menu'};
+  this.syncLayoutCamera();
+  this.clearContent();
+  const m=this.getMetrics();
+  this.drawShell(m);
+  const hasLive=Boolean(this.mode==='session'&&this.mainScene?.player);
+  const labels=this.mode==='session'
+   ?[
+    ['ПРОДОЛЖИТЬ',()=>this.resumeGame(),true],
+    ['НОВАЯ ИГРА',()=>this.confirmNewGame(),true],
+    ['СОХРАНИТЬ',()=>this.showSlots('save'),hasLive],
+    ['ЗАГРУЗИТЬ',()=>this.showSlots('load'),true],
+    ['СТАТИСТИКА ПЕРСОНАЖА',()=>this.showStats(),hasLive],
+    ['НАСТРОЙКИ',()=>this.showSettings(),true],
+    ['ВЫХОД В ГЛАВНОЕ МЕНЮ',()=>this.confirmExit(),true,true]
+   ]
+   :[
+    ['НОВАЯ ИГРА',()=>this.startNewGame(),true],
+    ['ПРОДОЛЖИТЬ',()=>{},false],
+    ['СОХРАНИТЬ',()=>{},false],
+    ['ЗАГРУЗИТЬ',()=>this.showSlots('load'),true],
+    ['СТАТИСТИКА ПЕРСОНАЖА',()=>{},false],
+    ['НАСТРОЙКИ',()=>this.showSettings(),true],
+    ['ВЫХОД',()=>this.exitApplication(),true,true]
+   ];
+  // Fit all seven menu actions inside the current viewport instead of using
+  // a fixed vertical step. This remains readable even with DevTools docked or
+  // a very short browser window.
+  const top=m.y+(m.tiny?48:m.short?58:m.compact?76:m.mobile?104:116);
+  const footerReserve=this.mode==='root'?(m.tiny?18:m.short?24:m.compact?34:42):(m.tiny?10:m.short?16:m.compact?24:30);
+  const bottom=m.y+m.panelH-footerReserve;
+  const count=Math.max(1,labels.length);
+  const gap=m.tiny?2:m.short?4:m.compact?6:10;
+  const rawH=(bottom-top-gap*(count-1))/count;
+  const buttonH=Math.max(m.tiny?20:24,Math.min(m.short?32:m.compact?40:m.mobile?45:48,rawH));
+  const used=buttonH*count+gap*(count-1);
+  const startY=top+Math.max(0,(bottom-top-used)/2)+buttonH/2;
+  labels.forEach((entry,i)=>this.addButton(entry[0],startY+i*(buttonH+gap),entry[1],{
+   enabled:entry[2],danger:Boolean(entry[3]),height:buttonH,fontSize:m.tiny?8:m.short?10:null
+  }));
+  if(this.mode==='root')this.statusText.setText('«Продолжить» работает только во время активной игры. Для сохранений используйте «Загрузить».');
+ }
+
+ stopGameplayScenes(){
+  // HUD is paused while the session menu is open. Phaser's isActive() is false
+  // for a paused scene, so checking only isActive left the old HUD alive when
+  // returning to the root menu. Stop both scenes unconditionally.
+  for(const key of ['HUDScene','main']){
+   try{this.scene.stop(key);}catch{}
+  }
+ }
+
+ startNewGame(){
+  clearAutosave();
+  clearCharacterStats();
+  this.stopGameplayScenes();
+  this.ensurePrologueAssetsThenStart();
+ }
+
+ ensurePrologueAssetsThenStart(){
+  const missing=PROLOGUE_PAGE_KEYS.filter(key=>!this.textures.exists(key));
+  if(!missing.length){this.scene.start('CinematicScene');return;}
+  let failed=false;
+  this.statusText?.setText('Loading...');
+  for(const key of missing){
+   const spec=getAssetSpec(key);
+   if(!spec?.url){failed=true;continue;}
+   this.load.image(key,spec.url);
+  }
+  if(failed){this.statusText?.setText('Не удалось подготовить вступительный синематик.');return;}
+  const onError=(file)=>{
+   if(missing.includes(String(file?.key||'')))failed=true;
+  };
+  this.load.on('loaderror',onError);
+  this.load.once('complete',()=>{
+   this.load.off('loaderror',onError);
+   if(failed || missing.some(key=>!this.textures.exists(key))){
+    this.statusText?.setText('Не удалось загрузить вступительный синематик.');
+    return;
+   }
+   this.scene.start('CinematicScene');
+  });
+  this.load.start();
+ }
+
+ confirmNewGame(){
+  this.showConfirm('НАЧАТЬ НОВУЮ ИГРУ?','Текущая сессия будет закрыта. Ручные сохранения останутся.',()=>{
+   this.mainScene?.setGameplayPaused?.('menu',false);
+   this.stopGameplayScenes();
+   this.startNewGame();
+  });
+ }
+
+ loadSave(save,slot=null){
+  if(!save)return;
+  if(this.mainScene?.player)this.mainScene.setGameplayPaused?.('menu',false);
+  this.stopGameplayScenes();
+  const requestedSlot=Number(slot);
+  const safeSlot=Number.isInteger(requestedSlot)&&requestedSlot>=1&&requestedSlot<=3?requestedSlot:null;
+  this.scene.start('main',{saveState:save,saveSlot:safeSlot});
+ }
+
+ resumeGame(){
+  if(this.mode!=='session')return;
+  const main=this.mainScene||this.scene.get('main');
+  main?.setGameplayPaused?.('menu',false);
+  if(this.scene.isPaused('HUDScene'))this.scene.resume('HUDScene');
+  this.scene.stop();
+ }
+
+ showSlots(mode='load'){
+  this.currentView={type:'slots',mode};
+  this.syncLayoutCamera();
+  this.clearContent();
+  const m=this.getMetrics();this.drawShell(m);
+  const saving=mode==='save'||mode==='exit-save';
+  const exitAfterSave=mode==='exit-save';
+  const short=m.short||m.panelH<470;
+  const tiny=m.tiny||m.panelH<320;
+  const titleY=m.y+(tiny?48:short?58:m.compact?84:116);
+  const title=lkAddText(this,m.cx,titleY,exitAfterSave?'СОХРАНИТЬ И ВЫЙТИ':saving?'СОХРАНЕНИЯ':'ЗАГРУЗКА',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?13:short?16:m.compact?17:m.mobile?20:24}px`,fontStyle:'bold',color:'#f1df97'}).setOrigin(0.5).setDepth(6);
+  this.remember(title);
+  const slots=getManualSaves();
+  const cardW=m.panelW-(tiny?24:short?34:70);
+  const backY=m.y+m.panelH-(tiny?16:short?22:m.compact?42:62);
+  const top=titleY+(tiny?22:short?30:48);
+  const bottom=backY-(tiny?18:short?24:34);
+  const gap=tiny?3:short?5:m.compact?8:14;
+  const fitH=(bottom-top-gap*2)/3;
+  const cardH=Math.max(tiny?38:44,Math.min(short?64:m.compact?76:m.mobile?100:112,fitH));
+  const firstY=top+cardH/2;
+  slots.forEach(({slot,save},i)=>{
+   const y=firstY+i*(cardH+gap);
+   const summary=saveSummary(save);
+   let primary;
+   if(summary){
+    if(tiny) primary=`СЛОТ ${slot} · УР. ${summary.level} · ВОЛНА ${summary.globalWave}\n${summary.zoneName}`;
+    else if(short) primary=`СЛОТ ${slot}   ·   УР. ${summary.level}   ·   ВОЛНА ${summary.globalWave}\n${summary.zoneName}   ·   HP ${Math.ceil(summary.hp)}/${Math.ceil(summary.maxHp)}`;
+    else primary=`СЛОТ ${slot}   ·   УР. ${summary.level}   ·   ВОЛНА ${summary.globalWave}\n${summary.zoneName}   ·   HP ${Math.ceil(summary.hp)}/${Math.ceil(summary.maxHp)}\n${new Date(summary.savedAt).toLocaleString('ru-RU')}`;
+   }else primary=`СЛОТ ${slot}\nПУСТО`;
+   if(this.mode==='session'&&Number(this.mainScene?.currentSaveSlot)===slot)primary+=tiny?' · ТЕКУЩИЙ':`\nТЕКУЩИЙ СЛОТ`;
+   const card=this.add.rectangle(m.cx,y,cardW,cardH,0x1b1a16,0.98).setStrokeStyle(1.5,0x75633e,0.9).setDepth(5).setInteractive({useHandCursor:true});
+   const txt=lkAddText(this,m.cx-cardW/2+(tiny?8:short?11:18),y,primary,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?7:short?9:m.compact?10:m.mobile?12:14}px`,fontStyle:'bold',color:'#eee3c6',lineSpacing:tiny?0:short?1:m.compact?2:5,align:'left'}).setOrigin(0,0.5).setDepth(6).setInteractive({useHandCursor:true});
+   const action=()=>{
+    if(saving){
+     if(!this.mainScene?.player)return;
+     const saved=this.mainScene.saveManualSlot?.(slot);
+     if(!saved){this.statusText.setText(`Не удалось сохранить слот ${slot}.`);return;}
+     if(exitAfterSave){this.finishExitToRoot();return;}
+     this.statusText.setText(`Слот ${slot} сохранён и стал текущим.`);
+     this.time.delayedCall(120,()=>this.showSlots('save'));
+    }else if(save)this.loadSave(save,slot);
+   };
+   card.on('pointerdown',action);txt.on('pointerdown',action);
+   card.on('pointerover',()=>card.setFillStyle(0x29281f,1));card.on('pointerout',()=>card.setFillStyle(0x1b1a16,0.98));
+   this.remember(card,txt);
+   if(save){
+    const dw=tiny?38:short?45:58,dh=tiny?20:short?24:34;
+    const del=this.add.rectangle(m.cx+cardW/2-(tiny?24:short?29:42),y,dw,dh,0x3b201d,0.96).setStrokeStyle(1.2,0x9d6659,0.9).setDepth(7).setInteractive({useHandCursor:true});
+    const delTxt=lkAddText(this,del.x,del.y,tiny?'×':'УДАЛ.',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?10:short?7:10}px`,fontStyle:'bold',color:'#f0c4b8'}).setOrigin(0.5).setDepth(8).setInteractive({useHandCursor:true});
+    const remove=()=>{
+     deleteManualSave(slot);
+     if(Number(this.mainScene?.currentSaveSlot)===slot)this.mainScene.currentSaveSlot=null;
+     this.showSlots(mode);
+     this.statusText.setText(`Слот ${slot} удалён${this.mode==='session'?' и отвязан от текущей сессии':''}.`);
+    };
+    del.on('pointerdown',remove);delTxt.on('pointerdown',remove);
+    this.remember(del,delTxt);
+   }
+  });
+  this.addButton('НАЗАД',backY,()=>exitAfterSave?this.confirmExit():this.renderMenu(),{width:tiny?130:short?160:190,height:tiny?24:short?30:null,fontSize:tiny?9:short?10:null});
+ }
+
+ showStats(){
+  this.currentView={type:'stats'};
+  this.syncLayoutCamera();
+  this.clearContent();const m=this.getMetrics();this.drawShell(m);
+  const stats=this.mainScene?.player?this.mainScene.buildCharacterStats?.():null;
+  const short=m.short||m.panelH<470;
+  const tiny=m.tiny||m.panelH<320;
+  const headingY=m.y+(tiny?47:short?58:m.compact?84:116);
+  const heading=lkAddText(this,m.cx,headingY,'СТАТИСТИКА ПЕРСОНАЖА',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?12:short?15:m.compact?16:m.mobile?19:23}px`,fontStyle:'bold',color:'#f1df97'}).setOrigin(0.5).setDepth(6);
+  this.remember(heading);
+  const backY=m.y+m.panelH-(tiny?16:short?22:m.compact?42:62);
+  if(!stats){
+   const empty=lkAddText(this,m.cx,m.cy,'Нет активной или сохранённой сессии.',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?9:short?11:15}px`,color:'#d8ccb0'}).setOrigin(0.5).setDepth(6);this.remember(empty);
+  }else{
+   const pathNames={crowdbreak:'Расколотого строя',duelist:'Последнего приговора',echo:'Отклика'};
+   if(short){
+    const left=[
+     `Уровень: ${stats.level}  XP: ${stats.xp}/${stats.xpRequired}`,
+     `HP: ${Math.ceil(stats.hp)}/${Math.ceil(stats.maxHp)}`,
+     `Мана: ${Number(stats.mana).toFixed(2)}/${stats.maxMana}`,
+     `Регион: ${stats.regionName}`,
+     `Волна: ${stats.globalWave}  Убийства: ${stats.kills}`,
+     `Меч: ур. ${stats.sword?.level||1}`,
+     `Урон: ${stats.sword?.effectiveDamage||0}`,
+     `База урона: ${stats.sword?.baseDamage||0}`
+    ];
+    const right=[
+     `Удар: ${stats.sword?.cooldown||0} мс`,
+     `Радиус: ${stats.sword?.radius||0}`,
+     `Путь: ${pathNames[stats.combatStyle]||'не выбран'}`,
+     `Навыки: ${(stats.skillEvolutions||[]).join(', ')||'нет'}`,
+     `Реликвии: ${(stats.relics||[]).join(', ')||'нет'}`,
+     `Эссенции: ${(stats.essences||[]).join(', ')||'нет'}`,
+     `HP ×${Number(stats.multipliers?.hp||1).toFixed(2)}`,
+     `Откат ×${Number(stats.multipliers?.skillRecovery||1).toFixed(2)}`
+    ];
+    const bodyY=headingY+(tiny?19:26);
+    const colGap=tiny?8:14;
+    const colW=(m.panelW-(tiny?34:48)-colGap)/2;
+    const font=tiny?6.8:8.5;
+    const line=tiny?0:2;
+    const leftText=lkAddText(this,m.cx-colGap/2-colW,bodyY,left.join('\n'),{fontFamily:'Arial, sans-serif',fontSize:`${font}px`,color:'#e8deca',lineSpacing:line,wordWrap:{width:colW,useAdvancedWrap:true},align:'left'}).setOrigin(0,0).setDepth(6);
+    const rightText=lkAddText(this,m.cx+colGap/2,bodyY,right.join('\n'),{fontFamily:'Arial, sans-serif',fontSize:`${font}px`,color:'#e8deca',lineSpacing:line,wordWrap:{width:colW,useAdvancedWrap:true},align:'left'}).setOrigin(0,0).setDepth(6);
+    this.remember(leftText,rightText);
+   }else{
+    const lines=[
+     `Уровень: ${stats.level}    XP: ${stats.xp}/${stats.xpRequired}`,
+     `HP: ${Math.ceil(stats.hp)} / ${Math.ceil(stats.maxHp)}    Мана: ${Number(stats.mana).toFixed(2)} / ${stats.maxMana}`,
+     `Регион: ${stats.regionName}    Волна: ${stats.globalWave}`,
+     `Убийства: ${stats.kills}`,
+     '',
+     `Меч: уровень ${stats.sword?.level||1}`,
+     `Урон: ${stats.sword?.effectiveDamage||0}  (база ${stats.sword?.baseDamage||0})`,
+     `Скорость удара: ${stats.sword?.cooldown||0} мс    Радиус: ${stats.sword?.radius||0}`,
+     `Путь: ${pathNames[stats.combatStyle]?`Путь ${pathNames[stats.combatStyle]}`:'не выбран'}`,
+     '',
+     `Эволюции навыков: ${(stats.skillEvolutions||[]).join(', ')||'нет'}`,
+     `Реликвии: ${(stats.relics||[]).join(', ')||'нет'}`,
+     `Эссенции: ${(stats.essences||[]).join(', ')||'нет'}`,
+     '',
+     `Множитель HP: ×${Number(stats.multipliers?.hp||1).toFixed(2)}`,
+     `Реген маны: ${stats.manaRegenMs||0} мс    Восстановление навыков: ×${Number(stats.multipliers?.skillRecovery||1).toFixed(2)}`
+    ];
+    const body=lkAddText(this,m.cx,m.y+(m.compact?112:160),lines.join('\n'),{fontFamily:'Arial, sans-serif',fontSize:`${m.compact?10.5:m.mobile?12:14}px`,color:'#e8deca',lineSpacing:m.compact?2:m.mobile?5:7,wordWrap:{width:m.panelW-84,useAdvancedWrap:true},align:'left'}).setOrigin(0.5,0).setDepth(6);
+    this.remember(body);
+   }
+  }
+  this.addButton('НАЗАД',backY,()=>this.renderMenu(),{width:tiny?130:short?160:190,height:tiny?24:short?30:null,fontSize:tiny?9:short?10:null});
+ }
+
+ showSettings(){
+  this.currentView={type:'settings'};
+  this.syncLayoutCamera();
+  this.clearContent();const m=this.getMetrics();this.drawShell(m);
+  const settings=getGameSettings();
+  const short=m.short||m.panelH<470;
+  const tiny=m.tiny||m.panelH<320;
+  const headingY=m.y+(tiny?50:short?62:m.compact?84:116);
+  const heading=lkAddText(this,m.cx,headingY,'НАСТРОЙКИ',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?14:short?16:m.compact?17:m.mobile?20:24}px`,fontStyle:'bold',color:'#f1df97'}).setOrigin(0.5).setDepth(6);this.remember(heading);
+  const addVolume=(label,key,y)=>{
+   const val=Math.round(settings[key]*100);
+   const labelX=m.cx-(short?78:110);
+   const minusX=m.cx-(short?34:55);
+   const valueX=m.cx+(short?15:10);
+   const plusX=m.cx+(short?64:75);
+   const cap=lkAddText(this,labelX,y,label,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?8:short?10:m.compact?11:m.mobile?13:15}px`,fontStyle:'bold',color:'#e6dbc2'}).setOrigin(1,0.5).setDepth(6);this.remember(cap);
+   this.addButton('−',y,()=>this.changeVolume(key,-0.1),{x:minusX,width:short?38:46,height:tiny?24:short?30:null,fontSize:tiny?16:20});
+   const value=lkAddText(this,valueX,y,`${val}%`,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?10:short?12:15}px`,fontStyle:'bold',color:'#f3e5bd'}).setOrigin(0.5).setDepth(7);this.remember(value);
+   this.addButton('+',y,()=>this.changeVolume(key,0.1),{x:plusX,width:short?38:46,height:tiny?24:short?30:null,fontSize:tiny?15:19});
+  };
+
+  if(short){
+   const v1=m.y+(tiny?82:100);
+   const v2=m.y+(tiny?113:138);
+   addVolume('Музыка','musicVolume',v1);
+   addVolume('Звуки','sfxVolume',v2);
+   const graphY=m.y+(tiny?143:176);
+   const graph=lkAddText(this,m.cx,graphY,'КАЧЕСТВО ГРАФИКИ',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?8:10}px`,fontStyle:'bold',color:'#e6dbc2'}).setOrigin(0.5).setDepth(6);this.remember(graph);
+   const options=[['МИНИМАЛЬНЫЕ','minimum'],['СРЕДНИЕ','medium'],['УЛЬТРА','ultra']];
+   const gap=tiny?4:7;
+   const usable=Math.max(180,m.panelW-(tiny?24:34));
+   const bw=(usable-gap*2)/3;
+   const rowY=m.y+(tiny?171:207);
+   options.forEach((entry,i)=>{
+    const x=m.cx+(i-1)*(bw+gap);
+    this.addButton(`${settings.graphics===entry[1]?'◆ ':'◇ '}${entry[0]}`,rowY,()=>this.changeGraphics(entry[1]),{
+     x,width:bw,height:tiny?25:31,fontSize:tiny?7:Math.max(8,Math.min(10,bw/12))
+    });
+   });
+   const backY=m.y+m.panelH-(tiny?17:24);
+   this.addButton('НАЗАД',backY,()=>this.renderMenu(),{width:tiny?130:160,height:tiny?24:30,fontSize:tiny?9:10});
+   return;
+  }
+
+  addVolume('Музыка','musicVolume',m.y+(m.compact?136:190));
+  addVolume('Звуки','sfxVolume',m.y+(m.compact?184:252));
+  const graph=lkAddText(this,m.cx,m.y+(m.compact?228:323),'КАЧЕСТВО ГРАФИКИ',{fontFamily:'Arial, sans-serif',fontSize:`${m.compact?11:m.mobile?13:15}px`,fontStyle:'bold',color:'#e6dbc2'}).setOrigin(0.5).setDepth(6);this.remember(graph);
+  const options=[['МИНИМАЛЬНЫЕ','minimum'],['СРЕДНИЕ','medium'],['УЛЬТРА','ultra']];
+  const backY=m.y+m.panelH-(m.compact?36:52);
+  const firstY=m.y+(m.compact?266:368);
+  const available=Math.max(120,backY-firstY-(m.compact?34:44));
+  const step=Math.min(m.compact?42:55,available/2);
+  options.forEach((entry,i)=>{
+   const y=firstY+i*step;
+   this.addButton(`${settings.graphics===entry[1]?'◆ ':'◇ '}${entry[0]}`,y,()=>this.changeGraphics(entry[1]),{width:Math.min(340,m.panelW-100),height:m.compact?34:43});
+  });
+  this.addButton('НАЗАД',backY,()=>this.renderMenu(),{width:190,height:m.compact?34:43});
+ }
+
+ changeVolume(key,delta){
+  const current=getGameSettings();
+  setGameSettings({[key]:Phaser.Math.Clamp((current[key]||0)+delta,0,1)});
+  this.mainScene?.applyAudioSettings?.();
+  if(key==='sfxVolume'&&this.mainScene?.heartbeatSound){
+   try{this.mainScene.heartbeatSound.setVolume(LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME*getGameSettings().sfxVolume);}catch{}
+  }
+  this.showSettings();
+ }
+
+ changeGraphics(level){
+  const scales={minimum:1,medium:1.5,ultra:1.75};
+  setGameSettings({graphics:level});
+  try{localStorage.setItem(LK_QUALITY_MODE_STORAGE_KEY,'manual');}catch{}
+  this.mainScene?.devTools?.setAdaptiveQualityMode?.('manual');
+  lkApplyRenderScale(game,scales[level]||1.5,{remember:true});
+  this.syncLayoutCamera();
+  this.showSettings();
+  this.time.delayedCall(80,()=>{this.syncLayoutCamera();this.redrawCurrentView();});
+ }
+
+ showConfirm(title,message,onConfirm){
+  this.currentView={type:'confirm',title,message,onConfirm};
+  this.syncLayoutCamera();
+  this.clearContent();const m=this.getMetrics();this.drawShell(m);
+  const short=m.short||m.panelH<470,tiny=m.tiny||m.panelH<320;
+  const titleY=m.y+(tiny?58:short?76:m.compact?118:155);
+  const bodyY=m.y+(tiny?96:short?122:m.compact?176:220);
+  const t=lkAddText(this,m.cx,titleY,title,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?13:short?16:m.compact?17:m.mobile?20:25}px`,fontStyle:'bold',color:'#f1df97',align:'center',wordWrap:{width:m.panelW-(tiny?30:70),useAdvancedWrap:true}}).setOrigin(0.5).setDepth(6);
+  const body=lkAddText(this,m.cx,bodyY,message,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?8:short?10:m.compact?11:m.mobile?13:15}px`,color:'#ded2b8',align:'center',wordWrap:{width:m.panelW-(tiny?34:90),useAdvancedWrap:true}}).setOrigin(0.5).setDepth(6);this.remember(t,body);
+  if(short){
+   const bottom=m.y+m.panelH-(tiny?18:26);
+   const gap=tiny?5:8, bh=tiny?25:31;
+   const cancelY=bottom-bh/2;
+   const confirmY=cancelY-bh-gap;
+   this.addButton('ПОДТВЕРДИТЬ',confirmY,onConfirm,{width:tiny?180:240,height:bh,fontSize:tiny?8:10,danger:true});
+   this.addButton('ОТМЕНА',cancelY,()=>this.renderMenu(),{width:tiny?130:180,height:bh,fontSize:tiny?8:10});
+   return;
+  }
+  this.addButton('ПОДТВЕРДИТЬ',m.y+(m.compact?270:330),onConfirm,{width:300,danger:true});
+  this.addButton('ОТМЕНА',m.y+(m.compact?320:392),()=>this.renderMenu(),{width:220});
+ }
+
+ confirmExit(){
+  this.currentView={type:'exitConfirm'};
+  this.syncLayoutCamera();
+  this.clearContent();const m=this.getMetrics();this.drawShell(m);
+  const short=m.short||m.panelH<470,tiny=m.tiny||m.panelH<320;
+  const titleY=m.y+(tiny?55:short?72:m.compact?112:150);
+  const bodyY=m.y+(tiny?91:short?116:m.compact?168:210);
+  const t=lkAddText(this,m.cx,titleY,'ВЫЙТИ В ГЛАВНОЕ МЕНЮ?',{fontFamily:'Arial, sans-serif',fontSize:`${tiny?12:short?15:m.compact?17:m.mobile?20:25}px`,fontStyle:'bold',color:'#f1df97',align:'center'}).setOrigin(0.5).setDepth(6);
+  const currentSlot=Number(this.mainScene?.currentSaveSlot);
+  const hasCurrentSlot=Number.isInteger(currentSlot)&&currentSlot>=1&&currentSlot<=3;
+  const exitMessage=hasCurrentSlot
+   ?`Сохранить текущее состояние в слот ${currentSlot} перед выходом?`
+   :'У этой сессии ещё нет слота. «Сохранить и выйти» откроет меню выбора сохранения.';
+  const body=lkAddText(this,m.cx,bodyY,exitMessage,{fontFamily:'Arial, sans-serif',fontSize:`${tiny?8:short?10:m.compact?11:m.mobile?13:15}px`,color:'#ded2b8',align:'center',wordWrap:{width:m.panelW-(tiny?34:90),useAdvancedWrap:true}}).setOrigin(0.5).setDepth(6);this.remember(t,body);
+  if(short){
+   const bottom=m.y+m.panelH-(tiny?16:22);
+   const bh=tiny?23:29,gap=tiny?4:6;
+   const cancelY=bottom-bh/2;
+   const noY=cancelY-bh-gap;
+   const yesY=noY-bh-gap;
+   this.addButton('СОХРАНИТЬ И ВЫЙТИ',yesY,()=>this.exitWithSave(),{width:tiny?210:280,height:bh,fontSize:tiny?7:9});
+   this.addButton('ВЫЙТИ БЕЗ СОХРАНЕНИЯ',noY,()=>this.exitWithoutSave(),{width:tiny?210:280,height:bh,fontSize:tiny?7:9,danger:true});
+   this.addButton('ОТМЕНА',cancelY,()=>this.renderMenu(),{width:tiny?130:180,height:bh,fontSize:tiny?8:9});
+   return;
+  }
+  this.addButton('СОХРАНИТЬ И ВЫЙТИ',m.y+(m.compact?250:300),()=>this.exitWithSave(),{width:330});
+  this.addButton('ВЫЙТИ БЕЗ СОХРАНЕНИЯ',m.y+(m.compact?300:360),()=>this.exitWithoutSave(),{width:330,danger:true});
+  this.addButton('ОТМЕНА',m.y+(m.compact?350:420),()=>this.renderMenu(),{width:220});
+ }
+
+ exitWithSave(){
+  const main=this.mainScene||this.scene.get('main');
+  if(!main?.player){this.statusText.setText('Нет активной сессии для сохранения.');return;}
+  const slot=Number(main.currentSaveSlot);
+  if(Number.isInteger(slot)&&slot>=1&&slot<=3){
+   if(!main.saveManualSlot?.(slot)){
+    this.statusText.setText(`Не удалось сохранить текущую сессию в слот ${slot}.`);
+    return;
+   }
+   this.finishExitToRoot();
+   return;
+  }
+  this.showSlots('exit-save');
+  this.statusText.setText('У этой сессии ещё нет текущего слота. Выберите слот для сохранения.');
+ }
+
+ exitWithoutSave(){
+  // Explicit discard: do not create or update any persistent gameplay save.
+  clearAutosave();
+  clearCharacterStats();
+  this.finishExitToRoot();
+ }
+
+ finishExitToRoot(){
+  // Legacy autosaves are deliberately not part of the current save model.
+  clearAutosave();
+  clearCharacterStats();
+  this.mainScene?.setGameplayPaused?.('menu',false);
+  this.stopGameplayScenes();
+  this.mode='root';this.mainScene=null;this.currentView={type:'menu'};
+  this.syncLayoutCamera();
+  this.renderMenu();
+  this.time.delayedCall(80,()=>{this.syncLayoutCamera();this.redrawCurrentView();});
+ }
+
+ exitApplication(){
+  try{window.close();}catch{}
+  this.statusText.setText('Браузер не разрешает игре закрывать эту вкладку. Её можно закрыть обычной кнопкой браузера.');
+ }
+}
+
 class MainScene extends Phaser.Scene {
+ init(data={}){
+  this.pendingSaveState=data?.saveState||null;
+  const requestedSlot=Number(data?.saveSlot);
+  this.currentSaveSlot=Number.isInteger(requestedSlot)&&requestedSlot>=1&&requestedSlot<=3?requestedSlot:null;
+  const saveZone=Number(this.pendingSaveState?.world?.zoneIndex);
+  this.restartZoneIndex=Number.isInteger(saveZone)&&saveZone>=0&&saveZone<WORLD_DESIGN.ZONES.length?saveZone:restartZoneIndex(data,WORLD_DESIGN.ZONES.length);
+  this.zoneEntryCheckpoint=this.pendingSaveState?null:(this.restartZoneIndex>0?data.zoneRestart:null);
+ }
+
  preload(){}
 
  createSpriteAnimations(){
@@ -3091,6 +3698,11 @@ class MainScene extends Phaser.Scene {
   this.levelChoiceOpen=false;
   this.levelChoiceObjects=[];
   this.currentLevelChoices=[];
+  this.levelChoiceKind='normal';
+  this.pendingCombatStyleWave=0;
+  this.combatStyle=null;
+  this.combatStyleChargeReady=false;
+  this.combatStyleChoiceShown=false;
   this.weaponLevels={sword:1};
   this.waveProfile=null;
   this.waveSpawnInterval=1050;
@@ -3177,7 +3789,6 @@ class MainScene extends Phaser.Scene {
   this.backtrackBlockers=[];
   this.lastStreamingZoneIndex=0;
   this.releasedWorldTextureZones=new Set();
-  this.zoneEntryCameraHandoff=null;
 
   this.emptyScreenRushActive=false;
 
@@ -3316,8 +3927,10 @@ class MainScene extends Phaser.Scene {
    (window.matchMedia && window.matchMedia('(pointer: coarse)').matches)
   );
 
-  this.currentWorldZoneIndex=0;
-  this.progressionBalanceZoneIndex=0;
+  this.currentWorldZoneIndex=this.restartZoneIndex||0;
+  this.progressionBalanceZoneIndex=this.currentWorldZoneIndex;
+  // A restarted region never reveals the retired biome, even on its first frame.
+  this.worldCameraMinX=this.getZoneCameraMinX(this.currentWorldZoneIndex);
   this.devRegionPopulationOverride=null;
   this.unlockedWorldGates=new Set();
   this.worldGateObjects=new Map();
@@ -3330,7 +3943,7 @@ class MainScene extends Phaser.Scene {
   this.loadedWorldPreviews=new Map();
   this.closedWorldGates=new Set();
   this.backtrackBlockers=[];
-  this.lastStreamingZoneIndex=0;
+  this.lastStreamingZoneIndex=this.currentWorldZoneIndex;
 
   this.emptyScreenRushActive=false;
 
@@ -3396,9 +4009,11 @@ class MainScene extends Phaser.Scene {
 
   this.enemyGroup=this.physics.add.group();
 
-  this.player=this.add.circle(
-   WORLD_DESIGN.START_X,WORLD_DESIGN.ROUTE_Y,16,0x33aaff,0
-  );
+  const startX=this.currentWorldZoneIndex===0?WORLD_DESIGN.START_X:
+   Math.max(WORLD_DESIGN.ZONES[this.currentWorldZoneIndex].start,
+    WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1].x)+360;
+  const startPoint=this.findNearestFreeGroundPoint(startX,WORLD_DESIGN.ROUTE_Y,24,180,18);
+  this.player=this.add.circle(startPoint.x,startPoint.y,16,0x33aaff,0);
   this.physics.add.existing(this.player);
   this.player.body.setCollideWorldBounds(true);
   this.player.hitRadius=16;
@@ -3425,6 +4040,9 @@ class MainScene extends Phaser.Scene {
   this.createReadabilityLayers();
 
   this.meleeAttack=new HeroMelee(this,this.player);
+  restoreZoneBuild(this,this.zoneEntryCheckpoint?.hero);
+  if(this.currentWorldZoneIndex>0)this.applyRegionalHeroBalance(this.currentWorldZoneIndex,false);
+  this.updateLowHealthState(true);
 
   this.keys=this.input.keyboard.addKeys('W,A,S,D');
   this.cursors=this.input.keyboard.createCursorKeys();
@@ -3490,8 +4108,7 @@ class MainScene extends Phaser.Scene {
   if(this.scene.isActive('HUDScene')) this.scene.stop('HUDScene');
   this.scene.launch('HUDScene',{mainScene:this});
 
-  this.currentWorldZoneIndex=0;
-  this.regionText.setText(WORLD_DESIGN.ZONES[0].name);
+  this.regionText.setText(WORLD_DESIGN.ZONES[this.currentWorldZoneIndex].name);
 
   // One dialogue presentation/input owner serves both E interactions and NPC triggers.
   // Install its input listeners before interaction clients so the initiating press
@@ -3504,6 +4121,10 @@ class MainScene extends Phaser.Scene {
   this.ashAltarObjectiveMarker=new StoryObjectiveMarker(this,{insetRatio:0.10}).install();
 
   this.updateWorldStreaming();
+  if(this.currentWorldZoneIndex>0){
+   this.createBacktrackSeal(WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1]);
+   this.releaseRetiredWorldZoneTextures(0);
+  }
 
   // Hidden developer panel: toggled exclusively with G, never by a UI button.
   this.devTools=new LastKnightDevTools(this);
@@ -3543,9 +4164,297 @@ class MainScene extends Phaser.Scene {
    this.devTools=null;
   });
 
+  this.captainSystem=new SkeletonCaptainSystem(this);
+  this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{this.captainSystem?.clear();this.captainSystem=null;});
   this.setupBackgroundMusic();
-  this.startWave(1,true);
+  this.applyAudioSettings();
+  this.time.paused=false;
+  this.physics.resume();
+  const restored=this.pendingSaveState?this.restorePersistedGameState(this.pendingSaveState):false;
+  this.pendingSaveState=null;
+  if(!restored){
+   this.captureZoneEntryCheckpoint();
+   this.startWave(1,true);
+   this.syncCharacterStats();
+  }
   this.syncOrientationPause();
+ }
+
+ buildCharacterStats(){
+  if(!this.player)return null;
+  const region=WORLD_DESIGN.ZONES[this.currentWorldZoneIndex]||WORLD_DESIGN.ZONES[0];
+  return {
+   schemaVersion:1,
+   updatedAt:Date.now(),
+   level:this.level||1,
+   xp:this.xp||0,
+   xpRequired:this.getXpRequiredForLevel?.()||BALANCE.XP_BASE,
+   kills:this.kills||0,
+   hp:this.player.hp||0,
+   maxHp:this.player.maxHp||0,
+   mana:this.mana||0,
+   maxMana:this.maxMana||0,
+   manaRegenMs:this.manaRegenMs||BALANCE.MANA_REGEN_MS,
+   regionIndex:this.currentWorldZoneIndex||0,
+   regionName:region?.name||'UNKNOWN',
+   localWave:this.wave||1,
+   globalWave:this.getGlobalWave?.()||this.wave||1,
+   combatStyle:this.combatStyle||null,
+   sword:{
+    level:this.meleeAttack?.level||this.weaponLevels?.sword||1,
+    baseDamage:this.meleeAttack?.damage||0,
+    effectiveDamage:this.getEffectiveMeleeDamage?.()||this.meleeAttack?.damage||0,
+    cooldown:this.meleeAttack?.cooldown||0,
+    radius:this.meleeAttack?.radius||0
+   },
+   skillEvolutions:[...(this.championSkillEvolutions||[])],
+   relics:[...(this.championRelics||[])],
+   essences:[...(this.championEssences||[])],
+   multipliers:{
+    hp:this.championHpMultiplier||1,
+    manaRegen:this.championManaRegenMultiplier||1,
+    skillRecovery:this.skillRecoveryMultiplier||1
+   },
+   penitenceCharges:this.bsPenitenceCharges||0,
+   killStreakBonus:this.killStreakBonus||0
+  };
+ }
+
+ syncCharacterStats(){
+  const stats=this.buildCharacterStats();
+  if(stats)writeCharacterStats(stats);
+  return stats;
+ }
+
+ serializeEnemy(enemy,now=this.time.now){
+  if(!enemy?.active||enemy.hp<=0)return null;
+  const offset=(value)=>Number.isFinite(value)?value-now:0;
+  const base={
+   type:enemy.type,x:enemy.x,y:enemy.y,hp:enemy.hp,maxHp:enemy.maxHp,
+   dir:enemy.dir||'down',attackDir:enemy.attackDir||enemy.dir||'down',
+   staggerOffset:offset(enemy.staggerUntil||0),blockNext:Boolean(enemy.blockNext),
+   blockReadyOffset:offset(enemy.blockReadyAt||0),emptyScreenRush:Boolean(enemy.emptyScreenRush)
+  };
+  if(enemy.type==='champion')Object.assign(base,{
+   championKind:enemy.championKind,
+   storyDormant:Boolean(enemy.storyDormant),
+   ignoreAshAltarCollision:Boolean(enemy.ignoreAshAltarCollision),
+   storyAltarLocked:Boolean(enemy.storyAltarLocked),
+   nextSkillOffset:offset(enemy.nextSkillAt||0),
+   nextSecondaryOffset:offset(enemy.nextSecondaryAt||0),
+   reflectOffset:offset(enemy.reflectUntil||0),
+   guardOffset:offset(enemy.guardUntil||0)
+  });
+  return base;
+ }
+
+ captureGameState(reason='manual'){
+  if(!this.player)return null;
+  const now=this.time.now;
+  const build=captureZoneBuild(this);
+  const stats=this.syncCharacterStats();
+  const story=this.storyDirector;
+  const state={
+   schemaVersion:SAVE_SCHEMA_VERSION,
+   savedAt:Date.now(),
+   reason,
+   characterStats:stats,
+   hero:{...build,x:this.player.x,y:this.player.y,dir:this.playerDir||'down',visualDir:this.playerVisualDir8||'s'},
+   wave:{
+    number:this.wave,globalWave:this.getGlobalWave(),spawned:this.spawned,target:this.waveTarget,profile:this.waveProfile,
+    spawnInterval:this.waveSpawnInterval,intermission:Boolean(this.waveIntermission),
+    nextWaveInMs:Number.isFinite(this.nextWaveAt)?Math.max(0,this.nextWaveAt-now):null,
+    lastSpawnOffset:(Number(this.lastSpawn)||0)-now,
+    postWaveChampionKind:this.postWaveChampionKind||null
+   },
+   world:{
+    zoneIndex:this.currentWorldZoneIndex,zoneName:WORLD_DESIGN.ZONES[this.currentWorldZoneIndex]?.name||'UNKNOWN',
+    progressionBalanceZoneIndex:this.progressionBalanceZoneIndex,
+    unlockedWorldGates:[...(this.unlockedWorldGates||[])],
+    closedWorldGates:[...(this.closedWorldGates||[])],
+    pendingWorldAdvance:this.pendingWorldAdvance?{...this.pendingWorldAdvance}:null,
+    awaitingWorldAdvance:Boolean(this.awaitingWorldAdvance),
+    worldAdvanceTargetZone:this.worldAdvanceTargetZone??null
+   },
+   story:{
+    flags:story?[...story.flags.entries()]:[],
+    completedEvents:story?[...story.completedEvents]:[],
+    completedObjectives:story?[...story.completedObjectives]:[],
+    activeObjective:story?.activeObjective?{...story.activeObjective}:null
+   },
+   session:{
+    combatStyleChoiceShown:Boolean(this.combatStyleChoiceShown),
+    pendingCombatStyleWave:this.pendingCombatStyleWave||0,
+    ashSwordPulseCompleted:Boolean(this.ashSwordPulseCompleted),
+    fallenBlessingUsed:Boolean(this.fallenBlessingUsed),
+    levelChoiceOpen:Boolean(this.levelChoiceOpen),
+    levelChoiceKind:this.levelChoiceKind||'normal',
+    championRewardOpen:Boolean(this.championRewardOpen),
+    championRewardKind:this.currentChampionRewardKind||null,
+    championRewardStepIndex:this.currentChampionRewardStepIndex||0,
+    brokenSaintSwordEpilogue:this.brokenSaintSwordEpilogue?{
+     phase:this.brokenSaintSwordEpilogue.phase,
+     untilInMs:Number.isFinite(this.brokenSaintSwordEpilogue.until)?Math.max(0,this.brokenSaintSwordEpilogue.until-now):null
+    }:null
+   },
+   counters:{
+    mageSpawned:this.mageSpawned||0,skeletonSpawned:this.skeletonSpawned||0,
+    shieldSpawned:this.shieldSpawned||0,championSpawned:this.championSpawned||0
+   },
+   enemies:(this.enemies||[]).map(enemy=>this.serializeEnemy(enemy,now)).filter(Boolean)
+  };
+  return state;
+ }
+
+ saveManualSlot(slot){
+  const safeSlot=Phaser.Math.Clamp(Math.round(Number(slot)||1),1,3);
+  const state=this.captureGameState(`slot-${safeSlot}`);
+  if(!state)return false;
+  state.session={...(state.session||{}),saveSlot:safeSlot};
+  const written=writeManualSave(safeSlot,state);
+  if(written)this.currentSaveSlot=safeSlot;
+  return written;
+ }
+
+ restorePersistedGameState(save){
+  if(!save?.hero||!save?.wave)return false;
+  const now=this.time.now;
+  const hero=save.hero,wave=save.wave,world=save.world||{},session=save.session||{};
+  restoreZoneBuild(this,hero);
+  this.player.setPosition(Number(hero.x)||this.player.x,Number(hero.y)||this.player.y);
+  this.player.body?.reset?.(this.player.x,this.player.y);
+  this.playerDir=hero.dir||'down';
+  this.playerVisualDir8=hero.visualDir||'s';
+  this.playerVisual?.setPosition(this.player.x,this.player.y);
+  this.playerVisualState=`hero_socket_idle_${this.playerVisualDir8}`;
+  this.playerVisual?.play?.(this.playerVisualState,true);
+  this.updateHeroWeaponAttachment();
+
+  this.currentWorldZoneIndex=Phaser.Math.Clamp(Number(world.zoneIndex)||0,0,WORLD_DESIGN.ZONES.length-1);
+  this.progressionBalanceZoneIndex=Phaser.Math.Clamp(Number(world.progressionBalanceZoneIndex??this.currentWorldZoneIndex)||0,0,WORLD_DESIGN.ZONES.length-1);
+  this.regionText?.setText(WORLD_DESIGN.ZONES[this.currentWorldZoneIndex]?.name||'');
+  this.unlockedWorldGates=new Set();
+  for(const id of world.unlockedWorldGates||[]){
+   const gate=WORLD_DESIGN.GATES.find(entry=>entry.id===id);
+   if(gate)this.unlockWorldGateForChampion(gate.champion);
+  }
+  for(const id of world.closedWorldGates||[]){
+   const gate=WORLD_DESIGN.GATES.find(entry=>entry.id===id);
+   if(gate)this.createBacktrackSeal(gate);
+  }
+  this.pendingWorldAdvance=world.pendingWorldAdvance?{...world.pendingWorldAdvance}:null;
+  this.awaitingWorldAdvance=Boolean(world.awaitingWorldAdvance);
+  this.worldAdvanceTargetZone=world.worldAdvanceTargetZone??null;
+
+  this.wave=Math.max(1,Number(wave.number)||1);
+  this.spawned=Math.max(0,Number(wave.spawned)||0);
+  this.waveTarget=Math.max(this.spawned,Number(wave.target)||this.calculateWaveTarget(this.wave));
+  this.waveProfile=wave.profile||this.getWaveProfile(this.wave);
+  this.waveSpawnInterval=Number(wave.spawnInterval)||this.calculateWaveSpawnInterval(this.waveProfile);
+  this.waveIntermission=Boolean(wave.intermission);
+  this.nextWaveAt=wave.nextWaveInMs===null||wave.nextWaveInMs===undefined?Number.POSITIVE_INFINITY:now+Math.max(0,Number(wave.nextWaveInMs)||0);
+  this.lastSpawn=now+(Number(wave.lastSpawnOffset)||0);
+  this.postWaveChampionKind=wave.postWaveChampionKind||null;
+  this.waveText?.setText(`WAVE ${this.getGlobalWave()}`);
+  this.waveSubText?.setText(this.waveIntermission?'BREATHER':(this.waveProfile?.name||''));
+
+  const story=save.story||{};
+  if(this.storyDirector){
+   this.storyDirector.flags=new Map(Array.isArray(story.flags)?story.flags:[]);
+   this.storyDirector.completedEvents=new Set(story.completedEvents||[]);
+   this.storyDirector.completedObjectives=new Set(story.completedObjectives||[]);
+   this.storyDirector.activeObjective=story.activeObjective?{...story.activeObjective}:null;
+   if(this.storyDirector.activeObjective)this.events?.emit?.('story-objective-activated',this.storyDirector.activeObjective);
+  }
+  this.combatStyleChoiceShown=Boolean(session.combatStyleChoiceShown||this.combatStyle);
+  this.pendingCombatStyleWave=Number(session.pendingCombatStyleWave)||0;
+  this.ashSwordPulseCompleted=Boolean(session.ashSwordPulseCompleted||this.combatStyleChoiceShown);
+  if(this.currentWorldZoneIndex===0&&this.wave===2&&this.waveIntermission&&!this.ashSwordPulseCompleted)this.ashSwordPreludeQueuedAt=now+700;
+  this.fallenBlessingUsed=Boolean(session.fallenBlessingUsed||this.fallenBlessingUsed);
+  if(session.brokenSaintSwordEpilogue){
+   const savedPhase=session.brokenSaintSwordEpilogue.phase||'waitingClear';
+   const safePhase=savedPhase==='call'?'approach':savedPhase;
+   this.brokenSaintSwordEpilogue={phase:safePhase};
+   if(session.brokenSaintSwordEpilogue.untilInMs!==null&&session.brokenSaintSwordEpilogue.untilInMs!==undefined){
+    this.brokenSaintSwordEpilogue.until=now+Math.max(0,Number(session.brokenSaintSwordEpilogue.untilInMs)||0);
+   }
+   if(safePhase==='approach'&&this.ashSwordLandmark?.active)this.ashAltarObjectiveMarker?.setTarget(this.ashSwordLandmark,{worldOffsetY:118});
+  }
+
+  const counters=save.counters||{};
+  this.mageSpawned=Number(counters.mageSpawned)||0;
+  this.skeletonSpawned=Number(counters.skeletonSpawned)||0;
+  this.shieldSpawned=Number(counters.shieldSpawned)||0;
+  this.championSpawned=Number(counters.championSpawned)||0;
+
+  for(const item of save.enemies||[]){
+   if(!item||item.hp<=0)continue;
+   let enemy=null;
+   if(item.type==='champion'&&item.championKind){
+    enemy=this.spawnChampion(item.championKind,false,{
+     position:{x:item.x,y:item.y},exactStorySpawn:true,minPlayerDistance:0,maxRadius:0,
+     deferMusic:true,suppressBanner:true,suppressFlash:true,skipRetryCheckpoint:true,
+     dormant:Boolean(item.storyDormant)
+    });
+   }else{
+    enemy=this.spawnEnemy(item.type,{x:item.x,y:item.y},{skipStoryAnomaly:true});
+   }
+   if(!enemy)continue;
+   enemy.setPosition(item.x,item.y);enemy.body?.reset?.(item.x,item.y);
+   enemy.maxHp=Number(item.maxHp)||enemy.maxHp;enemy.hp=Phaser.Math.Clamp(Number(item.hp)||enemy.maxHp,1,enemy.maxHp);
+   enemy.dir=item.dir||enemy.dir;enemy.attackDir=item.attackDir||enemy.attackDir;
+   enemy.staggerUntil=now+Math.max(0,Number(item.staggerOffset)||0);
+   enemy.emptyScreenRush=Boolean(item.emptyScreenRush);
+   if(item.type==='shield'){enemy.blockNext=Boolean(item.blockNext);enemy.blockReadyAt=now+Math.max(0,Number(item.blockReadyOffset)||0);}
+   if(item.type==='champion'){
+    enemy.storyDormant=Boolean(item.storyDormant);
+    enemy.ignoreAshAltarCollision=Boolean(item.ignoreAshAltarCollision);
+    enemy.storyAltarLocked=Boolean(item.storyAltarLocked);
+    enemy.nextSkillAt=now+Math.max(250,Number(item.nextSkillOffset)||0);
+    enemy.nextSecondaryAt=now+Math.max(500,Number(item.nextSecondaryOffset)||0);
+    enemy.reflectUntil=now+Math.max(0,Number(item.reflectOffset)||0);
+    enemy.guardUntil=now+Math.max(0,Number(item.guardOffset)||0);
+    this.updateChampionBar();
+   }
+  }
+  if(this.activeChampion?.championKind==='brokenSaint')this.startBrokenSaintMusic();
+  this.updateLowHealthState(true);
+  this.updateCombatStyleChargeVisual();
+  this.updateWorldStreaming();
+  this.captureZoneEntryCheckpoint();
+  this.syncCharacterStats();
+
+  const reopenChoice=Boolean(session.levelChoiceOpen);
+  const reopenRewards=Boolean(session.championRewardOpen&&session.championRewardKind);
+  if(reopenChoice||reopenRewards){
+   this.time.delayedCall(60,()=>{
+    if(reopenChoice){
+     this.levelChoiceOpen=false;
+     if(session.levelChoiceKind==='combatStyle')this.openCombatStyleChoice();else this.openLevelChoices();
+    }else if(reopenRewards){
+     this.championRewardOpen=false;
+     this.openChampionRewards(session.championRewardKind);
+     this.currentChampionRewardStepIndex=Phaser.Math.Clamp(Number(session.championRewardStepIndex)||0,0,Math.max(0,(this.currentChampionRewardFlow?.length||1)-1));
+     this.showCurrentChampionRewardStep();
+    }
+   });
+  }
+  return true;
+ }
+
+ openSessionMenu(){
+  if(this.gameOver||this.scene.isActive('GameMenuScene'))return false;
+  this.setGameplayPaused('menu',true);
+  if(this.scene.isActive('HUDScene'))this.scene.pause('HUDScene');
+  this.scene.launch('GameMenuScene',{mode:'session',mainScene:this});
+  this.scene.bringToTop('GameMenuScene');
+  return true;
+ }
+
+ applyAudioSettings(){
+  const settings=AudioManager.prototype.applyAudioSettings.call(this);
+  try{this.heartbeatSound?.setVolume?.(LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME*settings.sfxVolume);}catch{}
+  return settings;
  }
 
  setupBackgroundMusic(){ return AudioManager.prototype.setupBackgroundMusic.call(this); }
@@ -3636,9 +4545,9 @@ class MainScene extends Phaser.Scene {
   if(this.gameOver || this.gameplayPaused || !this.isHeartbeatHealthState()) return;
   if(!this.sound || this.sound.locked || !this.cache.audio.exists('critical_heartbeat')) return;
   if(!this.heartbeatSound){
-   this.heartbeatSound=this.sound.add('critical_heartbeat',{volume:LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME});
+   this.heartbeatSound=this.sound.add('critical_heartbeat',{volume:LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME*getGameSettings().sfxVolume});
   } else {
-   this.heartbeatSound.setVolume(LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME);
+   this.heartbeatSound.setVolume(LOW_HEALTH_CONFIG.HEARTBEAT_VOLUME*getGameSettings().sfxVolume);
   }
   if(!this.heartbeatSound.isPlaying) this.heartbeatSound.play();
  }
@@ -3686,6 +4595,9 @@ class MainScene extends Phaser.Scene {
  }
 
  spawnEnemy(forcedType=null,forcedPosition=null,{skipStoryAnomaly=false}={}){
+  const encounter=isCaptainEncounter(this.currentWorldZoneIndex,this.wave);
+  if(!forcedType && encounter)forcedType=this.spawned===CAPTAIN.captainOrdinal-1?'captain':'skeleton';
+  const combatWave=this.getGlobalWave();
   const rawSpawn=forcedPosition || this.getSpawnPointAroundCamera(52);
   const spawn=this.findSafeEnemySpawnPoint(rawSpawn.x,rawSpawn.y,{padding:28,minPlayerDistance:120,maxRadius:420});
 
@@ -3724,9 +4636,9 @@ class MainScene extends Phaser.Scene {
 
   if(isMage){
    e.setFillStyle(0x44ff66,0);
-   e.hp=20 + this.wave*3;
+   e.hp=20 + combatWave*3;
    e.maxHp=e.hp;
-   e.speed=72 + this.wave*3.3;
+   e.speed=72 + combatWave*3.3;
    e.hitRadius=14;
 
    e.visual=this.add.sprite(
@@ -3743,9 +4655,9 @@ class MainScene extends Phaser.Scene {
    this.mageSpawned++;
   } else if(isShield){
    e.setFillStyle(0x8799aa,0);
-   e.hp=95 + this.wave*10;
+   e.hp=shieldHpForWave(combatWave);
    e.maxHp=e.hp;
-   e.speed=72 + this.wave*2.8;
+   e.speed=72 + combatWave*2.8;
    e.blockNext=true;
    e.blockReadyAt=0;
    e.attackDamage=3.2;
@@ -3765,9 +4677,9 @@ class MainScene extends Phaser.Scene {
    this.shieldSpawned++;
   } else {
    e.setFillStyle(0xcc3333,0);
-   e.hp=30 + this.wave*5;
+   e.hp=30 + combatWave*5;
    e.maxHp=e.hp;
-   e.speed=80 + this.wave*5;
+   e.speed=80 + combatWave*5;
    e.attackDamage=8;
    e.hitRadius=14;
 
@@ -3782,7 +4694,7 @@ class MainScene extends Phaser.Scene {
    e.visualState='skeleton_down_walk';
    e.visual.play(e.visualState);
 
-   this.skeletonSpawned++;
+   if(e.type!=='captain')this.skeletonSpawned++;
   }
 
   e.lastAttack=0;
@@ -3794,17 +4706,19 @@ class MainScene extends Phaser.Scene {
   e.pendingMeleeRange=0;
   e.knockbackVX=0;
   e.knockbackVY=0;
+  if(e.type==='captain')this.captainSystem.attach(e,combatWave);
   e.visualBaseScale=e.visual ? e.visual.scaleX : 0.5;
   this.createEnemyReadabilityShadow(e);
   this.configureEnemyCollision(e,4);
   this.enemyGroup.add(e);
   this.enemies.push(e);
-  if(!skipStoryAnomaly){
+  if(!skipStoryAnomaly && this.currentWorldZoneIndex===0 && e.type==='skeleton'){
    this.storyEnemyAnomalies?.registerEnemy(e,{
     wave:this.wave,
     spawnOrdinal:this.spawned+1
    });
   }
+  return e;
  }
 
  getChampionForWave(wave){
@@ -3838,6 +4752,11 @@ class MainScene extends Phaser.Scene {
    ASH_READABILITY.PLAYER_ROUTE_LIGHT_ALPHA
   ).setDepth(12);
   this.playerGroundLight.setBlendMode(Phaser.BlendModes.SCREEN);
+
+  this.combatStyleChargeGlow=this.add.ellipse(
+   this.player.x,this.player.y+7,138,88,0xf2c767,0
+  ).setDepth(13).setVisible(false);
+  this.combatStyleChargeGlow.setBlendMode(Phaser.BlendModes.SCREEN);
 
   this.playerShadow=this.add.ellipse(
    this.player.x,
@@ -3898,6 +4817,7 @@ class MainScene extends Phaser.Scene {
     : ASH_READABILITY.PLAYER_SHADOW_Y_OFFSET;
    this.playerShadow.setPosition(this.player.x,this.player.y+playerShadowYOffset);
   }
+  this.updateCombatStyleChargeVisual();
  }
 
  createWorldDesignPrototype(){
@@ -3908,11 +4828,9 @@ class MainScene extends Phaser.Scene {
   this.worldGateGroup=this.physics.add.staticGroup();
   this.ashLandmarkColliderGroup=this.physics.add.staticGroup();
 
-  // Load only the starting biome. The next biome is streamed when the player
-  // approaches its transition or when its champion is defeated.
-  this.loadWorldZone(0);
-  this.ensureProgressionGate(0);
-  this.createBiomePreview(0);
+  // Restart directly inside the active zone. Retired Ash textures must never
+  // be referenced while reconstructing zone 2.
+  this.loadWorldZone(this.currentWorldZoneIndex);
  }
 
  getZoneStart(index){
@@ -4066,7 +4984,7 @@ class MainScene extends Phaser.Scene {
   return {x:startX,y:startY};
  }
 
- setEnemySteeredVelocity(enemy,vx,vy,time){
+ setEnemySteeredVelocity(enemy,vx,vy,time,formationTarget=null){
   const traceNavigationAt=this.devTools?.isPerformanceTraceActive?.()?performance.now():0;
   try{
   if(!enemy?.body){return;}
@@ -4102,7 +5020,8 @@ class MainScene extends Phaser.Scene {
   // keep their direct/local-steering behaviour and do not try to path back toward him.
   const bypassAltarNavigation=Boolean(enemy?.type==='champion' && enemy.championKind==='brokenSaint' && enemy.ignoreAshAltarCollision);
   if(towardPlayer && this.player?.active && !bypassAltarNavigation){
-   const waypoint=this.getEnemyNavigationWaypoint(enemy,time,this.player.x,this.player.y,radius);
+   const goal=formationTarget||this.player;
+   const waypoint=this.getEnemyNavigationWaypoint(enemy,time,goal.x,goal.y,radius);
    if(waypoint){
     desiredAngle=Phaser.Math.Angle.Between(enemy.x,enemy.y,waypoint.x,waypoint.y);
    }
@@ -4682,7 +5601,31 @@ createAshFieldsEnvironment(objects,zone){
 }
 
 createRuinedKingdomTerrainEnvironment(objects,zone){
- const baseKey='zone2_ground_base_01';
+ // Preserve the supplied artwork exactly on disk, but create matching
+ // in-memory copies for Zone 2. A modest uniform lift makes the hero and
+ // enemy silhouettes readable without changing the seamless tile geometry.
+ const prepareLitTerrainTexture=(sourceKey)=>{
+  const litKey=`${sourceKey}${ZONE2_TERRAIN_LIT_SUFFIX}`;
+  if(this.textures.exists(litKey)) return litKey;
+  const source=this.textures.get(sourceKey)?.getSourceImage();
+  if(!source?.width || !source?.height) return sourceKey;
+  const texture=this.textures.createCanvas(litKey,source.width,source.height);
+  const ctx=texture?.context;
+  if(!ctx) return sourceKey;
+  ctx.drawImage(source,0,0);
+  const frame=ctx.getImageData(0,0,source.width,source.height);
+  for(let i=0;i<frame.data.length;i+=4){
+   if(frame.data[i+3]===0) continue;
+   frame.data[i]=Math.min(255,Math.round(frame.data[i]*ZONE2_TERRAIN_BRIGHTNESS));
+   frame.data[i+1]=Math.min(255,Math.round(frame.data[i+1]*ZONE2_TERRAIN_BRIGHTNESS));
+   frame.data[i+2]=Math.min(255,Math.round(frame.data[i+2]*ZONE2_TERRAIN_BRIGHTNESS));
+  }
+  ctx.putImageData(frame,0,0);
+  texture.refresh();
+  return litKey;
+ };
+ const terrainKeys=Object.fromEntries(ZONE2_TERRAIN_KEYS.map((key)=>[key,prepareLitTerrainTexture(key)]));
+ const baseKey=terrainKeys.zone2_ground_base_01;
  if(!this.textures.exists(baseKey)) return;
  const baseTexture=this.textures.get(baseKey).getSourceImage();
  const tileW=baseTexture.width;
@@ -4702,15 +5645,19 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   }
  }
 
- const northTexture=this.textures.get('zone2_edge_north_01').getSourceImage();
- const southTexture=this.textures.get('zone2_edge_south_01').getSourceImage();
- const westTexture=this.textures.get('zone2_edge_west_01').getSourceImage();
- const eastTexture=this.textures.get('zone2_edge_east_01').getSourceImage();
+ const northKey=terrainKeys.zone2_edge_north_01;
+ const southKey=terrainKeys.zone2_edge_south_01;
+ const westKey=terrainKeys.zone2_edge_west_01;
+ const eastKey=terrainKeys.zone2_edge_east_01;
+ const northTexture=this.textures.get(northKey).getSourceImage();
+ const southTexture=this.textures.get(southKey).getSourceImage();
+ const westTexture=this.textures.get(westKey).getSourceImage();
+ const eastTexture=this.textures.get(eastKey).getSourceImage();
  for(let x=zone.start;x<zone.end;x+=northTexture.width){
   const cropW=Math.min(northTexture.width,zone.end-x);
   if(cropW<=0) continue;
-  const north=this.add.image(x,0,'zone2_edge_north_01').setOrigin(0,0).setDepth(-104);
-  const south=this.add.image(x,STAGE0.WORLD_HEIGHT,'zone2_edge_south_01').setOrigin(0,1).setDepth(-104);
+  const north=this.add.image(x,0,northKey).setOrigin(0,0).setDepth(-104);
+  const south=this.add.image(x,STAGE0.WORLD_HEIGHT,southKey).setOrigin(0,1).setDepth(-104);
   if(cropW<northTexture.width){
    north.setCrop(0,0,cropW,northTexture.height);
    south.setCrop(0,0,cropW,southTexture.height);
@@ -4720,8 +5667,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  for(let y=0;y<STAGE0.WORLD_HEIGHT;y+=westTexture.height){
   const cropH=Math.min(westTexture.height,STAGE0.WORLD_HEIGHT-y);
   if(cropH<=0) continue;
-  const west=this.add.image(zone.start,y,'zone2_edge_west_01').setOrigin(0,0).setDepth(-103);
-  const east=this.add.image(zone.end,y,'zone2_edge_east_01').setOrigin(1,0).setDepth(-103);
+  const west=this.add.image(zone.start,y,westKey).setOrigin(0,0).setDepth(-103);
+  const east=this.add.image(zone.end,y,eastKey).setOrigin(1,0).setDepth(-103);
   if(cropH<westTexture.height){
    west.setCrop(0,0,westTexture.width,cropH);
    east.setCrop(0,0,eastTexture.width,cropH);
@@ -4755,36 +5702,48 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  const roadY=WORLD_DESIGN.ROUTE_Y;
  const lightProps=[
   // These first three are deliberately on the very first Zone 2 screen.
-  {prop:'campfire',x:zone.start+410,y:roadY+100,scale:0.25,glow:82},
-  {prop:'torch',x:zone.start+660,y:roadY-120,scale:0.19,glow:60},
-  {prop:'lantern',x:zone.start+880,y:roadY+70,scale:0.23,glow:58},
-  {prop:'embers',x:zone.start+1120,y:roadY-145,scale:0.22,glow:56},
-  {prop:'wagon',x:zone.start+1420,y:roadY+115,scale:0.32,glow:94},
-  {prop:'torch',x:zone.start+1740,y:roadY-150,scale:0.19,glow:60},
-  {prop:'campfire',x:zone.start+2080,y:roadY+145,scale:0.24,glow:80},
-  {prop:'lantern',x:zone.start+2420,y:roadY-115,scale:0.22,glow:56},
-  {prop:'embers',x:zone.start+2770,y:roadY+125,scale:0.21,glow:54},
-  {prop:'wagon',x:zone.start+3070,y:roadY-115,scale:0.31,glow:90},
-  {prop:'torch',x:zone.start+3370,y:roadY+150,scale:0.18,glow:56}
+  {prop:'campfire',x:zone.start+410,y:roadY+100,scale:0.25,glow:118},
+  {prop:'torch',x:zone.start+660,y:roadY-120,scale:0.19,glow:88},
+  {prop:'lantern',x:zone.start+880,y:roadY+70,scale:0.13,glow:66},
+  {prop:'embers',x:zone.start+1120,y:roadY-145,scale:0.12,glow:60},
+  {prop:'wagon',x:zone.start+1420,y:roadY+115,scale:0.44,glow:160},
+  {prop:'torch',x:zone.start+1740,y:roadY-150,scale:0.19,glow:88},
+  {prop:'campfire',x:zone.start+2080,y:roadY+145,scale:0.24,glow:116},
+  {prop:'lantern',x:zone.start+2420,y:roadY-115,scale:0.12,glow:64},
+  {prop:'embers',x:zone.start+2770,y:roadY+125,scale:0.11,glow:58},
+  {prop:'wagon',x:zone.start+3070,y:roadY-115,scale:0.43,glow:156},
+  {prop:'torch',x:zone.start+3370,y:roadY+150,scale:0.18,glow:84}
  ];
  for(const placement of lightProps){
   const firstFrame=`zone2_${placement.prop}_00`;
   if(!this.textures.exists(firstFrame)) continue;
   const glow=softGlowKey?this.add.image(placement.x,placement.y+14,softGlowKey)
-   .setDisplaySize(placement.glow*2.2,placement.glow*1.32)
-   .setDepth(3).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.42):null;
+   .setDisplaySize(placement.glow*2.8,placement.glow*1.62)
+   .setDepth(3).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.48):null;
   const sprite=this.add.sprite(placement.x,placement.y,firstFrame)
    .setOrigin(0.5,0.82).setScale(placement.scale).setDepth(5).setVisible(true)
    .play(`zone2_${placement.prop}_burn`);
   if(glow){
    this.tweens.add({
     targets:glow,
-    alpha:{from:0.30,to:0.52},
+    alpha:{from:0.36,to:0.60},
     duration:900+Math.round(placement.glow*3),
     yoyo:true,
     repeat:-1,
     ease:'Sine.easeInOut'
    });
+  }
+  if(placement.prop==='campfire' || placement.prop==='wagon'){
+   const isWagon=placement.prop==='wagon';
+   const blocker=this.createAshLandmarkBlocker(
+    objects,
+    placement.x,
+    placement.y+sprite.displayHeight*(isWagon?0.08:0.10),
+    Math.max(isWagon?88:34,sprite.displayWidth*(isWagon?0.70:0.42)),
+    Math.max(isWagon?34:22,sprite.displayHeight*(isWagon?0.25:0.18)),
+    `zone2_${placement.prop}_blocker`
+   );
+   sprite.devLinkedColliders=[blocker];
   }
   if(glow) objects.push(glow);
   objects.push(sprite);
@@ -4968,78 +5927,6 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   );
  }
 
- beginZoneEntryCameraHandoff(fromIndex,toIndex){
-  if(toIndex<=fromIndex || fromIndex<0) return;
-  const gate=WORLD_DESIGN.GATES[fromIndex];
-  if(!gate || this.zoneEntryCameraHandoff?.toIndex===toIndex) return;
-
-  this.zoneEntryCameraHandoff={
-   fromIndex,
-   toIndex,
-   gate,
-   armedAtX:gate.x+320,
-   started:false,
-   retired:false,
-   released:false,
-   startedAt:0,
-   duration:920,
-   targetOffsetX:0,
-   releaseStartedAt:0,
-   releaseAtX:0
-  };
- }
-
- setWorldCameraFollowOffset(x=0){
-  const cam=this.cameras?.main;
-  if(!cam) return;
-  if(typeof cam.setFollowOffset==='function') cam.setFollowOffset(x,0);
-  else if(cam.followOffset?.set) cam.followOffset.set(x,0);
- }
-
- updateZoneEntryCameraHandoff(time=0){
-  const handoff=this.zoneEntryCameraHandoff;
-  if(!handoff || handoff.toIndex!==this.currentWorldZoneIndex) return;
-  if(this.devTools?.freeCamera || this.devTools?.cameraLocked) return;
-  if(!handoff.started){
-   if(this.player.x<handoff.armedAtX) return;
-   const viewWidth=Math.max(1,this.cameras.main.worldView?.width||this.cameras.main.width/(this.cameras.main.zoom||1));
-   // Shift the follow target enough that the left camera edge is already to
-   // the right of the gate when the pan settles. The hero remains followed,
-   // merely held a little left of centre for this short transition.
-   const requiredOffset=Math.max(0,handoff.gate.x+72+viewWidth*0.5-this.player.x);
-   handoff.targetOffsetX=Math.max(viewWidth*0.35,requiredOffset+28);
-   handoff.releaseAtX=handoff.gate.x+viewWidth*0.5+110;
-   handoff.started=true;
-   handoff.startedAt=time;
-  }
-
-  if(!handoff.retired){
-   const progress=Phaser.Math.Clamp((time-handoff.startedAt)/handoff.duration,0,1);
-   this.setWorldCameraFollowOffset(Phaser.Math.Easing.Quadratic.Out(progress)*handoff.targetOffsetX);
-   if(progress<1) return;
-
-   // Only destroy the previous region after it has left the frame. This avoids
-   // a visible pop and immediately frees both objects and their textures.
-   this.createBacktrackSeal(handoff.gate);
-   this.unloadWorldZone(handoff.fromIndex);
-   handoff.retired=true;
-   return;
-  }
-
-  // Restore the usual centred follow only once a normal camera position can
-  // no longer reveal the old gate. Until then the intentional rightward bias
-  // keeps the first zone entirely out of view.
-  if(!handoff.released && this.player.x>=handoff.releaseAtX){
-   handoff.released=true;
-   handoff.releaseStartedAt=time;
-  }
-  if(handoff.released){
-   const progress=Phaser.Math.Clamp((time-handoff.releaseStartedAt)/720,0,1);
-   this.setWorldCameraFollowOffset((1-Phaser.Math.Easing.Quadratic.In(progress))*handoff.targetOffsetX);
-   if(progress>=1) this.zoneEntryCameraHandoff=null;
-  }
- }
-
  updateRuntimeEnvironmentCulling(time=0){
   // Pure visibility optimisation: no props are removed and no collision or
   // navigation geometry changes. A generous off-camera margin makes the switch
@@ -5096,7 +5983,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
   // Current biome must always be present.
   this.loadWorldZone(zoneIndex);
-  this.updateZoneEntryCameraHandoff(this.time.now);
+  this.updateWorldCameraBoundary();
 
   // Stream the next biome near the transition so it can be glimpsed beyond
   // the gate and is ready the instant the champion opens the path.
@@ -5128,7 +6015,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    // diagnostic environment objects. Final tiles will use the same policy.
    if(
     previousGate &&
-    this.player.x>=previousGate.x+WORLD_DESIGN.UNLOAD_DEPTH
+    this.player.x>=previousGate.x+WORLD_DESIGN.UNLOAD_DEPTH &&
+    this.worldCameraMinX>=this.getZoneCameraMinX(zoneIndex) &&
+    this.cameras.main.worldView.left>=previousGate.x+72
    ){
     this.unloadWorldZone(zoneIndex-1);
    }
@@ -5159,9 +6048,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   const nextIndex=this.getWorldZoneIndexAtX(this.player.x);
   if(nextIndex===this.currentWorldZoneIndex) return;
 
-  const previousIndex=this.currentWorldZoneIndex;
   this.currentWorldZoneIndex=nextIndex;
-  this.beginZoneEntryCameraHandoff(previousIndex,nextIndex);
+  this.captureZoneEntryCheckpoint();
   // The landmark keeps its silent pulse only inside the Ash Fields. It is
   // explicitly retired as soon as the hero crosses into the next zone.
   if(nextIndex>0) this.stopAshSwordAmbientAnimation();
@@ -5271,8 +6159,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    '#e2eadb'
   );
 
-  // Every biome owns a fresh 1–5 wave sequence. Its first encounter begins
-  // after the arrival beat instead of continuing the previous zone as Wave 6.
+  // Each biome owns local waves 1–5; the HUD displays their global numbers.
+  // The first encounter here is global Wave 6, after the arrival beat.
   this.startZoneWaveSequence(arrivedZoneIndex,{delay:1250,suppressBanner:false});
  }
 
@@ -5289,6 +6177,71 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
  getEffectiveMeleeDamage(baseDamage=this.meleeAttack?.damage||15,index=this.progressionBalanceZoneIndex){
   return Math.max(1,baseDamage+this.getRegionBalance(index).meleeDamageBonus);
+ }
+
+ getCombatStyleKnockbackMultiplier(enemy){
+  // This path helps basic crowd control only; authored elite positioning stays intact.
+  return this.combatStyle==='crowdbreak' && enemy?.type==='skeleton' ? 1.5 : 1;
+ }
+
+ showCombatNotification(text,{x=this.player?.x||0,y=(this.player?.y||0)-48,color='#ffe29a',key=text,cooldown=260}={}){
+  const now=this.time?.now||0;
+  if(!this.combatNotificationAt)this.combatNotificationAt=new Map();
+  const previous=this.combatNotificationAt.get(key)||-Infinity;
+  if(now-previous<cooldown)return false;
+  this.combatNotificationAt.set(key,now);
+  const txt=lkAddText(this,x,y,text,{fontSize:'14px',fontStyle:'bold',color,stroke:'#1b1208',strokeThickness:3})
+   .setOrigin(0.5).setDepth(82);
+  this.tweens.add({targets:txt,y:y-22,alpha:0,duration:1050,ease:'Quad.easeOut',onComplete:()=>txt.destroy()});
+  return true;
+ }
+
+ getCombatStyleMeleeEffect(targetCount){
+  if(this.combatStyle==='duelist' && targetCount===1){
+   return {multiplier:1.45,id:'duelist',label:'Последний приговор',color:'#ffd47a'};
+  }
+  if(this.combatStyle==='echo' && this.combatStyleChargeReady){
+   this.combatStyleChargeReady=false;
+   this.updateCombatStyleChargeVisual();
+   return {multiplier:1.70,id:'echo',label:'Отголосок клинка',color:'#ffe18c'};
+  }
+  return {multiplier:1,id:null,label:'',color:'#ffffff'};
+ }
+
+ notifyCombatStyleProc(effect,target){
+  if(!effect)return false;
+  const labels={
+   duelist:{label:'Последний приговор',color:'#ffd47a'},
+   echo:{label:'Отголосок клинка',color:'#ffe18c'},
+   crowdbreak:{label:'Расколотый строй',color:'#ffc774'}
+  };
+  const data=labels[effect];
+  if(!data)return false;
+  return this.showCombatNotification(data.label,{
+   x:target?.x??this.player.x,
+   y:(target?.y??this.player.y)-38,
+   color:data.color,key:`path:${effect}`,cooldown:380
+  });
+ }
+
+ armCombatStyleCharge(){
+  if(this.combatStyle!=='echo' || this.combatStyleChargeReady)return false;
+  this.combatStyleChargeReady=true;
+  this.updateCombatStyleChargeVisual();
+  this.showCombatNotification('ОТКЛИК',{y:this.player.y-72,color:'#ffd977',key:'path:echo-armed',cooldown:180});
+  return true;
+ }
+
+ consumeCombatStyleMeleeMultiplier(targetCount){
+  return this.getCombatStyleMeleeEffect(targetCount).multiplier;
+ }
+
+ updateCombatStyleChargeVisual(){
+  const glow=this.combatStyleChargeGlow;
+  if(!glow?.active)return;
+  const active=this.combatStyle==='echo' && this.combatStyleChargeReady;
+  glow.setVisible(active);
+  if(active)glow.setPosition(this.player.x,this.player.y+7).setAlpha(0.26);
  }
 
  getRegionalPlayerMaxHp(index=this.progressionBalanceZoneIndex){
@@ -5320,6 +6273,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  calculateWaveTarget(wave=this.wave,profile=this.waveProfile,championKind=this.getChampionForWave(wave),{concurrentChampion=false}={}){
+  if(isCaptainEncounter(this.currentWorldZoneIndex,wave))return CAPTAIN.skeletonCount+1;
   const baseTarget=wave===1 ? 10 : 8+wave*3;
   const targetBonus=profile?.targetBonus||0;
   const postWaveBrokenSaint=this.currentWorldZoneIndex===0 && wave===5 && championKind==='brokenSaint' && !concurrentChampion;
@@ -5328,6 +6282,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  calculateWaveSpawnInterval(profile=this.waveProfile){
+  if(profile?.captainEncounter)return CAPTAIN.spawnInterval;
   const baseInterval=profile?.spawnInterval||1050;
   const spawnRate=this.getRegionBalance().spawnRateMultiplier;
   return Math.max(520,Math.round(baseInterval/Math.max(0.1,spawnRate)));
@@ -5390,9 +6345,33 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   return this.getSpawnPointAroundCamera(margin);
  }
 
+ getZoneCameraMinX(zoneIndex=this.currentWorldZoneIndex){
+  const gate=WORLD_DESIGN.GATES[zoneIndex-1];
+  // Same world-space plane as the permanent backtrack gate, inside the new zone.
+  return gate?gate.x+120:0;
+ }
+
+ applyWorldCameraBounds(){
+  const minX=Math.max(0,this.worldCameraMinX||0);
+  this.cameras.main.setBounds(minX,0,STAGE0.WORLD_WIDTH-minX,STAGE0.WORLD_HEIGHT);
+ }
+
+ updateWorldCameraBoundary(){
+  const nextMinX=this.getZoneCameraMinX();
+  if(nextMinX<=(this.worldCameraMinX||0))return;
+  // Latch only after the natural follow camera has passed the entry gate.
+  // No pan, tween, zoom or offset: applying bounds cannot move this view.
+  if(this.cameras.main.worldView.left<nextMinX)return;
+  this.worldCameraMinX=nextMinX;
+  this.applyWorldCameraBounds();
+  // On narrow viewports the gate may leave view before BACK_LOCK_DEPTH.
+  // Seal now as well, so the hero cannot walk behind the latched camera edge.
+  this.createBacktrackSeal(WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1]);
+ }
+
  setupResponsiveWorldCamera(){
   const cam=this.cameras.main;
-  cam.setBounds(0,0,STAGE0.WORLD_WIDTH,STAGE0.WORLD_HEIGHT);
+  this.applyWorldCameraBounds();
   cam.setRoundPixels(true);
   cam.startFollow(this.player,true,1,1);
   this.handleViewportResize();
@@ -5415,6 +6394,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   const mobileCamera=Boolean(this.isTouchDevice || gameH<560 || gameW<900);
   const cameraZoomMultiplier=mobileCamera ? 1.35 : 1;
   cam.setZoom(Math.max(0.01,baseZoom*cameraZoomMultiplier));
+  this.applyWorldCameraBounds();
   const metrics=this.getUiMetrics();
   // Mobile UX safe gameplay area: the player may still travel anywhere in the
   // world, but the camera starts following sooner so the hero cannot drift under
@@ -5677,7 +6657,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     skillRecoveryMultiplier:this.skillRecoveryMultiplier,
     bsPenitenceCharges:this.bsPenitenceCharges,
     killStreakBonus:this.killStreakBonus,
-    fallenBlessingUsed:this.fallenBlessingUsed
+    fallenBlessingUsed:this.fallenBlessingUsed,
+    combatStyle:this.combatStyle,
+    combatStyleChargeReady:Boolean(this.combatStyleChargeReady)
    },
    wave:{
     number:this.wave,spawned:this.spawned,target:this.waveTarget,profile:this.waveProfile,
@@ -5702,6 +6684,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  clearCombatForChampionRetry(){
+  this.captainSystem?.clear();
   // This must work in the player scene without the optional DEV tools.
   for(const projectile of this.projectiles||[])if(projectile?.active)projectile.destroy();
   this.projectiles=[];
@@ -5747,6 +6730,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.bsPenitenceCharges=hero.bsPenitenceCharges;
   this.killStreakBonus=hero.killStreakBonus;
   this.fallenBlessingUsed=hero.fallenBlessingUsed;
+  this.combatStyle=hero.combatStyle||null;
+  this.combatStyleChargeReady=Boolean(hero.combatStyleChargeReady && this.combatStyle==='echo');
   Object.assign(this.meleeAttack,hero.melee,{lastAttack:now,combatActive:false,attackTargetCount:0,nearbyTargetCount:0});
 
   this.wave=wave.number;
@@ -5782,6 +6767,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.deathSword=null;
   this.updateHeroWeaponAttachment();
   this.updateLowHealthState(true);
+  this.updateCombatStyleChargeVisual();
 
   const champion=this.spawnChampion(checkpoint.kind,false,{
    position:checkpoint.champion,
@@ -6476,6 +7462,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   }
 
   this.grantXp(40);
+  this.syncCharacterStats();
 
   const txt=lkAddText(this,
    this.player.x,this.player.y-62,
@@ -6492,6 +7479,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  grantChampionSkillEvolution(id){
   if(!id) return;
   this.championSkillEvolutions.add(id);
+  this.syncCharacterStats();
  }
 
  grantChampionRelic(id){
@@ -6500,6 +7488,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   if(id==='fallenBlessing') this.fallenBlessingUsed=false;
   if(id==='soulSkull') this.nextSoulSkullAt=this.time.now+1400;
   if(id==='cursedGround') this.nextCursedGroundAt=this.time.now+4000;
+  this.syncCharacterStats();
  }
 
  grantChampionEssence(id){
@@ -6521,6 +7510,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   } else if(id===BROKEN_SAINT_ESSENCE_IDS.discipline){
    this.skillRecoveryMultiplier*=0.94;
   }
+  this.syncCharacterStats();
  }
 
  updateMana(time){
@@ -6563,6 +7553,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  handleSkillInput(index){
+  if(this.captainSystem?.isStunned())return;
   if(this.ashSwordPreludeState) return;
   if(this.gameOver || this.levelChoiceOpen || this.championRewardOpen || this.brokenSaintDefeatSequenceActive) return;
   // The five-second anomaly focus is a deliberate non-combat story beat.
@@ -6574,13 +7565,17 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    return;
   }
   if(!this.spendMana(index)) return;
+  this.armCombatStyleCharge();
   if(index===1){
+   this.showCombatNotification('РАЗЛОМ',{color:'#d9c38e',key:'skill:quake',cooldown:180});
    this.playSkillSfx('sfx_skill_quake',0.294);
    this.castGroundTremor();
   } else if(index===2){
+   this.showCombatNotification('ПОДЪЁМ',{color:'#b6e6ff',key:'skill:lift',cooldown:180});
    this.playSkillSfx('sfx_skill_lift');
    this.castLift();
   } else if(index===3){
+   this.showCombatNotification('ВИХРЬ',{color:'#f3d699',key:'skill:spin',cooldown:180});
    this.playSkillSfx('sfx_skill_spin');
    this.castSpin();
   } else this.mana=Math.min(this.maxMana,this.mana+cost);
@@ -6810,7 +7805,10 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    this.ashSwordPulseCompleted=true;
    this.setHeroFocusInteraction('ashSwordPrelude',false);
    this.releaseStoryFocus('ashSwordPrelude',{cooldownMs:0});
-   this.startWave(3);
+   if(!this.combatStyleChoiceShown){
+    this.pendingCombatStyleWave=3;
+    this.openCombatStyleChoice();
+   }else this.startWave(3);
   }
   return true;
  }
@@ -7275,6 +8273,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  finalizeEnemyDeath(enemy,time=this.time.now){
   if(!enemy || !enemy.active || enemy.hp>0 || enemy.deathFinalized) return false;
   enemy.deathFinalized=true;
+  this.captainSystem?.onDeath(enemy,time);
   this.markEnemyDefeated(enemy);
 
   const deathX=enemy.x;
@@ -7414,6 +8413,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   // Spin keeps its risk window during the stationary channel.
   this.maybeMarkSaintsNailAttacker(attacker,now);
   this.registerCrackedHaloDamage(now);
+
+  // Only accepted damage reaches this point (not an iframe, god mode or relic block).
+  this.captainSystem?.onPlayerDamaged(attacker,source,now);
 
   if(this.championRelics.has('necromancerSoul')){
    this.killStreakBonus=0;
@@ -7931,7 +8933,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  getEnemyMovementSpeed(enemy){
-  if(!enemy || enemy.type==='champion') return enemy?.speed||0;
+  if(!enemy || enemy.type==='champion' || enemy.type==='captain') return enemy?.speed||0;
 
   if(enemy.emptyScreenRush){
    return (enemy.speed||0)*PURSUIT.EMPTY_SCREEN_SPEED_MULTIPLIER;
@@ -8030,7 +9032,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    // Road of the Black Banners deliberately has its own cadence. These are
    // encounter identities, not copies of the Ash Fields wave script.
    const ruinedKingdomProfiles={
-    1:{name:'ROAD AMBUSH',subtitle:'The dead rise from the wreckage',spawnInterval:1080,mageEvery:99,shieldEvery:99,targetBonus:-1},
+    1:{name:'THE CAPTAIN',subtitle:'Break their formation · defeat their commander',spawnInterval:CAPTAIN.spawnInterval,mageEvery:99,shieldEvery:99,targetBonus:-1,captainEncounter:true},
     2:{name:'FOG CALLERS',subtitle:'Break the casters before they box you in',spawnInterval:980,mageEvery:3,shieldEvery:99,targetBonus:0},
     3:{name:'BANNER WALL',subtitle:'Shield-bearers hold the road',spawnInterval:1060,mageEvery:5,shieldEvery:3,targetBonus:1},
     4:{name:'THE LOST CAMP',subtitle:'A mixed assault closes from the ruins',spawnInterval:900,mageEvery:4,shieldEvery:4,targetBonus:2},
@@ -8052,8 +9054,33 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   return {name:wave===1?'THE OUTSKIRTS':'MIXED ASSAULT',subtitle:wave===1?'The dead are approaching':'Balanced enemy pressure',spawnInterval:baseInterval,mageEvery:5,shieldEvery:6,targetBonus:0};
  }
 
+ getGlobalWave(){return globalWave(this.currentWorldZoneIndex||0,this.wave||1);}
+
+ captureZoneEntryCheckpoint(){
+  const zoneIndex=this.currentWorldZoneIndex;
+  if(zoneIndex===0){this.zoneEntryCheckpoint=null;return;}
+  if(this.zoneEntryCheckpoint?.zoneIndex===zoneIndex && this.zoneEntryCheckpoint.hero)return;
+  this.zoneEntryCheckpoint={zoneIndex,hero:captureZoneBuild(this)};
+ }
+
+ restartCurrentZone(){
+  if(!this.gameOver || !this.gameOverUiReady)return false;
+  const zoneIndex=this.currentWorldZoneIndex||0;
+  const checkpoint=this.zoneEntryCheckpoint?.zoneIndex===zoneIndex?
+   this.zoneEntryCheckpoint:{zoneIndex,hero:zoneIndex>0?captureZoneBuild(this):null};
+  this.scene.restart({zoneRestart:checkpoint,saveSlot:this.currentSaveSlot});
+  return true;
+ }
+
+ getCaptainZoneBounds(){
+  const zone=WORLD_DESIGN.ZONES[this.currentWorldZoneIndex];
+  return {start:zone.start,end:zone.end,height:STAGE0.WORLD_HEIGHT};
+ }
+
  startZoneWaveSequence(zoneIndex=this.currentWorldZoneIndex,{delay=0,suppressBanner=false}={}){
+  this.captainSystem?.clear();
   this.currentWorldZoneIndex=zoneIndex;
+  this.captureZoneEntryCheckpoint();
   this.wave=0;
   this.spawned=0;
   this.waveTarget=0;
@@ -8831,6 +9858,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  startWave(wave,initial=false,{preSpawnedChampion=false,suppressBanner=false}={}){
+  this.captainSystem?.clear();
   this.wave=wave;
   this.spawned=0;
   this.waveIntermission=false;
@@ -8843,7 +9871,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.waveTarget=this.calculateWaveTarget(wave,this.waveProfile,championKind,{concurrentChampion:preSpawnedChampion});
   if(this.currentWorldZoneIndex===0) this.storyEnemyAnomalies?.beginWave(wave,this.waveTarget);
 
-  this.waveText.setText(`WAVE ${wave}`);
+  this.waveText.setText(`WAVE ${this.getGlobalWave()}`);
   this.waveSubText.setText(
    isPostWaveBrokenSaint ? 'FINAL ASSAULT' : (championKind ? 'CHAMPION EVENT' : this.waveProfile.name)
   );
@@ -8865,7 +9893,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     }
    });
   } else if(!suppressBanner) {
-   this.showWaveBanner(`WAVE ${wave}`,`${this.waveProfile.name} · ${this.waveProfile.subtitle}`);
+   this.showWaveBanner(`WAVE ${this.getGlobalWave()}`,`${this.waveProfile.name} · ${this.waveProfile.subtitle}`);
   }
  }
 
@@ -8974,12 +10002,14 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
  applyLevelUp(){
   this.level++;
+  this.syncCharacterStats();
   this.openLevelChoices();
  }
 
  openLevelChoices(){
   if(this.levelChoiceOpen) return;
 
+  this.levelChoiceKind='normal';
   this.levelChoiceOpen=true;
   this.setGameplayPaused('levelChoice',true);
 
@@ -9050,15 +10080,54 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   });
  }
 
+ openCombatStyleChoice(){
+  if(this.levelChoiceOpen || this.combatStyleChoiceShown)return false;
+  this.levelChoiceOpen=true;
+  this.levelChoiceKind='combatStyle';
+  this.setGameplayPaused('levelChoice',true);
+  this.currentLevelChoices=[
+   ['Путь Расколотого строя\nОбычные удары мечом сильнее отбрасывают обычных скелетов.',()=>{
+    this.combatStyle='crowdbreak';
+   }],
+   ['Путь Последнего приговора\nЕсли в радиусе удара остаётся только один враг, меч наносит ему на 45% больше урона.',()=>{
+    this.combatStyle='duelist';
+   }],
+   ['Путь Отклика\nИспользование любого навыка заряжает меч. Следующий обычный удар расходует заряд и наносит на 70% больше урона.',()=>{
+    this.combatStyle='echo';
+   }]
+  ];
+
+  const hudScene=this.scene.get('HUDScene');
+  if(hudScene && typeof hudScene.showLevelChoices==='function'){
+   hudScene.showLevelChoices(this.level,this.currentLevelChoices.map(([label])=>label),{
+    variant:'combatStyle',
+    title:'ПАМЯТЬ КЛИНКА',
+    intro:'Меч отозвался на твою руку.\nТы не помнишь, кем был. Но клинок помнит, как ты сражался.'
+   });
+   this.levelChoiceObjects=[];
+   return true;
+  }
+  return false;
+ }
+
  selectLevelChoice(index){
   if(!this.levelChoiceOpen) return;
   const choice=this.currentLevelChoices[index];
   if(!choice) return;
+  const choiceKind=this.levelChoiceKind;
   choice[1]();
+  if(choiceKind==='combatStyle')this.combatStyleChoiceShown=true;
+  this.syncCharacterStats();
   this.closeLevelChoices();
+  if(choiceKind==='combatStyle'){
+   const wave=this.pendingCombatStyleWave;
+   this.pendingCombatStyleWave=0;
+   if(wave>0)this.startWave(wave);
+  }
  }
 
  closeLevelChoices(){
+  const choiceKind=this.levelChoiceKind;
   const hudScene=this.scene.get('HUDScene');
   if(hudScene && typeof hudScene.hideLevelChoices==='function') hudScene.hideLevelChoices();
 
@@ -9069,7 +10138,10 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.levelChoiceObjects=[];
   this.currentLevelChoices=[];
   this.levelChoiceOpen=false;
+  this.levelChoiceKind='normal';
   this.setGameplayPaused('levelChoice',false);
+
+  if(choiceKind==='combatStyle')return;
 
   const txt=lkAddText(this,
    this.player.x,this.player.y-55,
@@ -9188,6 +10260,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
  endRun(){
   if(this.gameOver) return;
+  this.captainSystem?.clear();
 
   // Set gameOver immediately: every existing attack/cast callback that checks it
   // is silenced now. The visible death UI is deliberately delayed below.
@@ -9248,6 +10321,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
  }
 
  update(time,delta){
+  this.captainSystem?.barks.update();
   this.syncOrientationPause();
   this.updateLowHealthState();
   this.devTools?.update(time,delta);
@@ -9272,7 +10346,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
   if(this.gameOver){
    if(this.gameOverUiReady && Phaser.Input.Keyboard.JustDown(this.restartKey)){
-    this.scene.restart();
+    this.restartCurrentZone();
    }
    return;
   }
@@ -9292,6 +10366,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    return;
   }
   if(this.updateBrokenSaintSwordEpilogue(this.time.now))return;
+
+  this.captainSystem?.update(time);
 
   this.updateMana(time);
   this.updateAshSwordPulse(time);
@@ -9350,6 +10426,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    vx=0;
    vy=0;
   }
+
+  if(this.captainSystem?.isStunned(time)){vx=0;vy=0;}
 
   this.player.body.setVelocity(vx,vy);
 
@@ -9436,7 +10514,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     }
    }
   } else {
-   if(!this.devFlags?.autoSpawnsDisabled && this.spawned<this.waveTarget && time-this.lastSpawn>this.waveSpawnInterval){
+   const captainPopulationReady=!isCaptainEncounter(this.currentWorldZoneIndex,this.wave) ||
+    this.enemies.filter(e=>e.active && e.hp>0 && e.type==='skeleton').length<CAPTAIN.maxLivingSoldiers;
+   if(captainPopulationReady && !this.devFlags?.autoSpawnsDisabled && this.spawned<this.waveTarget && time-this.lastSpawn>this.waveSpawnInterval){
     this.lastSpawn=time;
     this.spawnEnemy();
     this.spawned++;
@@ -9472,7 +10552,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   this.updateChampionHazards(time);
   this.updateRelics(time);
   traceSectionAt=this.beginSubsystemTrace();
-  if(!this.isAshChampionIntroActive())this.meleeAttack.update(time,this.enemies);
+  if(!this.isAshChampionIntroActive() && !this.captainSystem?.isStunned(time))this.meleeAttack.update(time,this.enemies);
   traceSectionAt=this.endSubsystemTrace('melee',traceSectionAt);
   this.updateHeroWeaponAttachment();
   this.cleanupDefeatedEnemies(time);
@@ -9494,7 +10574,7 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    this.nextSkeletonAttackSlotRefreshAt=time+100;
    this.skeletonAttackSlots=new Set(
     this.enemies
-     .filter(e=>e.active && e.hp>0 && e.type==='skeleton')
+     .filter(e=>e.active && e.hp>0 && e.type==='skeleton' && !e.captainFlee)
      .sort((a,b)=>
       Phaser.Math.Distance.Squared(a.x,a.y,this.player.x,this.player.y)-
       Phaser.Math.Distance.Squared(b.x,b.y,this.player.x,this.player.y)
@@ -9590,6 +10670,12 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
      e.body.setVelocity(e.knockbackVX||0,e.knockbackVY||0);
      e.knockbackVX*=0.82;
      e.knockbackVY*=0.82;
+    } else if(e.captainFlee){
+     this.captainSystem.updateFlee(e,time);
+     if(!e.active)continue;
+    } else if(e.type==='captain'){
+     this.captainSystem.updateCaptain(e,time);
+     if(this.gameOver)return;
     } else if(e.type==='champion'){
      this.updateChampion(e,time,a,distance);
     } else if(e.type==='mage'){
@@ -9650,7 +10736,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     } else {
      const hasMeleeSlot=e.type!=='skeleton' || skeletonAttackSlots.has(e);
 
-     if(e.type==='skeleton'){
+     if(e.type==='skeleton' && this.captainSystem?.moveSoldier(e,time)){
+      // Formation movement does not bypass ordinary attack slots/cooldowns below.
+     } else if(e.type==='skeleton'){
       // Front-line skeletons stop at a readable melee distance instead of
       // walking into the player's center. Skeletons without one of the four
       // melee slots form a second ring slightly farther out.
@@ -9683,7 +10771,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
      const attackDamage=e.attackDamage || 5;
 
      const attackCooldown=e.type==='shield' ? 1300 : 1100;
-     if(!storyMomentActive && !this.devFlags?.enemyAttacksDisabled && hasMeleeSlot && !e.pendingMeleeHitAt && distance<=attackRange && time-e.lastAttack>attackCooldown){
+     const gatheringRing=Boolean(e.captainFormationTarget?.gather);
+     if(!gatheringRing && !storyMomentActive && !this.devFlags?.enemyAttacksDisabled && hasMeleeSlot && !e.pendingMeleeHitAt && distance<=attackRange && time-e.lastAttack>attackCooldown){
       e.lastAttack=time;
       if(e.type==='skeleton') this.playSkeletonAttackSfx(time);
       const windup=e.type==='shield' ? 480 : 350;
@@ -9691,7 +10780,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
       e.pendingMeleeDamage=attackDamage;
       e.pendingMeleeRange=attackRange+10;
       e.attackAnimUntil=time+windup+260;
-      e.attackDir=e.dir;
+      e.attackDir=e.captainFormationTarget?.ring
+       ? this.getDirectionFromVector(this.player.x-e.x,this.player.y-e.y,e.dir)
+       : e.dir;
       e.body.setVelocity(0,0);
 
       if(e.visual && e.visual.active){
@@ -9722,7 +10813,9 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
     e.shadowVisual.setPosition(e.x,e.y+shadowYOffset);
    }
 
-   if(e.visual && e.visual.active){
+   if(e.type==='captain'){
+    this.captainSystem.render(e,time);
+   } else if(e.visual && e.visual.active){
     let liftOffset=0;
     let liftRotation=0;
     let liftScaleX=e.visualBaseScale||e.visual.scaleX||0.5;
@@ -9766,6 +10859,8 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
        this.player.y-e.y,
        e.dir||'down'
       )
+     : (e.captainFlee || e.captainFormationTarget?.ring)
+      ? this.getDirectionFromVector(e.body.velocity.x,e.body.velocity.y,e.dir||'down')
      : anomalyFlee
       ? this.getDirectionFromVector(
         Math.cos(e.storyAnomaly.fleeAngle||0),
@@ -9791,6 +10886,14 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
 
     const visualDir=time<e.attackAnimUntil ? (e.attackDir||e.dir) : e.dir;
     const enemyAnimKey=`${prefix}_${visualDir}_${action}`;
+
+    if(e.type==='skeleton'){
+     const movingInRing=action==='walk' && e.captainFormationTarget?.ring;
+     const rate=movingInRing?Math.min(3,Math.max(1,e.body.velocity.length()/Math.max(1,e.speed))):1;
+     // Phaser 3.90 exposes the speed as a property on AnimationState; older
+     // builds do not provide the setTimeScale() convenience method.
+     if(e.visual?.anims){ e.visual.anims.timeScale=rate; }
+    }
 
     if(e.visualState!==enemyAnimKey){
      e.visualState=enemyAnimKey;
@@ -9965,6 +11068,20 @@ class HUDScene extends Phaser.Scene {
   this.vignetteFadeTween=null;
   this.criticalFlashTween=null;
   this.hpPulseDriver={value:0};
+
+  // Phaser reuses the HUDScene instance after scene.stop()/scene.launch().
+  // GameObjects from the previous run are destroyed, but plain JS properties
+  // still point at those dead objects. MainScene can request the first wave
+  // banner before this HUD's create() has rebuilt the UI, so stale references
+  // must never be mistaken for live banner objects.
+  this.eventBannerPanel=null;
+  this.eventBannerTitle=null;
+  this.eventBannerSub=null;
+  this.eventBannerTween=null;
+  // Do not erase an early request that may have been queued immediately after
+  // scene.launch() but before this init() callback runs. SHUTDOWN clears stale
+  // requests from the previous session.
+  if(this.pendingEventBanner===undefined)this.pendingEventBanner=null;
  }
 
  create(){
@@ -9980,6 +11097,7 @@ class HUDScene extends Phaser.Scene {
   this.buildGameOver();
   this.buildLevelChoiceOverlay();
   this.buildChampionRewardOverlay();
+  this.buildMenuButton();
   this.buildFullscreenButton();
   for(const obj of this.children.list){if(obj?.type==='Text')obj.setResolution?.(LK_TEXT_RESOLUTION);}
 
@@ -10011,6 +11129,14 @@ class HUDScene extends Phaser.Scene {
    }
    this.stopHpPulse(true);
    this.stopVignetteTweens();
+   if(this.eventBannerTween){
+    try{this.eventBannerTween.stop();}catch{}
+   }
+   this.eventBannerTween=null;
+   this.eventBannerPanel=null;
+   this.eventBannerTitle=null;
+   this.eventBannerSub=null;
+   this.pendingEventBanner=null;
   });
   this.layout();
   if(this.mainScene){
@@ -10281,7 +11407,12 @@ class HUDScene extends Phaser.Scene {
   // MainScene can request the first wave banner immediately after launching HUDScene.
   // Phaser exposes the HUD scene object before HUDScene.create() has finished, so queue
   // the request until the banner objects actually exist instead of touching undefined UI.
-  if(!this.eventBannerTitle || !this.eventBannerSub || !this.eventBannerPanel){
+  const bannerReady=Boolean(
+   this.eventBannerTitle?.scene && this.eventBannerTitle?.active &&
+   this.eventBannerSub?.scene && this.eventBannerSub?.active &&
+   this.eventBannerPanel?.scene && this.eventBannerPanel?.active
+  );
+  if(!bannerReady){
    this.pendingEventBanner={title,subtitle,color};
    return;
   }
@@ -10369,10 +11500,12 @@ class HUDScene extends Phaser.Scene {
  buildLevelChoiceOverlay(){
   this.levelChoiceVisible=false;
   this.levelChoiceLabels=[];
+  this.levelChoiceOptions={};
   this.levelChoiceButtons=[];
   this.levelChoiceShade=this.add.rectangle(0,0,100,100,0x050403,0.58).setOrigin(0).setDepth(108).setVisible(false);
   this.levelChoicePanel=this.addPanelGraphics(109).setVisible(false);
   this.levelChoiceTitle=lkAddText(this,0,0,'LEVEL 2 - CHOOSE UPGRADE',{fontFamily:'Arial, sans-serif',fontSize:'24px',fontStyle:'bold',color:'#f1df97',stroke:'#17110c',strokeThickness:4}).setOrigin(0.5).setDepth(110).setVisible(false);
+  this.levelChoiceIntro=lkAddText(this,0,0,'',{fontFamily:'Arial, sans-serif',fontSize:'14px',color:'#d9cfb0',stroke:'#17110c',strokeThickness:3,align:'center',wordWrap:{width:480,useAdvancedWrap:true}}).setOrigin(0.5).setDepth(110).setVisible(false);
 
   for(let i=0;i<3;i++){
    const card=this.add.rectangle(0,0,100,44,0x243323,0.96).setStrokeStyle(2,0x789561,0.88).setDepth(110).setVisible(false).setInteractive({useHandCursor:true});
@@ -10385,10 +11518,12 @@ class HUDScene extends Phaser.Scene {
   }
  }
 
- showLevelChoices(level,labels=[]){
+ showLevelChoices(level,labels=[],options={}){
   this.levelChoiceVisible=true;
   this.levelChoiceLabels=labels.slice(0,3);
-  this.levelChoiceTitle.setText(`LEVEL ${level} - CHOOSE UPGRADE`);
+  this.levelChoiceOptions=options||{};
+  this.levelChoiceTitle.setText(this.levelChoiceOptions.title || `LEVEL ${level} - CHOOSE UPGRADE`);
+  this.levelChoiceIntro.setText(this.levelChoiceOptions.intro || '').setVisible(Boolean(this.levelChoiceOptions.intro));
   this.levelChoiceShade.setVisible(true);
   this.levelChoicePanel.setVisible(true);
   this.levelChoiceTitle.setVisible(true);
@@ -10404,9 +11539,11 @@ class HUDScene extends Phaser.Scene {
  hideLevelChoices(){
   this.levelChoiceVisible=false;
   this.levelChoiceLabels=[];
+  this.levelChoiceOptions={};
   this.levelChoiceShade.setVisible(false);
   this.levelChoicePanel.setVisible(false);
   this.levelChoiceTitle.setVisible(false);
+  this.levelChoiceIntro.setVisible(false).setText('');
   this.levelChoiceButtons.forEach(({card,label})=>{
    card.setVisible(false).setFillStyle(0x243323,0.96);
    label.setVisible(false).setText('');
@@ -10417,12 +11554,16 @@ class HUDScene extends Phaser.Scene {
   if(!this.levelChoiceVisible) return;
   const logical=lkLogicalSceneSize(this),w=logical.width,h=logical.height;
   const mobile=Boolean(this.mainScene?.isTouchDevice || h<560 || w<900);
+  const combatStyle=this.levelChoiceOptions?.variant==='combatStyle';
   const screenCx=w/2,screenCy=h/2;
-  const panelW=Math.min(mobile?420:560,w-(mobile?28:64));
-  const rowH=mobile?50:56;
+  const panelW=combatStyle
+   ?Math.min(mobile?Math.max(360,w-20):Math.max(720,w*0.82),w-(mobile?20:56))
+   :Math.min(mobile?420:560,w-(mobile?28:64));
+  const rowH=combatStyle?(mobile?82:96):(mobile?50:56);
   const gap=mobile?12:14;
   const count=Math.max(1,this.levelChoiceLabels.length || 3);
-  const panelH=(mobile?106:126) + (count*rowH) + ((count-1)*gap);
+  const headerH=combatStyle?(mobile?138:158):(mobile?106:126);
+  const panelH=headerH + (count*rowH) + ((count-1)*gap);
   const panelX=screenCx-panelW/2,panelY=screenCy-panelH/2;
   const radius=mobile?10:12;
 
@@ -10433,10 +11574,11 @@ class HUDScene extends Phaser.Scene {
   this.levelChoicePanel.lineStyle(mobile?2:2.5,0x8e7547,0.94); this.levelChoicePanel.strokeRoundedRect(panelX,panelY,panelW,panelH,radius);
   this.levelChoicePanel.lineStyle(1,0xd6bd7b,0.16); this.levelChoicePanel.strokeRoundedRect(panelX+4,panelY+4,panelW-8,panelH-8,Math.max(5,radius-4));
 
-  this.levelChoiceTitle.setPosition(screenCx,panelY+(mobile?26:31)).setFontSize(mobile?18:24);
+  this.levelChoiceTitle.setPosition(screenCx,panelY+(mobile?24:29)).setFontSize(combatStyle?(mobile?18:24):(mobile?18:24));
+  this.levelChoiceIntro.setPosition(screenCx,panelY+(mobile?62:70)).setFontSize(mobile?11:14).setWordWrapWidth(Math.max(120,panelW-44),true);
 
-  const cardW=panelW-(mobile?34:48);
-  const startY=panelY+(mobile?76:94);
+  const cardW=panelW-(combatStyle?(mobile?22:34):(mobile?34:48));
+  const startY=panelY+(combatStyle?(mobile?124:142):(mobile?76:94));
   this.levelChoiceButtons.forEach((entry,i)=>{
    const visible=Boolean(this.levelChoiceLabels[i]);
    entry.card.setVisible(visible);
@@ -10444,8 +11586,25 @@ class HUDScene extends Phaser.Scene {
    if(!visible) return;
    const y=startY+i*(rowH+gap);
    entry.card.setPosition(screenCx,y).setSize(cardW,rowH).setDisplaySize(cardW,rowH).setStrokeStyle(2,0x789561,0.88);
-   entry.label.setPosition(screenCx,y).setFontSize(mobile?15:18).setWordWrapWidth(cardW-28,true);
+   entry.label.setPosition(screenCx,y).setFontSize(combatStyle?(mobile?13:17):(mobile?15:18)).setWordWrapWidth(cardW-(combatStyle?46:28),true).setAlign('center');
   });
+ }
+
+ buildMenuButton(){
+  this.menuButton=this.add.circle(0,0,22,0x11100e,0.88).setStrokeStyle(2,0xc4a662,0.82).setDepth(95).setInteractive({useHandCursor:true});
+  this.menuIcon=this.add.graphics().setDepth(96);
+  const open=()=>{if(this.mainScene?.devTools?.uiEditor?.editMode)return;this.mainScene?.openSessionMenu?.();};
+  this.menuButton.on('pointerdown',open);
+  this.menuIcon.setInteractive(new Phaser.Geom.Rectangle(-24,-24,48,48),Phaser.Geom.Rectangle.Contains);
+  this.menuIcon.on('pointerdown',open);
+  this.drawMenuIcon();
+ }
+
+ drawMenuIcon(){
+  if(!this.menuIcon||!this.menuButton)return;
+  const x=this.menuButton.x,y=this.menuButton.y,g=this.menuIcon;
+  g.clear();g.lineStyle(2.4,0xf1dfaa,0.95);
+  for(const dy of [-7,0,7]){g.beginPath();g.moveTo(x-9,y+dy);g.lineTo(x+9,y+dy);g.strokePath();}
  }
 
  buildFullscreenButton(){
@@ -10640,7 +11799,7 @@ class HUDScene extends Phaser.Scene {
   this.restartLabel=lkAddText(this,0,0,'RESTART',{fontFamily:'Arial, sans-serif',fontSize:'15px',fontStyle:'bold',color:'#f5dfad'}).setOrigin(0.5).setDepth(103).setVisible(false);
   this.retryBossButton=this.add.rectangle(0,0,220,44,0x1b2922,1).setStrokeStyle(2,0x8fc178,1).setDepth(102).setVisible(false).setInteractive({useHandCursor:true});
   this.retryBossLabel=lkAddText(this,0,0,'RETRY BOSS · 2 LEFT',{fontFamily:'Arial, sans-serif',fontSize:'14px',fontStyle:'bold',color:'#d9f0c8'}).setOrigin(0.5).setDepth(103).setVisible(false);
-  this.restartButton.on('pointerdown',()=>{ if(this.mainScene?.gameOver) this.mainScene.scene.restart(); });
+  this.restartButton.on('pointerdown',()=>this.mainScene?.restartCurrentZone());
   this.retryBossButton.on('pointerdown',()=>{this.mainScene?.retryChampionFight?.();});
  }
 
@@ -10655,7 +11814,7 @@ class HUDScene extends Phaser.Scene {
    this.wavePanel,this.waveTitle,this.waveSub,this.championPanel,this.bossName,
    this.bossHpBack,this.bossHpText,this.eventBannerPanel,this.eventBannerTitle,this.eventBannerSub,
    ...(this.skills||[]).flatMap(s=>[s.back,s.key,s.label]),
-   this.joyBack,this.joyKnob,this.fullscreenButton];
+   this.joyBack,this.joyKnob,this.menuButton,this.fullscreenButton];
   const result=[];
   for(const object of objects){
    if(!object?.active)continue;
@@ -10700,7 +11859,8 @@ class HUDScene extends Phaser.Scene {
    skillLift:{label:'Skill 2 · Lift',priority:10,objects:[this.skill2.back,this.skill2.inner,this.skill2.icon,this.skill2.iconMaskShape,this.skill2.key,this.skill2.label],boundsObjects:[this.skill2.back]},
    skillSpin:{label:'Skill 3 · Spin',priority:10,objects:[this.skill3.back,this.skill3.inner,this.skill3.icon,this.skill3.iconMaskShape,this.skill3.key,this.skill3.label],boundsObjects:[this.skill3.back]},
    joystick:{label:'Movement joystick',priority:7,objects:[this.joyBack,this.joyRing,this.joyKnob,this.joyHint],boundsObjects:[this.joyBack]},
-   fullscreen:{label:'Fullscreen button',priority:9,objects:[this.fullscreenButton,this.fullscreenIcon],boundsObjects:[this.fullscreenButton]}
+   menu:{label:'Menu button',priority:9,objects:[this.menuButton,this.menuIcon],boundsObjects:[this.menuButton]},
+   fullscreen:{label:'Fullscreen button',priority:10,objects:[this.fullscreenButton,this.fullscreenIcon],boundsObjects:[this.fullscreenButton]}
   };
  }
 
@@ -10803,6 +11963,12 @@ class HUDScene extends Phaser.Scene {
    const fsY=top+fsR;
    this.fullscreenButton.setPosition(fsX,fsY).setRadius(fsR).setStrokeStyle(mobile?1.5:2,0xc4a662,0.82);
    this.drawFullscreenIcon();
+   if(this.menuButton){
+    const gap=mobile?9:11;
+    const menuX=fsX-fsR*2-gap;
+    this.menuButton.setPosition(menuX,fsY).setRadius(fsR).setStrokeStyle(mobile?1.5:2,0xc4a662,0.82);
+    this.drawMenuIcon();
+   }
   }
 
   // Build 1.3.6: clean stacked hero HUD. The information hierarchy is fixed:
@@ -11064,7 +12230,7 @@ class HUDScene extends Phaser.Scene {
   const xpUiSx=xpUi?(xpUi.scale||1)*(xpUi.width||1):1;
   this.xpFill.displayWidth=Math.max(0.1,(this.heroXpMaxWidth||this.xpFill.width||1)*xpRatio*xpUiSx);
 
-  this.waveTitle.setText(`WAVE ${m.wave||1}`);
+  this.waveTitle.setText(`WAVE ${m.getGlobalWave?.()||m.wave||1}`);
   this.waveSub.setText(m.getWorldProgressName ? m.getWorldProgressName() : 'ASH FIELDS');
 
   const mana=Phaser.Math.Clamp(m.mana??0,0,m.maxMana??3);
@@ -11133,7 +12299,7 @@ const game=new Phaser.Game({
  // tab switch / browser resume. On ~30 FPS hardware that can feel like several
  // seconds of degraded responsiveness. Keep smoothing, but recover quickly.
  fps:{panicMax:10,smoothStep:true,deltaHistory:10},
- scene:[BootScene,PreloadScene,CinematicScene,MainScene,HUDScene]
+ scene:[BootScene,PreloadScene,GameMenuScene,CinematicScene,MainScene,HUDScene]
 });
 
 let lkResizeRaf=0;

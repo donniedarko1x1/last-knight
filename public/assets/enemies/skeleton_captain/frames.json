@@ -1,0 +1,132 @@
+{
+  "skeleton_captain_attack_east_01": {
+    "x": 0.46,
+    "ground": 0.956,
+    "bodyHeight": 370.557
+  },
+  "skeleton_captain_attack_east_ground": {
+    "x": 0.49,
+    "ground": 0.9,
+    "bodyHeight": 370.557
+  },
+  "skeleton_captain_attack_north_01": {
+    "x": 0.5,
+    "ground": 0.952,
+    "bodyHeight": 355.509
+  },
+  "skeleton_captain_attack_north_ground": {
+    "x": 0.5,
+    "ground": 0.952,
+    "bodyHeight": 355.509
+  },
+  "skeleton_captain_attack_south_01": {
+    "x": 0.5,
+    "ground": 0.952,
+    "bodyHeight": 352.374
+  },
+  "skeleton_captain_attack_south_ground": {
+    "x": 0.5,
+    "ground": 0.934,
+    "bodyHeight": 352.374
+  },
+  "skeleton_captain_attack_west_01": {
+    "x": 0.47,
+    "ground": 0.958,
+    "bodyHeight": 363.66
+  },
+  "skeleton_captain_attack_west_ground": {
+    "x": 0.48,
+    "ground": 0.957,
+    "bodyHeight": 363.66
+  },
+  "skeleton_captain_skill_back": {
+    "x": 0.5,
+    "ground": 0.952,
+    "bodyHeight": 352.374
+  },
+  "skeleton_captain_skill_front": {
+    "x": 0.5,
+    "ground": 0.952,
+    "bodyHeight": 355.509
+  },
+  "skeleton_captain_walk_east_01": {
+    "x": 0.49,
+    "ground": 0.945,
+    "bodyHeight": 550.506
+  },
+  "skeleton_captain_walk_east_02": {
+    "x": 0.48,
+    "ground": 0.945,
+    "bodyHeight": 555.522
+  },
+  "skeleton_captain_walk_north_01": {
+    "x": 0.52,
+    "ground": 0.964,
+    "bodyHeight": 569.943
+  },
+  "skeleton_captain_walk_north_02": {
+    "x": 0.52,
+    "ground": 0.964,
+    "bodyHeight": 569.943
+  },
+  "skeleton_captain_walk_northeast_01": {
+    "x": 0.49,
+    "ground": 0.97,
+    "bodyHeight": 586.872
+  },
+  "skeleton_captain_walk_northeast_02": {
+    "x": 0.49,
+    "ground": 0.97,
+    "bodyHeight": 593.142
+  },
+  "skeleton_captain_walk_northwest_01": {
+    "x": 0.57,
+    "ground": 0.97,
+    "bodyHeight": 728.064
+  },
+  "skeleton_captain_walk_northwest_02": {
+    "x": 0.53,
+    "ground": 0.97,
+    "bodyHeight": 728.064
+  },
+  "skeleton_captain_walk_south_01": {
+    "x": 0.46,
+    "ground": 0.955,
+    "bodyHeight": 589.38
+  },
+  "skeleton_captain_walk_south_02": {
+    "x": 0.46,
+    "ground": 0.955,
+    "bodyHeight": 586.245
+  },
+  "skeleton_captain_walk_southeast_01": {
+    "x": 0.48,
+    "ground": 0.97,
+    "bodyHeight": 593.142
+  },
+  "skeleton_captain_walk_southeast_02": {
+    "x": 0.48,
+    "ground": 0.97,
+    "bodyHeight": 593.142
+  },
+  "skeleton_captain_walk_southwest_01": {
+    "x": 0.52,
+    "ground": 0.97,
+    "bodyHeight": 593.142
+  },
+  "skeleton_captain_walk_southwest_02": {
+    "x": 0.52,
+    "ground": 0.97,
+    "bodyHeight": 593.142
+  },
+  "skeleton_captain_walk_west_01": {
+    "x": 0.51,
+    "ground": 0.945,
+    "bodyHeight": 550.506
+  },
+  "skeleton_captain_walk_west_02": {
+    "x": 0.52,
+    "ground": 0.945,
+    "bodyHeight": 555.522
+  }
+}

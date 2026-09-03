@@ -147,6 +147,15 @@ export default class HeroMelee {
     });
 
     let swordImpactSfxNeeded=false;
+    // Resolve a path modifier once per real sword swing. Echo is therefore
+    // consumed only by a swing that has a living enemy in range.
+    const combatStyleEffect=this.scene.getCombatStyleMeleeEffect
+      ? this.scene.getCombatStyleMeleeEffect(this.attackTargetCount)
+      : {multiplier:this.scene.consumeCombatStyleMeleeMultiplier
+        ? this.scene.consumeCombatStyleMeleeMultiplier(this.attackTargetCount)
+        : 1,id:null};
+    const combatStyleDamageMultiplier=combatStyleEffect.multiplier||1;
+    let combatStyleProcShown=false;
 
     for(const enemy of this.attackCandidates||[]){
       if(!enemy?.active || enemy.hp<=0) continue;
@@ -159,15 +168,19 @@ export default class HeroMelee {
         if(this.scene.consumeShieldBlock && this.scene.consumeShieldBlock(enemy)){
           this.createHitBurst(enemy.x, enemy.y - 16, 0xffffff);
         } else {
-          const effectiveDamage=this.scene.getEffectiveMeleeDamage
+          const effectiveDamage=(this.scene.getEffectiveMeleeDamage
             ? this.scene.getEffectiveMeleeDamage(this.damage)
-            : this.damage;
+            : this.damage)*combatStyleDamageMultiplier;
           const resolvedDamage=this.scene.getSwordDamageAgainst
             ? this.scene.getSwordDamageAgainst(enemy,effectiveDamage)
             : effectiveDamage;
 
           enemy.hp -= resolvedDamage;
           const defeated=enemy.hp<=0;
+          if(combatStyleEffect.id && !combatStyleProcShown){
+            this.scene.notifyCombatStyleProc?.(combatStyleEffect.id,enemy);
+            combatStyleProcShown=true;
+          }
           if(defeated && this.scene.markEnemyDefeated){
             this.scene.markEnemyDefeated(enemy);
           }
@@ -184,7 +197,14 @@ export default class HeroMelee {
               enemy.x,
               enemy.y
             );
-            this.scene.applyEnemyHitReaction(enemy,angle,120);
+            const knockbackMultiplier=this.scene.getCombatStyleKnockbackMultiplier
+              ? this.scene.getCombatStyleKnockbackMultiplier(enemy)
+              : 1;
+            this.scene.applyEnemyHitReaction(enemy,angle,120*knockbackMultiplier);
+            if(knockbackMultiplier>1 && !combatStyleProcShown){
+              this.scene.notifyCombatStyleProc?.('crowdbreak',enemy);
+              combatStyleProcShown=true;
+            }
           }
 
           // Heavy impact feedback only for elite targets.
