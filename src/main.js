@@ -158,6 +158,21 @@ const CROW_TAKEOFF_MS=470;
 const CROW_FLIGHT_LIFETIME_MS=7600;
 const CROW_FLOCK_BIRD_MIN=5;
 const CROW_FLOCK_BIRD_MAX=20;
+const ZONE2_FIRST_WAGON_OFFSET_X=1420;
+const ZONE2_FIRST_WAGON_OFFSET_Y=115;
+const ZONE2_WAGON_TRIGGER_RADIUS=185;
+const ZONE2_GATE_CLOSE_HOLD_MS=1150;
+const ZONE2_CROW_CINEMATIC_DELAY_MS=1150;
+const ZONE2_WAGON_CINEMATIC_SPECS=Object.freeze([
+ ['zone2_wagon_cinematic_01','/assets/story/ruined_kingdom/zone2_wagon_cinematic_01.png'],
+ ['zone2_wagon_cinematic_02','/assets/story/ruined_kingdom/zone2_wagon_cinematic_02.png'],
+ ['zone2_wagon_cinematic_03','/assets/story/ruined_kingdom/zone2_wagon_cinematic_03.png']
+]);
+const ZONE2_WAGON_CINEMATIC_PAGES=Object.freeze([
+ Object.freeze({image:'zone2_wagon_cinematic_01',pan:'none',text:''}),
+ Object.freeze({image:'zone2_wagon_cinematic_02',pan:'none',text:''}),
+ Object.freeze({image:'zone2_wagon_cinematic_03',pan:'none',text:''})
+]);
 const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
 const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
 const ASH_SWORD_PRELUDE_RETURN_MS=800;
@@ -2266,7 +2281,10 @@ class PreloadScene extends Phaser.Scene {
   for(const [key,url] of CROW_TEXTURE_SPECS){
    if(!this.textures.exists(key)) this.load.image(key,url);
   }
-  this.queuedAssetCount=queued.length+CROW_TEXTURE_SPECS.length;
+  for(const [key,url] of ZONE2_WAGON_CINEMATIC_SPECS){
+   if(!this.textures.exists(key)) this.load.image(key,url);
+  }
+  this.queuedAssetCount=queued.length+CROW_TEXTURE_SPECS.length+ZONE2_WAGON_CINEMATIC_SPECS.length;
   this.registerLoadingEvents();
   this.load.start();
  }
@@ -3951,6 +3969,8 @@ class MainScene extends Phaser.Scene {
   this.emptyScreenRushActive=false;
   this.crows=[];
   this.crowFlocks=new Map();
+  this.zone2FirstWagonTarget=null;
+  this.zone2ArrivalSequence=null;
 
   // DEV Scene Tuner state. These collections are populated only by environment art.
   this.devEnvironmentObjects=[];
@@ -4108,6 +4128,8 @@ class MainScene extends Phaser.Scene {
   this.emptyScreenRushActive=false;
   this.crows=[];
   this.crowFlocks=new Map();
+  this.zone2FirstWagonTarget=null;
+  this.zone2ArrivalSequence=null;
 
   this.devEnvironmentObjects=[];
   this.devEnvironmentShadows=[];
@@ -4284,7 +4306,11 @@ class MainScene extends Phaser.Scene {
 
   this.updateWorldStreaming();
   if(this.currentWorldZoneIndex>0){
-   this.createBacktrackSeal(WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1]);
+   // A fresh Zone 2 restart owns a visible gate-closing arrival beat below.
+   // Manual saves keep their exact persisted world state and therefore still
+   // receive the normal already-closed backtrack seal immediately.
+   const freshZone2Restart=this.currentWorldZoneIndex===1 && !this.pendingSaveState;
+   if(!freshZone2Restart)this.createBacktrackSeal(WORLD_DESIGN.GATES[this.currentWorldZoneIndex-1]);
    this.releaseRetiredWorldZoneTextures(0);
   }
 
@@ -4336,7 +4362,13 @@ class MainScene extends Phaser.Scene {
   this.pendingSaveState=null;
   if(!restored){
    this.captureZoneEntryCheckpoint();
-   this.startWave(1,true);
+   if(this.currentWorldZoneIndex===1 && this.restartZoneIndex===1){
+    // Restarting Zone 2 begins at the sealed Ash Fields gate, not at the old
+    // Broken Saint sword epilogue. The player then follows the wagon marker.
+    this.beginZone2ArrivalSequence({restart:true});
+   }else{
+    this.startWave(1,true);
+   }
    this.syncCharacterStats();
   }
   this.syncOrientationPause();
@@ -5793,8 +5825,8 @@ createRuinedKingdomCrowFlock(objects,zone){
  // Keep the ambient flock only around the first burning wagon in Ruined Kingdom.
  // Birds are distributed on two loose elliptical rings so even a 20-crow flock
  // never collapses into one pile in the wagon centre.
- const centerX=zone.start+1420;
- const centerY=WORLD_DESIGN.ROUTE_Y+115;
+ const centerX=zone.start+ZONE2_FIRST_WAGON_OFFSET_X;
+ const centerY=WORLD_DESIGN.ROUTE_Y+ZONE2_FIRST_WAGON_OFFSET_Y;
  const birdCount=Phaser.Math.Between(CROW_FLOCK_BIRD_MIN,CROW_FLOCK_BIRD_MAX);
  const flock={id:flockId,centerX,centerY,triggered:false,crows:[]};
  this.crowFlocks.set(flockId,flock);
@@ -6081,6 +6113,12 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
   const sprite=this.add.sprite(placement.x,placement.y,firstFrame)
    .setOrigin(0.5,0.82).setScale(placement.scale).setDepth(5).setVisible(true)
    .play(`zone2_${placement.prop}_burn`);
+  if(
+   placement.prop==='wagon' &&
+   Math.abs(placement.x-(zone.start+ZONE2_FIRST_WAGON_OFFSET_X))<2
+  ){
+   this.zone2FirstWagonTarget=sprite;
+  }
   if(glow){
    this.tweens.add({
     targets:glow,
@@ -6317,8 +6355,8 @@ ${gate.name}`,
   });
  }
 
- createBacktrackSeal(gate){
-  if(!gate || this.closedWorldGates.has(gate.id)) return;
+ createBacktrackSeal(gate,{animate=false,silent=false}={}){
+  if(!gate || this.closedWorldGates.has(gate.id)) return null;
 
   this.closedWorldGates.add(gate.id);
 
@@ -6367,11 +6405,24 @@ ${gate.name}`,
 
   this.backtrackBlockers.push(blocker,curtain,visible,label);
 
-  this.showWaveBanner(
-   'THE WAY BACK IS CLOSED',
-   'The journey continues forward',
-   '#c8d0c2'
-  );
+  if(animate){
+   curtain.setAlpha(0);
+   visible.setAlpha(0).setScale(1,0.08);
+   label.setAlpha(0);
+   this.tweens.add({targets:curtain,alpha:1,duration:620,ease:'Sine.easeOut'});
+   this.tweens.add({targets:visible,alpha:1,scaleY:1,duration:760,ease:'Cubic.easeOut'});
+   this.tweens.add({targets:label,alpha:1,duration:420,delay:520,ease:'Sine.easeOut'});
+   this.cameras.main.shake(180,0.0035);
+  }
+
+  if(!silent){
+   this.showWaveBanner(
+    'THE WAY BACK IS CLOSED',
+    'The journey continues forward',
+    '#c8d0c2'
+   );
+  }
+  return {blocker,curtain,visible,label};
  }
 
  updateRuntimeEnvironmentCulling(time=0){
@@ -6613,13 +6664,158 @@ ${gate.name}`,
    this.ashAltarObjectiveMarker.clearTarget?.();
    this.ashAltarObjectiveMarker.hide?.();
   }
-  if(this.brokenSaintSwordEpilogue?.phase==='gateMarker'){
+  if(this.brokenSaintSwordEpilogue){
    this.brokenSaintSwordEpilogue=null;
   }
 
-  // Each biome owns local waves 1–5; the HUD displays their global numbers.
-  // The first encounter here is global Wave 6, after the arrival beat.
-  this.startZoneWaveSequence(arrivedZoneIndex,{delay:1250,suppressBanner:false});
+  // Zone 2 has an authored arrival beat before Wave 6: the old gate closes,
+  // then the player follows the marker to the first burning wagon and startles
+  // the crows. Later zones retain the direct travel -> combat flow.
+  if(arrivedZoneIndex===1){
+   this.beginZone2ArrivalSequence({restart:false});
+  }else{
+   this.startZoneWaveSequence(arrivedZoneIndex,{delay:1250,suppressBanner:false});
+  }
+ }
+
+ getZone2FirstWagonPoint(){
+  const zone=WORLD_DESIGN.ZONES[1];
+  const sprite=this.zone2FirstWagonTarget;
+  if(sprite?.active)return {x:sprite.x,y:sprite.y};
+  return {
+   x:zone.start+ZONE2_FIRST_WAGON_OFFSET_X,
+   y:WORLD_DESIGN.ROUTE_Y+ZONE2_FIRST_WAGON_OFFSET_Y
+  };
+ }
+
+ beginZone2ArrivalSequence({restart=false}={}){
+  if(this.currentWorldZoneIndex!==1)return false;
+  const existing=this.zone2ArrivalSequence;
+  if(existing && existing.phase!=='complete')return true;
+
+  // Zone 2 owns its own arrival state. Never carry the Ash Fields sword beat
+  // across the gate, including on a zone restart.
+  this.stopAshSwordPulseSfx();
+  this.brokenSaintSwordEpilogue=null;
+  this.awaitingWorldAdvance=false;
+  this.pendingWorldAdvance=null;
+  this.worldAdvanceTargetZone=null;
+  this.waveIntermission=true;
+  this.nextWaveAt=Number.POSITIVE_INFINITY;
+  this.wave=0;
+  this.spawned=0;
+  this.waveTarget=0;
+  this.waveProfile=null;
+  this.postWaveChampionKind=null;
+  this.championEventActive=false;
+
+  this.progressionBalanceZoneIndex=1;
+  this.applyRegionalHeroBalance(1,false);
+  this.regionText?.setText(WORLD_DESIGN.ZONES[1].name);
+  this.waveText?.setText('WAVE 6');
+  this.waveSubText?.setText('ARRIVAL');
+
+  this.ashAltarObjectiveMarker?.clearTarget?.();
+  this.ashAltarObjectiveMarker?.hide?.();
+
+  const gate=WORLD_DESIGN.GATES[0];
+  const seal=this.createBacktrackSeal(gate,{animate:true,silent:true});
+  this.zone2ArrivalSequence={
+   phase:'gateClosing',
+   restart:Boolean(restart),
+   until:this.time.now+ZONE2_GATE_CLOSE_HOLD_MS,
+   seal
+  };
+
+  this.acquireStoryFocus('zone2Arrival');
+  this.setHeroFocusInteraction('zone2Arrival',true);
+  this.player?.body?.setVelocity?.(0,0);
+  this.mobileMoveX=0;
+  this.mobileMoveY=0;
+  return true;
+ }
+
+ beginZone2WagonCinematic(time=this.time.now){
+  const state=this.zone2ArrivalSequence;
+  if(!state || state.phase==='cinematic' || state.phase==='complete')return false;
+
+  state.phase='cinematic';
+  this.ashAltarObjectiveMarker?.clearTarget?.();
+  this.ashAltarObjectiveMarker?.hide?.();
+  this.player?.body?.setVelocity?.(0,0);
+  this.mobileMoveX=0;
+  this.mobileMoveY=0;
+  this.setHeroFocusInteraction('zone2Arrival',true);
+
+  const complete=()=>{
+   const active=this.zone2ArrivalSequence;
+   if(active)active.phase='complete';
+   const flock=this.crowFlocks?.get?.('ruined_wagon_crows_01');
+   for(const crow of flock?.crows||[]){
+    if(crow?.sprite?.active)this.retireCrow(crow);
+   }
+   this.setHeroFocusInteraction('zone2Arrival',false);
+   this.releaseStoryFocus('zone2Arrival',{cooldownMs:0});
+   this.zone2ArrivalSequence=null;
+   this.startZoneWaveSequence(1,{delay:850,suppressBanner:false});
+  };
+
+  const started=this.storyDirector?.playCinematic(ZONE2_WAGON_CINEMATIC_PAGES,{
+   eventId:'ruined_kingdom_wagon_arrival_placeholder',
+   once:false,
+   releaseTextureKeys:[],
+   onComplete:complete
+  });
+  if(!started)complete();
+  return true;
+ }
+
+ updateZone2ArrivalSequence(time){
+  const state=this.zone2ArrivalSequence;
+  if(!state || this.currentWorldZoneIndex!==1)return false;
+
+  if(state.phase==='gateClosing'){
+   this.player?.body?.setVelocity?.(0,0);
+   this.mobileMoveX=0;
+   this.mobileMoveY=0;
+   if(time<state.until)return true;
+
+   this.setHeroFocusInteraction('zone2Arrival',false);
+   this.releaseStoryFocus('zone2Arrival',{cooldownMs:0});
+   const point=this.getZone2FirstWagonPoint();
+   this.ashAltarObjectiveMarker?.setTarget(()=>this.zone2FirstWagonTarget?.active?this.zone2FirstWagonTarget:point,{worldOffsetY:96});
+   this.waveSubText?.setText('FOLLOW THE MARKER');
+   state.phase='approachWagon';
+   return false;
+  }
+
+  if(state.phase==='approachWagon'){
+   this.ashAltarObjectiveMarker?.update?.(time);
+   const point=this.getZone2FirstWagonPoint();
+   if(Phaser.Math.Distance.Between(this.player.x,this.player.y,point.x,point.y)>ZONE2_WAGON_TRIGGER_RADIUS)return false;
+
+   const flock=this.crowFlocks?.get?.('ruined_wagon_crows_01');
+   if(flock)this.scatterCrowFlock(flock,time);
+   state.phase='crowsScattering';
+   state.until=time+ZONE2_CROW_CINEMATIC_DELAY_MS;
+   this.acquireStoryFocus('zone2Arrival');
+   this.setHeroFocusInteraction('zone2Arrival',true);
+   this.player?.body?.setVelocity?.(0,0);
+   this.mobileMoveX=0;
+   this.mobileMoveY=0;
+   return true;
+  }
+
+  if(state.phase==='crowsScattering'){
+   this.player?.body?.setVelocity?.(0,0);
+   this.mobileMoveX=0;
+   this.mobileMoveY=0;
+   if(time<state.until)return true;
+   return this.beginZone2WagonCinematic(time);
+  }
+
+  if(state.phase==='cinematic')return true;
+  return false;
  }
 
  getRegionBalance(index=this.progressionBalanceZoneIndex){
@@ -9244,6 +9440,13 @@ ${gate.name}`,
  updateBrokenSaintSwordEpilogue(time){
   const state=this.brokenSaintSwordEpilogue;
   if(!state)return false;
+  // The sword epilogue belongs exclusively to Ash Fields. A Zone 2 restart or
+  // restored region must never replay it; Zone 2 owns its gate/wagon arrival beat.
+  if(this.currentWorldZoneIndex>0){
+   this.stopAshSwordPulseSfx();
+   this.brokenSaintSwordEpilogue=null;
+   return false;
+  }
   if(state.phase==='waitingClear'){
    if((this.enemies||[]).some(enemy=>enemy?.active&&enemy.hp>0))return false;
    state.phase='freePlay';state.until=time+3000;return false;
@@ -10857,6 +11060,10 @@ ${combatStyleCards[2].desc}`,()=>{
 
   this.captainSystem?.update(time);
   this.updateCrows(time,delta);
+  if(this.updateZone2ArrivalSequence(time)){
+   this.updateHeroFocusInteractionStance(time);
+   return;
+  }
 
   this.updateMana(time);
   this.updateAshSwordPulse(time);
