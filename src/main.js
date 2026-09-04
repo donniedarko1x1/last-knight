@@ -158,6 +158,8 @@ const CROW_TAKEOFF_MS=470;
 const CROW_FLIGHT_LIFETIME_MS=7600;
 const CROW_FLOCK_BIRD_MIN=5;
 const CROW_FLOCK_BIRD_MAX=20;
+const SWORD_ORBIT_CROW_COUNT=10;
+const SWORD_ORBIT_CROW_SOUND_KEY='crow_wings_takeoff';
 const DEV_AI_MODE_META=Object.freeze({
  normal:Object.freeze({name:'Обычное поведение',desc:'Штатный AI игры без экспериментального построения.'}),
  aggressive:Object.freeze({name:'Штурм',desc:'Все бойцы максимально быстро давят прямо на героя.'}),
@@ -3738,10 +3740,11 @@ class GameMenuScene extends Phaser.Scene {
   const m=this.getMetrics();
   this.drawShell(m);
   const hasLive=Boolean(this.mode==='session'&&this.mainScene?.player);
+  const newGameLocked=Boolean(this.registry.get('lastKnightNewGameLocked'));
   const labels=this.mode==='session'
    ?[
     ['ПРОДОЛЖИТЬ',()=>this.resumeGame(),true],
-    ['НОВАЯ ИГРА',()=>this.confirmNewGame(),true],
+    ['НОВАЯ ИГРА',()=>{},false],
     ['СОХРАНИТЬ',()=>this.showSlots('save'),hasLive],
     ['ЗАГРУЗИТЬ',()=>this.showSlots('load'),true],
     ['СТАТИСТИКА ПЕРСОНАЖА',()=>this.showStats(),hasLive],
@@ -3749,7 +3752,7 @@ class GameMenuScene extends Phaser.Scene {
     ['ВЫХОД В ГЛАВНОЕ МЕНЮ',()=>this.confirmExit(),true,true]
    ]
    :[
-    ['НОВАЯ ИГРА',()=>this.startNewGame(),true],
+    ['НОВАЯ ИГРА',()=>this.startNewGame(),!newGameLocked],
     ['ПРОДОЛЖИТЬ',()=>{},false],
     ['СОХРАНИТЬ',()=>{},false],
     ['ЗАГРУЗИТЬ',()=>this.showSlots('load'),true],
@@ -3776,7 +3779,11 @@ class GameMenuScene extends Phaser.Scene {
    fontSize:this.mode==='root'?(m.tiny?11:m.short?13:m.compact?15:m.mobile?18:20):(m.tiny?8:m.short?10:null),
    minimal:this.mode==='root'
   }));
-  if(this.mode==='root')this.statusText.setText('«Продолжить» работает только во время активной игры. Для сохранений используйте «Загрузить».');
+  if(this.mode==='root'){
+   this.statusText.setText(newGameLocked
+    ?'«Новая игра» заблокирована текущей сессией. Чтобы начать заново, загрузите её и выберите «Выйти без сохранения».'
+    :'«Продолжить» работает только во время активной игры. Для сохранений используйте «Загрузить».');
+  }
  }
 
  stopGameplayScenes(){
@@ -3789,10 +3796,16 @@ class GameMenuScene extends Phaser.Scene {
  }
 
  startNewGame(){
+  if(this.registry.get('lastKnightNewGameLocked')){
+   this.statusText?.setText('Новая игра недоступна, пока текущая сессия не завершена через «Выйти без сохранения».');
+   return false;
+  }
   clearAutosave();
   clearCharacterStats();
+  this.registry.set('lastKnightNewGameLocked',true);
   this.stopGameplayScenes();
   this.ensurePrologueAssetsThenStart();
+  return true;
  }
 
  ensurePrologueAssetsThenStart(){
@@ -3805,7 +3818,12 @@ class GameMenuScene extends Phaser.Scene {
    if(!spec?.url){failed=true;continue;}
    this.load.image(key,spec.url);
   }
-  if(failed){this.statusText?.setText('Не удалось подготовить вступительный синематик.');return;}
+  if(failed){
+   this.registry.set('lastKnightNewGameLocked',false);
+   this.statusText?.setText('Не удалось подготовить вступительный синематик.');
+   this.renderMenu();
+   return;
+  }
   const onError=(file)=>{
    if(missing.includes(String(file?.key||'')))failed=true;
   };
@@ -3813,7 +3831,9 @@ class GameMenuScene extends Phaser.Scene {
   this.load.once('complete',()=>{
    this.load.off('loaderror',onError);
    if(failed || missing.some(key=>!this.textures.exists(key))){
+    this.registry.set('lastKnightNewGameLocked',false);
     this.statusText?.setText('Не удалось загрузить вступительный синематик.');
+    this.renderMenu();
     return;
    }
    this.scene.start('CinematicScene');
@@ -3822,15 +3842,13 @@ class GameMenuScene extends Phaser.Scene {
  }
 
  confirmNewGame(){
-  this.showConfirm('НАЧАТЬ НОВУЮ ИГРУ?','Текущая сессия будет закрыта. Ручные сохранения останутся.',()=>{
-   this.mainScene?.setGameplayPaused?.('menu',false);
-   this.stopGameplayScenes();
-   this.startNewGame();
-  });
+  this.statusText?.setText('Новая игра недоступна во время действующей сессии. Используйте «Выйти без сохранения», чтобы полностью сбросить её.');
+  return false;
  }
 
  loadSave(save,slot=null){
   if(!save)return;
+  this.registry.set('lastKnightNewGameLocked',true);
   if(this.mainScene?.player)this.mainScene.setGameplayPaused?.('menu',false);
   this.stopGameplayScenes();
   const requestedSlot=Number(slot);
@@ -3884,7 +3902,7 @@ class GameMenuScene extends Phaser.Scene {
      if(!this.mainScene?.player)return;
      const saved=this.mainScene.saveManualSlot?.(slot);
      if(!saved){this.statusText.setText(`Не удалось сохранить слот ${slot}.`);return;}
-     if(exitAfterSave){this.finishExitToRoot();return;}
+     if(exitAfterSave){this.finishExitToRoot({discardSession:false});return;}
      this.statusText.setText(`Слот ${slot} сохранён и стал текущим.`);
      this.time.delayedCall(120,()=>this.showSlots('save'));
     }else if(save)this.loadSave(save,slot);
@@ -4119,25 +4137,106 @@ class GameMenuScene extends Phaser.Scene {
     this.statusText.setText(`Не удалось сохранить текущую сессию в слот ${slot}.`);
     return;
    }
-   this.finishExitToRoot();
+   this.finishExitToRoot({discardSession:false});
    return;
   }
   this.showSlots('exit-save');
   this.statusText.setText('У этой сессии ещё нет текущего слота. Выберите слот для сохранения.');
  }
 
- exitWithoutSave(){
-  // Explicit discard: do not create or update any persistent gameplay save.
-  clearAutosave();
-  clearCharacterStats();
-  this.finishExitToRoot();
+ isAssetEntryLoaded(entry){
+  if(!entry)return false;
+  if(entry.type==='image')return Boolean(this.textures?.exists?.(entry.key));
+  if(entry.type==='audio')return Boolean(this.cache?.audio?.exists?.(entry.key));
+  if(entry.type==='json')return Boolean(this.cache?.json?.exists?.(entry.key));
+  return false;
  }
 
- finishExitToRoot(){
+ queueAssetEntry(entry){
+  if(!entry?.key || !entry?.url)return false;
+  if(entry.type==='image')this.load.image(entry.key,entry.url);
+  else if(entry.type==='audio')this.load.audio(entry.key,entry.url);
+  else if(entry.type==='json')this.load.json(entry.key,entry.url);
+  else return false;
+  return true;
+ }
+
+ ensureFirstZoneAssetsLoaded(onComplete){
+  const entries=getAssetsForCategories([ASSET_CATEGORY.REGION_ASH]);
+  const missing=entries.filter(entry=>!this.isAssetEntryLoaded(entry));
+  if(!missing.length){onComplete?.(true);return true;}
+  if(typeof this.load.isLoading==='function' && this.load.isLoading())return false;
+
+  const requiredKeys=new Set(missing.filter(entry=>entry.requirement===ASSET_REQUIREMENT.REQUIRED).map(entry=>entry.key));
+  const failedRequired=new Set();
+  const missingKeys=new Set(missing.map(entry=>entry.key));
+  this.statusText?.setText(`Loading · восстановление первой зоны 0%`);
+  for(const entry of missing)this.queueAssetEntry(entry);
+
+  const onProgress=(value)=>this.statusText?.setText(`Loading · восстановление первой зоны ${Math.round(value*100)}%`);
+  const onError=(file)=>{
+   const key=String(file?.key||'');
+   if(requiredKeys.has(key))failedRequired.add(key);
+  };
+  this.load.on('progress',onProgress);
+  this.load.on('loaderror',onError);
+  this.load.once('complete',()=>{
+   this.load.off('progress',onProgress);
+   this.load.off('loaderror',onError);
+   for(const key of requiredKeys){
+    const entry=missing.find(item=>item.key===key);
+    if(entry && !this.isAssetEntryLoaded(entry))failedRequired.add(key);
+   }
+   onComplete?.(failedRequired.size===0,{failedRequired:[...failedRequired],requested:[...missingKeys]});
+  });
+  this.load.start();
+  return true;
+ }
+
+ exitWithoutSave(){
+  if(this.discardResetInProgress)return;
+  const main=this.mainScene||this.scene.get('main');
+  if(!main?.player){
+   clearAutosave();
+   clearCharacterStats();
+   this.registry.set('lastKnightNewGameLocked',false);
+   this.finishExitToRoot({discardSession:true});
+   return;
+  }
+
+  // Explicit discard: the live session stays paused while the Ash Fields asset
+  // package is restored. Only after the required files are back in Phaser caches
+  // do we destroy the old scene and unlock New Game.
+  this.discardResetInProgress=true;
+  for(const obj of this.content||[]){try{obj?.disableInteractive?.();}catch{}}
+  this.statusText?.setText('Loading · восстановление первой зоны 0%');
+  const started=this.ensureFirstZoneAssetsLoaded((ok,details={})=>{
+   this.discardResetInProgress=false;
+   if(!ok){
+    this.confirmExit();
+    this.statusText?.setText(`Не удалось восстановить ресурсы первой зоны${details.failedRequired?.length?`: ${details.failedRequired.join(', ')}`:''}. Сессия не сброшена.`);
+    return;
+   }
+   clearAutosave();
+   clearCharacterStats();
+   this.registry.set('lastKnightNewGameLocked',false);
+   this.finishExitToRoot({discardSession:true});
+  });
+  if(!started){
+   this.discardResetInProgress=false;
+   this.confirmExit();
+   this.statusText?.setText('Загрузчик сейчас занят. Попробуйте «Выйти без сохранения» ещё раз через секунду.');
+  }
+ }
+
+ finishExitToRoot({discardSession=false}={}){
   // Legacy autosaves are deliberately not part of the current save model.
   clearAutosave();
   clearCharacterStats();
-  this.mainScene?.setGameplayPaused?.('menu',false);
+  if(discardSession)this.registry.set('lastKnightNewGameLocked',false);
+  else this.registry.set('lastKnightNewGameLocked',true);
+  // We are destroying the session, not resuming it: keep SFX paused until SHUTDOWN
+  // stops them so no one-frame audio burst leaks into the root menu.
   this.stopGameplayScenes();
   this.mode='root';this.mainScene=null;this.currentView={type:'menu'};
   this.syncLayoutCamera();
@@ -4153,6 +4252,7 @@ class GameMenuScene extends Phaser.Scene {
 
 class MainScene extends Phaser.Scene {
  init(data={}){
+  this.registry.set('lastKnightNewGameLocked',true);
   this.pendingSaveState=data?.saveState||null;
   const requestedSlot=Number(data?.saveSlot);
   this.currentSaveSlot=Number.isInteger(requestedSlot)&&requestedSlot>=1&&requestedSlot<=3?requestedSlot:null;
@@ -4418,6 +4518,7 @@ class MainScene extends Phaser.Scene {
   this.deathFlipX=false;
   this.gameplayPauseReasons=new Set();
   this.gameplayPaused=false;
+  this.gameplayAudioPaused=false;
   this.levelChoiceOpen=false;
   this.levelChoiceObjects=[];
   this.currentLevelChoices=[];
@@ -4516,6 +4617,8 @@ class MainScene extends Phaser.Scene {
   this.emptyScreenRushActive=false;
   this.crows=[];
   this.crowFlocks=new Map();
+  this.swordOrbitCrowFlockId=null;
+  this.swordOrbitCrowWingsSound=null;
   this.zone2FirstWagonTarget=null;
   this.zone2ArrivalSequence=null;
 
@@ -4585,6 +4688,7 @@ class MainScene extends Phaser.Scene {
   this.deathFlipX=false;
   this.gameplayPauseReasons=new Set();
   this.gameplayPaused=false;
+  this.gameplayAudioPaused=false;
   this.levelChoiceOpen=false;
   this.levelChoiceObjects=[];
   this.currentLevelChoices=[];
@@ -4676,6 +4780,8 @@ class MainScene extends Phaser.Scene {
   this.emptyScreenRushActive=false;
   this.crows=[];
   this.crowFlocks=new Map();
+  this.swordOrbitCrowFlockId=null;
+  this.swordOrbitCrowWingsSound=null;
   this.zone2FirstWagonTarget=null;
   this.zone2ArrivalSequence=null;
 
@@ -4849,6 +4955,9 @@ class MainScene extends Phaser.Scene {
   this.storyDirector=new StoryDirector(this,{events:STORY_EVENTS}).install();
   this.dialogueSystem=new WorldDialogueSystem(this,{storyDirector:this.storyDirector}).install();
   this.woundedKnightInteractions=new WoundedKnightInteractionSystem(this,{storyDirector:this.storyDirector}).install();
+  // The story-knight crow flock is intentionally event-driven: it does not
+  // exist in Ash Fields until the wounded-knight objective marker appears.
+  this.events.on('story-objective-activated',this.handleStoryKnightCrowObjective,this);
   this.championDialogueSystem=new ChampionDialogueSystem(this,{storyDirector:this.storyDirector});
   this.storyEnemyAnomalies=new StoryEnemyAnomalySystem(this,{definitions:STORY_ANOMALY_DEFINITIONS}).install();
   this.ashAltarObjectiveMarker=new StoryObjectiveMarker(this,{insetRatio:0.10}).install();
@@ -4873,11 +4982,16 @@ class MainScene extends Phaser.Scene {
    this.scale.off('resize',this.handleViewportResize,this);
    this.scale.off('resize',this.syncOrientationPause,this);
    this.events.off('mobile-skill',this.handleSkillInput,this);
+   this.events.off('story-objective-activated',this.handleStoryKnightCrowObjective,this);
    this.gameplayPauseReasons?.clear();
    this.stopCriticalHeartbeat(true);
    try{this.physics.world.resume();}catch{}
    this.stopBrokenSaintHolyWarningSfx();
    this.stopAshSwordPulseSfx();
+   this.stopBrokenSaintMaterializeSfx();
+   this.stopBrokenSaintDisappearSfx();
+   this.stopSwordOrbitCrowFlock(0);
+   this.stopGameplaySfx();
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
    this.stopBackgroundMusic();
@@ -5206,8 +5320,36 @@ class MainScene extends Phaser.Scene {
  stopBrokenSaintMusic(){ return AudioManager.prototype.stopBrokenSaintMusic.call(this); }
  playAshSwordPulseSfx(){ return AudioManager.prototype.playAshSwordPulseSfx.call(this); }
  stopAshSwordPulseSfx(){ return AudioManager.prototype.stopAshSwordPulseSfx.call(this); }
- playBrokenSaintMaterializeSfx(){ return AudioManager.prototype.playBrokenSaintMaterializeSfx.call(this); }
- playBrokenSaintDisappearSfx(){ return AudioManager.prototype.playBrokenSaintDisappearSfx.call(this); }
+ playBrokenSaintMaterializeSfx(maxDurationMs=0){ return AudioManager.prototype.playBrokenSaintMaterializeSfx.call(this,maxDurationMs); }
+ stopBrokenSaintMaterializeSfx(){ return AudioManager.prototype.stopBrokenSaintMaterializeSfx.call(this); }
+ playBrokenSaintDisappearSfx(maxDurationMs=0){ return AudioManager.prototype.playBrokenSaintDisappearSfx.call(this,maxDurationMs); }
+ stopBrokenSaintDisappearSfx(){ return AudioManager.prototype.stopBrokenSaintDisappearSfx.call(this); }
+ playCrowScatterSfx(){ return AudioManager.prototype.playCrowScatterSfx.call(this); }
+
+ startSwordOrbitCrowWingsSfx(){
+  if(this.swordOrbitCrowWingsSound || !this.sound || this.sound.locked || !this.cache.audio.exists(SWORD_ORBIT_CROW_SOUND_KEY)) return this.swordOrbitCrowWingsSound;
+  const sound=this.sound.add(SWORD_ORBIT_CROW_SOUND_KEY,{loop:true,volume:0.32*getGameSettings().sfxVolume});
+  this.swordOrbitCrowWingsSound=sound;
+  try{sound.play();}catch(e){
+   console.warn('Sword orbit crow wings start failed',e);
+   try{sound.destroy();}catch{}
+   if(this.swordOrbitCrowWingsSound===sound)this.swordOrbitCrowWingsSound=null;
+   return null;
+  }
+  return sound;
+ }
+
+ stopSwordOrbitCrowWingsSfx(){
+  const sound=this.swordOrbitCrowWingsSound;
+  if(!sound) return;
+  this.swordOrbitCrowWingsSound=null;
+  try{if(sound.isPlaying)sound.stop();}catch{}
+  try{sound.destroy();}catch{}
+ }
+
+ pauseGameplaySfx(){ return AudioManager.prototype.pauseGameplaySfx.call(this); }
+ resumeGameplaySfx(){ return AudioManager.prototype.resumeGameplaySfx.call(this); }
+ stopGameplaySfx(){ return AudioManager.prototype.stopGameplaySfx.call(this); }
 
  isPortraitInputBlocked(){
   if(typeof window==='undefined' || !window.matchMedia) return false;
@@ -5234,6 +5376,16 @@ class MainScene extends Phaser.Scene {
   if(hadReason!==wanted || nextPaused!==this.gameplayPaused){
    this.devTools?.recordTraceEvent?.('gameplay_pause_reason',{reason:String(reason),shouldPause:wanted,paused:nextPaused,reasons:Array.from(this.gameplayPauseReasons)},{sample:true,dedupe:true,dedupeKey:`gameplay_pause:${reason}`});
   }
+  // Story cinematics freeze simulation through the same pause-reason system,
+  // but their authored SFX must be allowed to keep playing. Every other pause
+  // reason is a real gameplay/UI pause and therefore suspends non-music audio.
+  const audioShouldPause=[...this.gameplayPauseReasons].some(activeReason=>activeReason!=='story');
+  if(audioShouldPause!==Boolean(this.gameplayAudioPaused)){
+   this.gameplayAudioPaused=audioShouldPause;
+   if(audioShouldPause)this.pauseGameplaySfx?.();
+   else this.resumeGameplaySfx?.();
+  }
+
   if(nextPaused===this.gameplayPaused) return;
   this.gameplayPaused=nextPaused;
 
@@ -5330,11 +5482,14 @@ class MainScene extends Phaser.Scene {
  }
 
  syncCriticalHeartbeat(){
-  if(this.isHeartbeatHealthState() && !this.gameOver && !this.gameplayPaused){
-   this.startCriticalHeartbeat();
-  } else {
+  if(this.gameOver || !this.isHeartbeatHealthState()){
    this.stopCriticalHeartbeat(false);
+   return;
   }
+  // Scene time and the actual heartbeat sound are paused by setGameplayPaused().
+  // Do not stop/restart the loop when a menu opens; resume it from the same point.
+  if(this.gameplayPaused)return;
+  this.startCriticalHeartbeat();
  }
 
  spawnEnemy(forcedType=null,forcedPosition=null,{skipStoryAnomaly=false}={}){
@@ -6501,6 +6656,153 @@ createAshFieldsEnvironment(objects,zone){
  this.createAshBattlefieldCasualties(objects);
 }
 
+handleStoryKnightCrowObjective(objective){
+ if(!objective || objective.id!==ASH_WOUNDED_KNIGHT_STORY.objectiveId)return false;
+ if(objective.targetId!==ASH_WOUNDED_KNIGHT_STORY.characterId)return false;
+ return this.createAshStoryKnightCrowFlock();
+}
+
+createAshStoryKnightCrowFlock(){
+ if(this.currentWorldZoneIndex!==0 || !this.textures.exists('crown_1_1'))return false;
+ const flockId='ash_story_knight_crows_01';
+ if(this.crowFlocks?.has(flockId))return true;
+
+ const storyId=ASH_WOUNDED_KNIGHT_STORY.characterId;
+ const knight=(this.devEnvironmentObjects||[]).find(obj=>obj?.active && obj?.devEnvMeta?.id===storyId);
+ const marker=ASH_WOUNDED_KNIGHT_STORY.markerPoint||{};
+ const centerX=Number(knight?.x) || Number(marker.x) || 2700;
+ const centerY=Number(knight?.y) || Number(marker.y) || 800;
+
+ // Ten deliberately spaced perches around the story knight. The empty centre
+ // keeps the NPC readable and prevents birds from visually merging together.
+ const placements=[
+  {dx:-205,dy:-92},{dx:-118,dy:-146},{dx:-18,dy:-174},{dx:92,dy:-150},{dx:190,dy:-92},
+  {dx:-220,dy:34},{dx:-148,dy:128},{dx:-28,dy:158},{dx:104,dy:132},{dx:214,dy:38}
+ ];
+ const flock={id:flockId,centerX,centerY,triggered:false,crows:[],storyObjective:true};
+ this.crowFlocks.set(flockId,flock);
+ const zoneObjects=this.loadedWorldZones.get(0)||[];
+ if(!this.loadedWorldZones.has(0))this.loadedWorldZones.set(0,zoneObjects);
+
+ placements.forEach((placement,index)=>{
+  const desiredX=centerX+placement.dx+Phaser.Math.Between(-7,7);
+  const desiredY=centerY+placement.dy+Phaser.Math.Between(-5,5);
+  const point=this.findNearestFreeGroundPoint(desiredX,desiredY,22,110,18);
+  const x=point.x,y=point.y;
+  const variant=Phaser.Math.Between(1,3);
+  const shadow=this.add.ellipse(x,y+4,23,8,0x000000,0.24).setDepth(5.4);
+  const sprite=this.add.sprite(x,y,`crown_${variant}_1`)
+   .setOrigin(0.5,0.82)
+   .setScale(CROW_VISUAL_SCALE*Phaser.Math.FloatBetween(0.94,1.07))
+   .setFlipX(Math.random()<0.5)
+   .setDepth(7.2);
+  sprite.play({key:`crown_idle_${variant}`,startFrame:index%3});
+  const crow={
+   flockId,index,variant,sprite,shadow,state:'idle',groundX:x,groundY:y,homeX:x,homeY:y,
+   idleSide:(index%2===0?1:-1)*Phaser.Math.FloatBetween(0.75,1.2),idlePhase:index%3,
+   altitude:0,launchAt:0,takeoffAt:0,flyAt:0,flightEndsAt:0,speed:0,angle:0,exitAngle:0,
+   turnSign:index%2===0?1:-1,turnUntil:0,retiring:false,scatterAngle:null,maneuverQueue:[],nextManeuverAt:0
+  };
+  flock.crows.push(crow);
+  this.crows.push(crow);
+  zoneObjects.push(shadow,sprite);
+ });
+ return true;
+}
+
+
+createSwordOrbitCrowFlock(centerTarget=this.ashSwordLandmark,time=this.time.now,{playSound=true}={}){
+ if(!centerTarget?.active || !this.textures.exists('crown_fly_1')) return false;
+ const flockId='ash_sword_orbit_crows';
+ if(this.crowFlocks?.has(flockId)) return true;
+ const centerX=(Number(centerTarget.x)||0)+48;
+ const centerY=(Number(centerTarget.y)||0)-112;
+ const flock={id:flockId,centerX,centerY,triggered:true,orbit:true,centerTarget,crows:[]};
+ this.crowFlocks.set(flockId,flock);
+ this.swordOrbitCrowFlockId=flockId;
+ const zoneObjects=this.loadedWorldZones.get(this.currentWorldZoneIndex)||[];
+ if(!this.loadedWorldZones.has(this.currentWorldZoneIndex))this.loadedWorldZones.set(this.currentWorldZoneIndex,zoneObjects);
+ const startAngle=Phaser.Math.FloatBetween(0,Math.PI*2);
+ for(let index=0; index<SWORD_ORBIT_CROW_COUNT; index++){
+  const orbitAngle=startAngle + (index/SWORD_ORBIT_CROW_COUNT)*Math.PI*2 + Phaser.Math.FloatBetween(-0.1,0.1);
+  const orbitDirection=Math.random()<0.5?-1:1;
+  const orbitRadiusX=Phaser.Math.Between(112,198);
+  const orbitRadiusY=Phaser.Math.Between(58,102);
+  const groundX=centerX+Math.cos(orbitAngle)*orbitRadiusX;
+  const groundY=centerY+Math.sin(orbitAngle)*orbitRadiusY;
+  const altitude=Phaser.Math.Between(92,138);
+  const shadow=this.add.ellipse(groundX,groundY+6,18,6,0x000000,0.12).setDepth(21.2);
+  const sprite=this.add.sprite(groundX,groundY-altitude,'crown_fly_1')
+   .setOrigin(0.5,0.62)
+   .setScale(CROW_VISUAL_SCALE*Phaser.Math.FloatBetween(0.92,1.05))
+   .setDepth(24.6)
+   .setFlipX(Math.random()<0.5);
+  sprite.play({key:'crown_fly',startFrame:index%4,repeat:-1});
+  const crow={
+   flockId,index,sprite,shadow,state:'orbit',groundX,groundY,homeX:groundX,homeY:groundY,
+   altitude,flyAt:time,speed:Phaser.Math.Between(82,120),angle:orbitAngle,retiring:false,
+   orbitAngle,orbitDirection,orbitRadiusX,orbitRadiusY,
+   orbitAngularSpeed:Phaser.Math.FloatBetween(0.78,1.22),
+   orbitAltitudeBase:altitude,
+   orbitAltitudePhase:Phaser.Math.FloatBetween(0,Math.PI*2),
+   orbitRadialPhase:Phaser.Math.FloatBetween(0,Math.PI*2),
+   orbitVerticalBias:Phaser.Math.FloatBetween(-10,10),
+   orbitTargetX:groundX,
+   orbitTargetY:groundY,
+   orbitTargetAt:time,
+   orbitTargetSpeed:Phaser.Math.Between(86,154),
+   orbitTurnBias:Math.random()<0.5?-1:1,
+   orbitVx:Math.cos(orbitAngle+(orbitDirection>0?Math.PI/2:-Math.PI/2))*Phaser.Math.FloatBetween(45,72),
+   orbitVy:Math.sin(orbitAngle+(orbitDirection>0?Math.PI/2:-Math.PI/2))*Phaser.Math.FloatBetween(45,72)
+  };
+  this.pickSwordOrbitCrowWaypoint(crow,centerX,centerY,time);
+  flock.crows.push(crow);
+  this.crows.push(crow);
+  zoneObjects.push(shadow,sprite);
+ }
+ if(playSound)this.startSwordOrbitCrowWingsSfx();
+ return true;
+}
+
+stopSwordOrbitCrowFlock(fadeMs=180){
+ const flockId=this.swordOrbitCrowFlockId;
+ this.stopSwordOrbitCrowWingsSfx();
+ if(!flockId || !this.crowFlocks?.has(flockId)){
+  this.swordOrbitCrowFlockId=null;
+  return false;
+ }
+ const flock=this.crowFlocks.get(flockId);
+ this.swordOrbitCrowFlockId=null;
+ this.crowFlocks.delete(flockId);
+ if(!flock?.crows?.length) return true;
+ const destroyCrow=(crow)=>this.retireCrow(crow);
+ flock.crows.forEach(crow=>{
+  if(!crow?.sprite?.active && !crow?.shadow?.active){
+   crow.state='gone';
+   return;
+  }
+  crow.state='orbit_retiring';
+  const targets=[crow.sprite,crow.shadow].filter(o=>o?.active);
+  if(!targets.length){ destroyCrow(crow); return; }
+  if(fadeMs>0){
+   this.tweens.add({targets,alpha:0,duration:fadeMs,onComplete:()=>destroyCrow(crow)});
+  }else{
+   destroyCrow(crow);
+  }
+ });
+ return true;
+}
+
+pickSwordOrbitCrowWaypoint(crow,centerX,centerY,time=this.time.now){
+ const angle=Phaser.Math.FloatBetween(0,Math.PI*2);
+ const radius=Phaser.Math.Between(48,190);
+ crow.orbitTargetX=centerX+Math.cos(angle)*radius*1.28;
+ crow.orbitTargetY=centerY+Math.sin(angle)*radius*Phaser.Math.FloatBetween(0.50,0.72)+Phaser.Math.FloatBetween(-14,14);
+ crow.orbitTargetAt=time+Phaser.Math.Between(260,760);
+ crow.orbitTargetSpeed=Phaser.Math.Between(86,154);
+ crow.orbitTurnBias=Math.random()<0.5?-1:1;
+}
+
 createRuinedKingdomCrowFlock(objects,zone){
  if(!zone || !this.textures.exists('crown_1_1'))return;
  const flockId='ruined_wagon_crows_01';
@@ -6548,6 +6850,7 @@ createRuinedKingdomCrowFlock(objects,zone){
 scatterCrowFlock(flock,time=this.time.now){
  if(!flock || flock.triggered || !this.player?.active)return false;
  flock.triggered=true;
+ this.playCrowScatterSfx();
  const shuffled=[...flock.crows].filter(crow=>crow?.sprite?.active);
  Phaser.Utils.Array.Shuffle(shuffled);
  const baseAngle=Math.atan2(flock.centerY-this.player.y,flock.centerX-this.player.x);
@@ -6598,11 +6901,11 @@ retireCrow(crow){
  crow.state='gone';crow.retiring=false;
 }
 
-updateCrows(time,delta){
- if(!this.crows?.length || !this.player?.active)return;
+updateCrows(time,delta,{orbitOnly=false}={}){
+ if(!this.crows?.length)return;
  const dt=Math.min(0.05,Math.max(0,delta||0)/1000);
- for(const flock of this.crowFlocks?.values?.()||[]){
-  if(flock.triggered)continue;
+ if(!orbitOnly)for(const flock of this.crowFlocks?.values?.()||[]){
+  if(flock.triggered || !this.player?.active)continue;
   let nearest=Infinity;
   for(const crow of flock.crows){
    if(!crow?.sprite?.active)continue;
@@ -6613,7 +6916,59 @@ updateCrows(time,delta){
  for(const crow of this.crows){
   const sprite=crow?.sprite;
   if(!sprite?.active)continue;
+  if(orbitOnly && crow.state!=='orbit')continue;
   const frameIndex=Math.max(0,(sprite.anims?.currentFrame?.index||1)-1);
+  if(crow.state==='orbit'){
+   const flock=this.crowFlocks.get(crow.flockId);
+   const target=flock?.centerTarget;
+   if(target?.active){
+    flock.centerX=target.x+48;
+    flock.centerY=target.y-112;
+   }
+   const centerX=flock?.centerX ?? crow.homeX;
+   const centerY=flock?.centerY ?? crow.homeY;
+   const toWaypointX=(crow.orbitTargetX ?? crow.groundX)-crow.groundX;
+   const toWaypointY=(crow.orbitTargetY ?? crow.groundY)-crow.groundY;
+   const waypointDist=Math.hypot(toWaypointX,toWaypointY);
+   if(time>= (crow.orbitTargetAt||0) || waypointDist<24){
+    this.pickSwordOrbitCrowWaypoint(crow,centerX,centerY,time);
+   }
+   const desiredX=(crow.orbitTargetX ?? centerX)-crow.groundX;
+   const desiredY=(crow.orbitTargetY ?? centerY)-crow.groundY;
+   const desiredDist=Math.max(0.001,Math.hypot(desiredX,desiredY));
+   const dirX=desiredX/desiredDist;
+   const dirY=desiredY/desiredDist;
+   const radialX=crow.groundX-centerX;
+   const radialY=crow.groundY-centerY;
+   const radialDist=Math.max(1,Math.hypot(radialX,radialY));
+   const ellipseDist=Math.hypot(radialX/238,radialY/158);
+   const pullStrength=ellipseDist>1 ? Phaser.Math.Clamp((ellipseDist-1)/0.42,0,1) : 0;
+   const pullX=-radialX/radialDist*pullStrength;
+   const pullY=-radialY/radialDist*pullStrength;
+   const swirlX=(-radialY/radialDist)*0.46*crow.orbitTurnBias;
+   const swirlY=(radialX/radialDist)*0.46*crow.orbitTurnBias;
+   const accel=170;
+   const desiredSpeed=crow.orbitTargetSpeed ?? 120;
+   crow.orbitVx=(crow.orbitVx||0) + (dirX*desiredSpeed + swirlX*desiredSpeed*0.55 + pullX*desiredSpeed - (crow.orbitVx||0))*Math.min(1,dt*2.8);
+   crow.orbitVy=(crow.orbitVy||0) + (dirY*desiredSpeed + swirlY*desiredSpeed*0.55 + pullY*desiredSpeed - (crow.orbitVy||0))*Math.min(1,dt*2.8);
+   const currentSpeed=Math.hypot(crow.orbitVx,crow.orbitVy);
+   const speedCap=186;
+   if(currentSpeed>speedCap){
+    crow.orbitVx=crow.orbitVx/currentSpeed*speedCap;
+    crow.orbitVy=crow.orbitVy/currentSpeed*speedCap;
+   }
+   crow.groundX+=crow.orbitVx*dt;
+   crow.groundY+=crow.orbitVy*dt;
+   crow.angle=Math.atan2(crow.orbitVy||0,crow.orbitVx||1);
+   crow.altitude=crow.orbitAltitudeBase+Math.sin(time*0.0042+crow.orbitAltitudePhase)*7+Math.sin(time*0.0023+crow.index*1.7)*5;
+   const flapBob=frameIndex%2===0?-1:1;
+   sprite.setFlipX(Math.cos(crow.angle)<0).setPosition(crow.groundX,crow.groundY-crow.altitude+flapBob);
+   if(crow.shadow?.active){
+    const shadowScale=Phaser.Math.Clamp(0.5-crow.altitude*0.0008,0.36,0.48);
+    crow.shadow.setPosition(crow.groundX,crow.groundY+6).setScale(shadowScale,shadowScale*0.88).setAlpha(0.075);
+   }
+   continue;
+  }
   if(crow.state==='idle' || crow.state==='alert'){
    const idleFrame=(frameIndex+(crow.idlePhase||0))%3;
    const side=[0,1.35,-0.75][idleFrame]*(crow.idleSide||1);
@@ -9076,6 +9431,7 @@ ${gate.name}`,
   if(!this.ashSwordPreludeState) return false;
   const restoreZoom=this.ashSwordPreludeState.restoreZoom;
   this.stopAshSwordPulseSfx();
+  this.stopSwordOrbitCrowFlock(120);
   this.stopAshSwordPulseAnimation({hide:true});
   this.ashSwordPreludeState=null;
   this.setHeroFocusInteraction('ashSwordPrelude',false);
@@ -9115,6 +9471,9 @@ ${gate.name}`,
   this.mobileMoveY=0;
   this.mobileMovePointerId=null;
   cam.stopFollow();
+  // The birds are already circling the sword off-camera. When the camera pans
+  // over, the flock is visibly in motion instead of spawning in front of the player.
+  this.createSwordOrbitCrowFlock(this.ashSwordLandmark,time,{playSound:false});
   cam.pan(this.player.x,this.player.y,ASH_SWORD_PRELUDE_HERO_FOCUS_MS,'Sine.easeOut',true);
   cam.zoomTo(focusZoom,ASH_SWORD_PRELUDE_HERO_FOCUS_MS,'Sine.easeOut',true);
   this.beginAshSwordPulseAnimation();
@@ -9136,6 +9495,7 @@ ${gate.name}`,
   if(state.phase==='hero' && time>=state.heroArriveAt){
    state.phase='sword';
    state.swordLockedAt=time+ASH_SWORD_PRELUDE_SWORD_PAN_MS;
+   this.startSwordOrbitCrowWingsSfx();
    const focusY=sword.y-Math.min(46,Math.max(18,(sword.displayHeight||0)*0.14));
    cam.pan(sword.x,focusY,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
    cam.zoomTo(state.focusZoom,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
@@ -9148,6 +9508,7 @@ ${gate.name}`,
     state.phase='returning';
     state.returnAt=time+ASH_SWORD_PRELUDE_RETURN_MS;
     this.stopAshSwordPulseSfx();
+    this.stopSwordOrbitCrowFlock(220);
     cam.pan(this.player.x,this.player.y,ASH_SWORD_PRELUDE_RETURN_MS,'Quad.easeOut',true);
     cam.zoomTo(state.restoreZoom,ASH_SWORD_PRELUDE_RETURN_MS,'Quad.easeOut',true);
   }
@@ -10064,7 +10425,9 @@ ${gate.name}`,
   const visual=enemy?.visual?.active?enemy.visual:null;
   const shadow=enemy?.shadowVisual?.active?enemy.shadowVisual:null;
   this.brokenSaintDefeatSequenceActive=true;
-  this.playBrokenSaintDisappearSfx();
+  // Defeat smoke is destroyed at 1320 ms; do not let the disappearance sound
+  // continue past the visual effect.
+  this.playBrokenSaintDisappearSfx(1320);
   this.setHeroFocusInteraction('brokenSaintDefeat',true);
   this.player?.body?.setVelocity?.(0,0);
   this.mobileMoveX=0; this.mobileMoveY=0; this.mobileMovePointerId=null;
@@ -10128,6 +10491,7 @@ ${gate.name}`,
   // restored region must never replay it; Zone 2 owns its gate/wagon arrival beat.
   if(this.currentWorldZoneIndex>0){
    this.stopAshSwordPulseSfx();
+   this.stopSwordOrbitCrowFlock(0);
    this.brokenSaintSwordEpilogue=null;
    return false;
   }
@@ -10618,7 +10982,8 @@ ${gate.name}`,
   const champion=state.champion;
   const anchor=champion.storyRevealAnchor||{x:champion.x,y:champion.y};
   state.ashFx=this.createAshChampionRevealFx(champion,anchor);
-  this.playBrokenSaintMaterializeSfx();
+  const smokeSoundMs=Math.max(0,(state.smokeFadeAt+ASH_CHAMPION_SMOKE_FADE_MS)-this.time.now);
+  this.playBrokenSaintMaterializeSfx(smokeSoundMs);
   if(champion.visual?.active){
    this.tweens.add({
     targets:champion.visual,
@@ -11736,6 +12101,10 @@ ${combatStyleCards[2].desc}`,()=>{
 
   if(this.isAshSwordPreludeActive()){
    this.updateAshSwordPrelude(this.time.now);
+   // The sword intermission short-circuits the normal gameplay update below,
+   // so the cinematic flock needs its own update here or it freezes in the
+   // spawn formation while the camera is focused on the sword.
+   this.updateCrows(this.time.now,delta,{orbitOnly:true});
    this.updateAshSwordPulse(this.time.now);
    this.updateHeroFocusInteractionStance(this.time.now);
    return;

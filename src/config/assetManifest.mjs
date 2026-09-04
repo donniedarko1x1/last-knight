@@ -222,6 +222,10 @@ for(const prop of ['campfire','torch','lantern','embers','wagon']){
  }
 }
 
+// Ambient crow flock: one wing burst plus one group-call layer per frightened flock.
+audio(REGION_RUINS,R,'sfx_crow_wings','/assets/audio/crow_wings_takeoff.mp3');
+audio(REGION_RUINS,R,'sfx_crow_bunch','/assets/audio/crow_bunch_calls.mp3');
+
 for(const key of CAPTAIN_FRAME_KEYS){
  image(REGION_RUINS,R,key,`/assets/enemies/skeleton_captain/${key}.png`);
 }
