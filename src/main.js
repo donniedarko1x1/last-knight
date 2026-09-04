@@ -768,6 +768,12 @@ class LastKnightDevTools {
    lightIntensity:1.6,
    lightTargets:new Set(),
    lastLightRefreshAt:0,
+   impact:{hitStop:42,shakeX:8,shakeY:5,zoom:1.08,flash:0.28,slow:0.36,knockback:150,pitch:0,particles:'sparks'},
+   camera2:{deadzone:false,lookAhead:false,threatLook:false,damping:0.12,minimap:null,pip:null,baseFollowOffsetX:0,baseFollowOffsetY:0},
+   worldFx:{screenOverlay:null,screenOverlayKind:'none',fogMask:null,fogMaskGraphics:null,foreground:[],parallax:[],dynamicShadows:false,shadowMap:new Map(),depthSort:false,renderTexture:null,renderTextureBounds:null,proceduralTextures:new Set(),debris:[],chain:[],trail:false,lastTrailAt:0},
+   audioLab:{rate:1,detune:0,pan:0,spatial:false,source:null,lastSound:null},
+   boids:{enabled:false,list:[],separation:1.15,cohesion:0.72,alignment:0.78,wander:0.42},
+   shaderLab:{kind:'none',fx:null},
    lastStatus:'Готово. F10 — открыть / закрыть панель.'
   };
   this.devLabPresetKey='lastKnight.dev.phaserLab.v1';
@@ -965,6 +971,64 @@ class LastKnightDevTools {
      <label class="lkdev-range"><span>Интенсивность</span><input data-dev-range="lightIntensity" type="range" min="0.2" max="3" step="0.1" value="1.6"><b id="lkdev-light-intensity">1.6</b></label>
     </div></details>
 
+    <details class="lkdev-section" open><summary>IMPACT LAB · ОЩУЩЕНИЕ УДАРА</summary><div class="lkdev-body">
+     <div class="lkdev-note">Собирает hit-stop, направленную тряску, zoom, flash, slow-motion, частицы, knockback и pitch звука в один профиль. Нажми пресет, затем «ТЕСТ УДАРА».</div>
+     <div class="lkdev-grid3"><button data-action="impactPreset" data-value="light">Лёгкий</button><button data-action="impactPreset" data-value="heavy">Тяжёлый</button><button data-action="impactPreset" data-value="critical">Крит</button><button data-action="impactPreset" data-value="boss">Удар босса</button><button data-action="impactPreset" data-value="death">Смерть босса</button><button data-action="impactTest" class="good">ТЕСТ УДАРА</button></div>
+     <label class="lkdev-range"><span>Hit-stop</span><input data-dev-range="impactHitStop" type="range" min="0" max="120" step="2" value="42"><b id="lkdev-impact-hitstop">42 ms</b></label>
+     <label class="lkdev-range"><span>Shake X</span><input data-dev-range="impactShakeX" type="range" min="0" max="24" step="1" value="8"><b id="lkdev-impact-shakex">8</b></label>
+     <label class="lkdev-range"><span>Shake Y</span><input data-dev-range="impactShakeY" type="range" min="0" max="24" step="1" value="5"><b id="lkdev-impact-shakey">5</b></label>
+     <label class="lkdev-range"><span>Zoom</span><input data-dev-range="impactZoom" type="range" min="1" max="1.28" step="0.01" value="1.08"><b id="lkdev-impact-zoom">1.08×</b></label>
+     <label class="lkdev-range"><span>Flash</span><input data-dev-range="impactFlash" type="range" min="0" max="1" step="0.05" value="0.28"><b id="lkdev-impact-flash">0.28</b></label>
+     <label class="lkdev-range"><span>Slow-mo</span><input data-dev-range="impactSlow" type="range" min="0.1" max="1" step="0.02" value="0.36"><b id="lkdev-impact-slow">0.36×</b></label>
+     <label class="lkdev-range"><span>Knockback</span><input data-dev-range="impactKnockback" type="range" min="0" max="320" step="10" value="150"><b id="lkdev-impact-knockback">150</b></label>
+     <label class="lkdev-range"><span>Pitch</span><input data-dev-range="impactPitch" type="range" min="-1200" max="1200" step="50" value="0"><b id="lkdev-impact-pitch">0 ct</b></label>
+     <div class="lkdev-label">Частицы удара</div><div class="lkdev-grid4"><button data-action="impactParticles" data-value="sparks">Искры</button><button data-action="impactParticles" data-value="blood">Кровь</button><button data-action="impactParticles" data-value="bones">Кости</button><button data-action="impactParticles" data-value="debris">Обломки</button></div>
+     <div class="lkdev-row"><button data-action="impactCopy" class="good">Скопировать профиль удара</button></div><textarea id="lkdev-impact-output" class="lkdev-output" readonly></textarea>
+    </div></details>
+
+    <details class="lkdev-section" open><summary>CAMERA LAB 2.0 · ПОВЕДЕНИЕ КАМЕРЫ</summary><div class="lkdev-body">
+     <div class="lkdev-note">Не одноразовые FX, а поведение камеры: deadzone, плавность, look-ahead, смещение к угрозе, несколько камер и направленные профили shake.</div>
+     <div class="lkdev-grid3"><button data-action="camera2" data-value="deadzone">Deadzone</button><button data-action="camera2" data-value="lookAhead">Look-ahead</button><button data-action="camera2" data-value="threat">Смотреть к угрозе</button><button data-action="camera2" data-value="dampingSoft">Плавность</button><button data-action="camera2" data-value="dampingTight">Жёстче</button><button data-action="camera2" data-value="reset">Сброс 2.0</button></div>
+     <div class="lkdev-label">Процедурная тряска</div><div class="lkdev-grid4"><button data-action="procShake" data-value="step">Шаг босса</button><button data-action="procShake" data-value="impact">Удар</button><button data-action="procShake" data-value="explosion">Взрыв</button><button data-action="procShake" data-value="quake">Землетрясение</button></div>
+     <div class="lkdev-label">Несколько камер</div><div class="lkdev-grid3"><button data-action="extraCamera" data-value="minimap">Миникарта</button><button data-action="extraCamera" data-value="pip">PiP врага</button><button data-action="extraCamera" data-value="clear">Убрать доп. камеры</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>SHADER / COLOR LAB · WEBGL</summary><div class="lkdev-body">
+     <div class="lkdev-note">Безопасные эксперименты поверх PostFX: тепловое искажение, displacement, цветокоррекция зон и blend-mode демонстрации. Если конкретный PostFX недоступен в renderer — панель просто сообщит об этом.</div>
+     <div class="lkdev-grid3"><button data-action="shaderLab" data-value="heat">Heat haze</button><button data-action="shaderLab" data-value="displace">Displacement</button><button data-action="shaderLab" data-value="chromatic">Хроматич. сдвиг</button><button data-action="shaderLab" data-value="cold">Холодная зона</button><button data-action="shaderLab" data-value="warm">Тёплая зона</button><button data-action="shaderLab" data-value="contrast">Контраст</button></div>
+     <div class="lkdev-row"><button data-action="blendDemo" data-value="add">Blend ADD</button><button data-action="blendDemo" data-value="multiply">Blend MULTIPLY</button><button data-action="shaderLab" data-value="clear">Очистить Shader Lab</button></div>
+    </div></details>
+
+    <details class="lkdev-section" open><summary>WORLD FX LAB · СЛЕДЫ, МАСКИ, СЛОИ, РАЗРУШЕНИЕ</summary><div class="lkdev-body">
+     <div class="lkdev-note">RenderTexture / DynamicTexture, маски, screen-space FX, foreground, parallax, depth-sort, динамические тени и разрушаемые тестовые объекты.</div>
+     <div class="lkdev-label">Следы на земле · RenderTexture / procedural texture</div><div class="lkdev-grid3"><button data-action="decal" data-value="blood">Лужа крови</button><button data-action="decal" data-value="scorch">Ожог земли</button><button data-action="decal" data-value="rune">Руна</button><button data-action="decal" data-value="crack">Трещина</button><button data-action="decal" data-value="footprints">Следы ног</button><button data-action="trailToggle">След героя ВКЛ/ВЫКЛ</button><button data-action="decal" data-value="clear">Очистить следы</button></div>
+     <div class="lkdev-label">Маски и экранные эффекты</div><div class="lkdev-grid3"><button data-action="fogMask">Туман вокруг героя</button><button data-action="screenFx" data-value="blood">Кровь на экране</button><button data-action="screenFx" data-value="dirt">Грязь</button><button data-action="screenFx" data-value="cracks">Трещины экрана</button><button data-action="screenFx" data-value="ash">Пепел на экране</button><button data-action="screenFx" data-value="clear">Очистить экран</button></div>
+     <div class="lkdev-label">Глубина сцены</div><div class="lkdev-grid3"><button data-action="worldLayer" data-value="depth">Depth = Y</button><button data-action="worldLayer" data-value="foreground">Foreground</button><button data-action="worldLayer" data-value="parallax">Parallax</button><button data-action="worldLayer" data-value="shadows">Динамич. тени</button><button data-action="destruction" data-value="crate">Разбить объект</button><button data-action="worldLayer" data-value="clear">Очистить слои</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>AUDIO LAB · PITCH, PAN, SPATIAL</summary><div class="lkdev-body">
+     <div class="lkdev-note">Тестирует только SFX. Фоновую музыку не трогает.</div>
+     <label class="lkdev-range"><span>Rate</span><input data-dev-range="audioRate" type="range" min="0.55" max="1.6" step="0.05" value="1"><b id="lkdev-audio-rate">1.00×</b></label>
+     <label class="lkdev-range"><span>Detune</span><input data-dev-range="audioDetune" type="range" min="-1200" max="1200" step="50" value="0"><b id="lkdev-audio-detune">0 ct</b></label>
+     <label class="lkdev-range"><span>Pan</span><input data-dev-range="audioPan" type="range" min="-1" max="1" step="0.05" value="0"><b id="lkdev-audio-pan">0.00</b></label>
+     <div class="lkdev-grid3"><button data-action="audioTest" data-value="sword">Удар меча</button><button data-action="audioTest" data-value="skill">Магия</button><button data-action="audioTest" data-value="crow">Крылья ворон</button><button data-action="audioSpatial">Spatial возле героя</button><button data-action="audioSweep">Провести L → R</button><button data-action="audioStop">Стоп тестовых SFX</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>BOIDS LAB · ЖИВЫЕ СТАИ</summary><div class="lkdev-body">
+     <div class="lkdev-note">Separation + cohesion + alignment + wander. Эти вороны не используют сюжетную систему и живут только в Dev Lab.</div>
+     <div class="lkdev-grid4"><button data-action="boids" data-value="12">12 ворон</button><button data-action="boids" data-value="24">24 вороны</button><button data-action="boidPreset" data-value="tight">Плотная стая</button><button data-action="boidPreset" data-value="wild">Хаотичная</button></div>
+     <label class="lkdev-range"><span>Separation</span><input data-dev-range="boidSeparation" type="range" min="0" max="2.5" step="0.05" value="1.15"><b id="lkdev-boid-separation">1.15</b></label>
+     <label class="lkdev-range"><span>Cohesion</span><input data-dev-range="boidCohesion" type="range" min="0" max="2.5" step="0.05" value="0.72"><b id="lkdev-boid-cohesion">0.72</b></label>
+     <label class="lkdev-range"><span>Alignment</span><input data-dev-range="boidAlignment" type="range" min="0" max="2.5" step="0.05" value="0.78"><b id="lkdev-boid-alignment">0.78</b></label>
+     <label class="lkdev-range"><span>Wander</span><input data-dev-range="boidWander" type="range" min="0" max="2.5" step="0.05" value="0.42"><b id="lkdev-boid-wander">0.42</b></label>
+     <div class="lkdev-row"><button data-action="boidsClear">Убрать Boids</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>PHYSICS LAB · РАЗРУШЕНИЕ И MATTER-SAFE</summary><div class="lkdev-body">
+     <div class="lkdev-note">Основная игра остаётся на Arcade Physics. Здесь можно тестировать обломки, вращение, отскоки и цепь; отдельно есть проверка, доступен ли Matter в текущей конфигурации.</div>
+     <div class="lkdev-grid3"><button data-action="physicsLab" data-value="debris">Arcade-обломки</button><button data-action="physicsLab" data-value="bounce">Отскакивающие части</button><button data-action="physicsLab" data-value="chain">Цепь / constraint demo</button><button data-action="physicsLab" data-value="matter">Проверить Matter</button><button data-action="physicsLab" data-value="clear">Очистить физику</button></div>
+    </div></details>
+
     <details class="lkdev-section" open><summary>ВРАГИ И AI</summary><div class="lkdev-body">
      <div class="lkdev-grid3"><button data-action="spawn" data-value="skeleton">+ Скелет</button><button data-action="spawn" data-value="mage">+ Маг</button><button data-action="spawn" data-value="shield">+ Щитовик</button></div>
      <div class="lkdev-grid4"><button data-action="spawnMixed" data-value="5">+5</button><button data-action="spawnMixed" data-value="10">+10</button><button data-action="spawnMixed" data-value="20">+20</button><button data-action="spawnMixed" data-value="50">+50</button></div>
@@ -993,6 +1057,7 @@ class LastKnightDevTools {
       <button data-action="aiMode" data-value="skirmish">20 · Налёт и отход</button>
      </div>
      <div id="lkdev-ai-description" class="lkdev-info lkdev-ai-desc">Обычное поведение — штатный AI игры без экспериментального построения.</div>
+     <div class="lkdev-label">AI × ОКРУЖЕНИЕ · эксперимент поверх строя</div><div class="lkdev-grid3"><button data-action="envAi" data-value="normal">Обычный</button><button data-action="envAi" data-value="mageCover">Маги за укрытием</button><button data-action="envAi" data-value="shieldChoke">Щиты держат проход</button></div>
      <div class="lkdev-row"><button data-action="enemyFreezeAI">Заморозить AI</button><button data-action="enemyFreezeMove">Заморозить движение</button><button data-action="enemyAttacks">Отключить атаки</button></div>
      <div class="lkdev-row"><button data-action="clearProjectiles">Убрать снаряды</button><button data-action="killEnemies" class="danger">Убить всех</button><button data-action="deleteEnemies" class="danger">Удалить всех</button></div>
      <div class="lkdev-label">Плотность текущей волны</div><div class="lkdev-grid3"><button data-action="regionPopulation" data-value="auto">Авто</button><button data-action="regionPopulation" data-value="1">1.00×</button><button data-action="regionPopulation" data-value="1.30">1.30×</button><button data-action="regionPopulation" data-value="1.60">1.60×</button><button data-action="regionPopulation" data-value="2">2.00×</button></div>
@@ -1106,6 +1171,7 @@ class LastKnightDevTools {
   document.body.appendChild(root);
   this.root=root;
   this.refreshFxLabUi(false);
+  this.refreshAdvancedLabUi();
  }
 
  setPanelInputCapture(active,force=false){
@@ -1141,7 +1207,7 @@ class LastKnightDevTools {
   if(!this.open)this.setPanelInputCapture(false,true);
   const hud=this.scene.scene?.get?.('HUDScene');
   hud?.setDevMenuOpen?.(this.open);
-  if(this.open){this.refreshAiModeDescription();this.refreshFxLabUi();}
+  if(this.open){this.refreshAiModeDescription();this.refreshFxLabUi();this.refreshAdvancedLabUi();}
  }
 
  handleAction(action,value,button){
@@ -1169,6 +1235,29 @@ class LastKnightDevTools {
    case 'clearParticles':this.clearDevParticles();break;
    case 'lightToggle':this.toggleDevLight();break;
    case 'lightPulse':this.pulseDevLight();break;
+   case 'impactPreset':this.applyImpactPreset(value);break;
+   case 'impactTest':this.runImpactTest();break;
+   case 'impactParticles':this.devLab.impact.particles=value;this.notifyDev(`Impact: частицы — ${value}.`);break;
+   case 'impactCopy':this.copyImpactProfile();break;
+   case 'camera2':this.toggleCamera2(value);break;
+   case 'procShake':this.runProceduralShake(value);break;
+   case 'extraCamera':this.toggleExtraCamera(value);break;
+   case 'shaderLab':this.applyShaderLab(value);break;
+   case 'blendDemo':this.runBlendDemo(value);break;
+   case 'decal':this.runDecalAction(value);break;
+   case 'trailToggle':this.devLab.worldFx.trail=!this.devLab.worldFx.trail;this.notifyDev(`RenderTexture trail: ${this.devLab.worldFx.trail?'ВКЛ':'ВЫКЛ'}.`,'good');break;
+   case 'fogMask':this.toggleFogRevealMask();break;
+   case 'screenFx':this.applyScreenFx(value);break;
+   case 'worldLayer':this.toggleWorldLayer(value);break;
+   case 'destruction':this.runDestructionDemo(value);break;
+   case 'audioTest':this.playAudioLab(value);break;
+   case 'audioSpatial':this.toggleAudioSpatial();break;
+   case 'audioSweep':this.runAudioSweep();break;
+   case 'audioStop':this.stopAudioLab();break;
+   case 'boids':this.spawnBoids(Number(value));break;
+   case 'boidPreset':this.applyBoidPreset(value);break;
+   case 'boidsClear':this.clearBoids();break;
+   case 'physicsLab':this.runPhysicsLab(value);break;
    case 'autoSpawns':f.autoSpawnsDisabled=!f.autoSpawnsDisabled;if(!f.autoSpawnsDisabled&&s.championEventActive&&!s.activeChampion){const k=s.getChampionForWave(s.wave);if(k)s.spawnChampion(k,true);}break;
    case 'spawn':this.spawnEnemies(value,1);break;
    case 'spawnMixed':this.spawnMixed(Number(value));break;
@@ -1179,6 +1268,7 @@ class LastKnightDevTools {
    case 'enemyFreezeMove':f.enemyMovementFrozen=!f.enemyMovementFrozen;break;
    case 'enemyAttacks':f.enemyAttacksDisabled=!f.enemyAttacksDisabled;if(f.enemyAttacksDisabled){this.clearProjectiles();for(const e of s.enemies){if(e.type!=='champion'){e.pendingMeleeHitAt=0;e.pendingMeleeDamage=0;e.pendingMeleeRange=0;}}}break;
    case 'aiMode':this.setDevAiMode(value);break;
+   case 'envAi':this.setEnvironmentAiMode(value);break;
    case 'killEnemies':this.killOrdinaryEnemies();break;
    case 'deleteEnemies':this.deleteOrdinaryEnemies();break;
    case 'spawnChampion':this.spawnSelectedChampion();break;
@@ -1305,6 +1395,15 @@ class LastKnightDevTools {
    this.devLab.lightIntensity=Phaser.Math.Clamp(value,0.2,3);
    const out=document.getElementById('lkdev-light-intensity');if(out)out.textContent=this.devLab.lightIntensity.toFixed(1);
    if(this.devLab.light)this.devLab.light.intensity=this.devLab.lightIntensity;
+  }else if(kind?.startsWith?.('impact')){
+   const map={impactHitStop:['hitStop',0,120,'lkdev-impact-hitstop',v=>`${Math.round(v)} ms`],impactShakeX:['shakeX',0,24,'lkdev-impact-shakex',v=>String(Math.round(v))],impactShakeY:['shakeY',0,24,'lkdev-impact-shakey',v=>String(Math.round(v))],impactZoom:['zoom',1,1.28,'lkdev-impact-zoom',v=>`${v.toFixed(2)}×`],impactFlash:['flash',0,1,'lkdev-impact-flash',v=>v.toFixed(2)],impactSlow:['slow',0.1,1,'lkdev-impact-slow',v=>`${v.toFixed(2)}×`],impactKnockback:['knockback',0,320,'lkdev-impact-knockback',v=>String(Math.round(v))],impactPitch:['pitch',-1200,1200,'lkdev-impact-pitch',v=>`${Math.round(v)} ct`]};
+   const def=map[kind];if(!def)return;const [prop,min,max,outId,fmt]=def;this.devLab.impact[prop]=Phaser.Math.Clamp(value,min,max);const out=document.getElementById(outId);if(out)out.textContent=fmt(this.devLab.impact[prop]);
+  }else if(kind?.startsWith?.('audio')){
+   const map={audioRate:['rate',0.55,1.6,'lkdev-audio-rate',v=>`${v.toFixed(2)}×`],audioDetune:['detune',-1200,1200,'lkdev-audio-detune',v=>`${Math.round(v)} ct`],audioPan:['pan',-1,1,'lkdev-audio-pan',v=>v.toFixed(2)]};
+   const def=map[kind];if(!def)return;const [prop,min,max,outId,fmt]=def;this.devLab.audioLab[prop]=Phaser.Math.Clamp(value,min,max);const out=document.getElementById(outId);if(out)out.textContent=fmt(this.devLab.audioLab[prop]);
+  }else if(kind?.startsWith?.('boid')){
+   const map={boidSeparation:['separation','lkdev-boid-separation'],boidCohesion:['cohesion','lkdev-boid-cohesion'],boidAlignment:['alignment','lkdev-boid-alignment'],boidWander:['wander','lkdev-boid-wander']};
+   const def=map[kind];if(!def)return;const [prop,outId]=def;this.devLab.boids[prop]=Phaser.Math.Clamp(value,0,2.5);const out=document.getElementById(outId);if(out)out.textContent=this.devLab.boids[prop].toFixed(2);
   }else if(kind?.startsWith?.('fx')){
    const map={fxDensity:'density',fxSize:'size',fxSpeed:'speed',fxAlpha:'alpha',fxLife:'life',fxSpread:'spread'};
    const prop=map[kind];if(!prop)return;
@@ -1635,6 +1734,222 @@ class LastKnightDevTools {
   this.notifyDev('Пульсация Light2D запущена.');
  }
 
+
+ applyImpactPreset(name){
+  const presets={
+   light:{hitStop:18,shakeX:3,shakeY:2,zoom:1.025,flash:.08,slow:.72,knockback:70,pitch:80,particles:'sparks'},
+   heavy:{hitStop:42,shakeX:8,shakeY:5,zoom:1.08,flash:.28,slow:.36,knockback:150,pitch:-80,particles:'sparks'},
+   critical:{hitStop:58,shakeX:11,shakeY:7,zoom:1.12,flash:.52,slow:.25,knockback:210,pitch:-180,particles:'blood'},
+   boss:{hitStop:72,shakeX:10,shakeY:14,zoom:1.15,flash:.38,slow:.22,knockback:260,pitch:-320,particles:'debris'},
+   death:{hitStop:96,shakeX:16,shakeY:12,zoom:1.20,flash:.72,slow:.16,knockback:320,pitch:-450,particles:'bones'}
+  };
+  Object.assign(this.devLab.impact,presets[name]||presets.heavy);
+  this.refreshAdvancedLabUi();
+  this.notifyDev(`Impact Lab: пресет «${name}». Нажми «ТЕСТ УДАРА».`,'good');
+ }
+
+ runImpactTest(){
+  const s=this.scene,cam=s.cameras.main,p=s.player,st=this.devLab.impact;
+  if(!cam||!p?.active)return;
+  const previousScale=s.devTimeScale||1;
+  const intensity=new Phaser.Math.Vector2(Math.max(0,st.shakeX)/(Math.max(1,cam.width)*1.7),Math.max(0,st.shakeY)/(Math.max(1,cam.height)*1.7));
+  try{cam.shake(Math.max(80,120+st.hitStop*2.2),intensity,true);}catch{cam.shake(Math.max(80,120+st.hitStop*2.2),Math.max(intensity.x,intensity.y),true);}
+  if(st.flash>0.01)cam.flash(Math.round(70+180*st.flash),255,246,225,true);
+  const baseZoom=cam.zoom;
+  if(st.zoom>1.001){s.tweens.add({targets:cam,zoom:baseZoom*st.zoom,duration:55,ease:'Quad.easeOut',yoyo:true,hold:Math.max(0,st.hitStop*.3),onComplete:()=>cam.setZoom(baseZoom)});}
+  if(st.particles)this.burstDevParticles(st.particles);
+  const enemies=(s.enemies||[]).filter(e=>e?.active&&e.hp>0).sort((a,b)=>Phaser.Math.Distance.Between(p.x,p.y,a.x,a.y)-Phaser.Math.Distance.Between(p.x,p.y,b.x,b.y));
+  const enemy=enemies[0];
+  if(enemy?.body&&st.knockback>0){const a=Phaser.Math.Angle.Between(p.x,p.y,enemy.x,enemy.y);enemy.body.setVelocity(Math.cos(a)*st.knockback,Math.sin(a)*st.knockback);}
+  this.playImpactLabSound(st.pitch);
+  if(st.hitStop>0){
+   this.setTimeScale(Math.max(.02,Math.min(.12,st.slow*.18)));
+   window.setTimeout(()=>{if(!this.scene?.sys?.isActive?.())return;this.setTimeScale(st.slow);window.setTimeout(()=>{if(this.scene?.sys?.isActive?.())this.setTimeScale(previousScale);},170);},st.hitStop);
+  }else if(st.slow<.999){this.setTimeScale(st.slow);window.setTimeout(()=>{if(this.scene?.sys?.isActive?.())this.setTimeScale(previousScale);},180);}
+  this.notifyDev('Impact Lab: профиль удара воспроизведён.','good');
+ }
+
+ playImpactLabSound(detune=0){
+  const s=this.scene,key=s.cache.audio.exists('sfx_hero_sword_impact')?'sfx_hero_sword_impact':(s.cache.audio.exists('sfx_hero_sword_attack')?'sfx_hero_sword_attack':null);
+  if(!key||!s.sound||s.sound.locked)return;
+  try{const snd=s.sound.add(key,{volume:.42*getGameSettings().sfxVolume,detune:Number(detune)||0});snd.once('complete',()=>snd.destroy());snd.play();}catch{}
+ }
+
+ formatImpactProfile(){const x=this.devLab.impact;return `Impact Profile\nHit-stop: ${Math.round(x.hitStop)} ms\nShake X/Y: ${Math.round(x.shakeX)} / ${Math.round(x.shakeY)}\nZoom: ${x.zoom.toFixed(2)}x\nFlash: ${x.flash.toFixed(2)}\nSlow-mo: ${x.slow.toFixed(2)}x\nKnockback: ${Math.round(x.knockback)}\nPitch: ${Math.round(x.pitch)} ct\nParticles: ${x.particles}`;}
+ copyImpactProfile(){const text=this.formatImpactProfile(),out=document.getElementById('lkdev-impact-output');if(out)out.value=text;try{navigator.clipboard?.writeText(text);}catch{}this.notifyDev('Impact Profile подготовлен для копирования.','good');}
+
+ refreshAdvancedLabUi(){
+  if(typeof document==='undefined')return;
+  const impact=this.devLab.impact,audio=this.devLab.audioLab,b=this.devLab.boids;
+  const vals={impactHitStop:impact.hitStop,impactShakeX:impact.shakeX,impactShakeY:impact.shakeY,impactZoom:impact.zoom,impactFlash:impact.flash,impactSlow:impact.slow,impactKnockback:impact.knockback,impactPitch:impact.pitch,audioRate:audio.rate,audioDetune:audio.detune,audioPan:audio.pan,boidSeparation:b.separation,boidCohesion:b.cohesion,boidAlignment:b.alignment,boidWander:b.wander};
+  for(const [k,v] of Object.entries(vals)){const el=document.querySelector(`[data-dev-range="${k}"]`);if(el)el.value=String(v);}
+  const texts={'lkdev-impact-hitstop':`${Math.round(impact.hitStop)} ms`,'lkdev-impact-shakex':String(Math.round(impact.shakeX)),'lkdev-impact-shakey':String(Math.round(impact.shakeY)),'lkdev-impact-zoom':`${impact.zoom.toFixed(2)}×`,'lkdev-impact-flash':impact.flash.toFixed(2),'lkdev-impact-slow':`${impact.slow.toFixed(2)}×`,'lkdev-impact-knockback':String(Math.round(impact.knockback)),'lkdev-impact-pitch':`${Math.round(impact.pitch)} ct`,'lkdev-audio-rate':`${audio.rate.toFixed(2)}×`,'lkdev-audio-detune':`${Math.round(audio.detune)} ct`,'lkdev-audio-pan':audio.pan.toFixed(2),'lkdev-boid-separation':b.separation.toFixed(2),'lkdev-boid-cohesion':b.cohesion.toFixed(2),'lkdev-boid-alignment':b.alignment.toFixed(2),'lkdev-boid-wander':b.wander.toFixed(2)};
+  for(const [id,value] of Object.entries(texts)){const el=document.getElementById(id);if(el)el.textContent=value;}
+ }
+
+ toggleCamera2(kind){
+  const s=this.scene,cam=s.cameras.main,c=this.devLab.camera2;
+  if(!cam)return;
+  if(kind==='deadzone'){c.deadzone=!c.deadzone;cam.setDeadzone(c.deadzone?Math.round(cam.width*.22):0,c.deadzone?Math.round(cam.height*.18):0);}
+  else if(kind==='lookAhead')c.lookAhead=!c.lookAhead;
+  else if(kind==='threat')c.threatLook=!c.threatLook;
+  else if(kind==='dampingSoft'){c.damping=.075;cam.setLerp(c.damping,c.damping);}
+  else if(kind==='dampingTight'){c.damping=.24;cam.setLerp(c.damping,c.damping);}
+  else if(kind==='reset'){c.deadzone=false;c.lookAhead=false;c.threatLook=false;c.damping=.12;cam.setDeadzone(0,0);cam.setLerp(.12,.12);cam.setFollowOffset(0,0);}
+  this.notifyDev(`Camera 2.0: ${kind}.`,'good');this.refreshStateButtons();
+ }
+
+ updateCamera2(delta=16){
+  const s=this.scene,cam=s.cameras.main,p=s.player,c=this.devLab.camera2;if(!cam||!p?.active)return;
+  let targetX=0,targetY=0;
+  if(c.lookAhead&&p.body){targetX+=Phaser.Math.Clamp(p.body.velocity.x*.22,-150,150);targetY+=Phaser.Math.Clamp(p.body.velocity.y*.14,-90,90);}
+  if(c.threatLook){const enemies=(s.enemies||[]).filter(e=>e?.active&&e.hp>0&&Phaser.Math.Distance.Between(p.x,p.y,e.x,e.y)<620);if(enemies.length){const cx=enemies.reduce((n,e)=>n+e.x,0)/enemies.length,cy=enemies.reduce((n,e)=>n+e.y,0)/enemies.length;targetX+=Phaser.Math.Clamp((cx-p.x)*.18,-120,120);targetY+=Phaser.Math.Clamp((cy-p.y)*.10,-70,70);}}
+  c.baseFollowOffsetX=Phaser.Math.Linear(c.baseFollowOffsetX||0,targetX,Math.min(1,(delta/1000)*4.5));c.baseFollowOffsetY=Phaser.Math.Linear(c.baseFollowOffsetY||0,targetY,Math.min(1,(delta/1000)*4.5));
+  if(c.lookAhead||c.threatLook)cam.setFollowOffset(-c.baseFollowOffsetX,-c.baseFollowOffsetY);else if(Math.abs(c.baseFollowOffsetX)+Math.abs(c.baseFollowOffsetY)>.5){c.baseFollowOffsetX*=.85;c.baseFollowOffsetY*=.85;cam.setFollowOffset(-c.baseFollowOffsetX,-c.baseFollowOffsetY);}
+ }
+
+ runProceduralShake(kind){
+  const cam=this.scene.cameras.main;if(!cam)return;
+  const presets={step:[180,2,7],impact:[120,10,3],explosion:[330,9,9],quake:[900,5,11]},p=presets[kind]||presets.impact;
+  const intensity=new Phaser.Math.Vector2(p[1]/Math.max(1,cam.width),p[2]/Math.max(1,cam.height));
+  try{cam.shake(p[0],intensity,true);}catch{cam.shake(p[0],Math.max(intensity.x,intensity.y),true);}
+  this.notifyDev(`Процедурная тряска: ${kind}.`);
+ }
+
+ toggleExtraCamera(kind){
+  const s=this.scene,c=this.devLab.camera2;
+  if(kind==='clear'){if(c.minimap){s.cameras.remove(c.minimap);c.minimap=null;}if(c.pip){s.cameras.remove(c.pip);c.pip=null;}this.notifyDev('Дополнительные камеры убраны.','good');return;}
+  if(kind==='minimap'){
+   if(c.minimap){s.cameras.remove(c.minimap);c.minimap=null;this.notifyDev('Миникарта выключена.');return;}
+   const viewW=Number(s.scale?.gameSize?.width||s.cameras.main.width||1280),viewH=Number(s.scale?.gameSize?.height||s.cameras.main.height||720),w=Math.min(230,Math.max(150,Math.round(viewW*.22))),h=Math.min(145,Math.max(96,Math.round(viewH*.22)));const cam=s.cameras.add(12,12,w,h,false,'lkdevMinimap');cam.setZoom(.28);cam.setBackgroundColor(0x080808);cam.setBounds(0,0,STAGE0.WORLD_WIDTH,STAGE0.WORLD_HEIGHT);if(s.player)cam.startFollow(s.player,true,.18,.18);c.minimap=cam;this.notifyDev('Миникарта включена.','good');return;
+  }
+  if(kind==='pip'){
+   if(c.pip){s.cameras.remove(c.pip);c.pip=null;this.notifyDev('PiP выключен.');return;}
+   const target=s.activeChampion?.active?s.activeChampion:(s.enemies||[]).find(e=>e?.active&&e.hp>0);if(!target){this.notifyDev('Для PiP нужен живой враг.','error');return;}
+   const w=230,h=145,viewW=Number(s.scale?.gameSize?.width||s.cameras.main.width||1280),x=Math.max(10,viewW-w-12),y=12;const cam=s.cameras.add(x,y,w,h,false,'lkdevPip');cam.setZoom(1.1);cam.setBackgroundColor(0x000000);cam.startFollow(target,true,.12,.12);c.pip=cam;this.notifyDev('PiP врага включён.','good');
+  }
+ }
+
+ ensureDevDisplacementTexture(){
+  const s=this.scene,key='lkdev_displace_noise';if(s.textures.exists(key))return key;
+  const tex=s.textures.createCanvas(key,128,128),ctx=tex.getContext(),img=ctx.createImageData(128,128);for(let i=0;i<img.data.length;i+=4){const v=Phaser.Math.Between(80,176);img.data[i]=v;img.data[i+1]=255-v;img.data[i+2]=128;img.data[i+3]=255;}ctx.putImageData(img,0,0);tex.refresh();return key;
+ }
+
+ applyShaderLab(kind){
+  const cam=this.scene.cameras.main;if(!this.isWebGlDev()||!cam?.postFX){this.notifyDev('Shader/PostFX Lab требует WebGL.','error');return;}
+  try{cam.postFX.clear();}catch{}
+  this.devLab.shaderLab.kind=kind;this.devLab.shaderLab.fx=null;
+  if(kind==='clear'){this.notifyDev('Shader Lab очищен.','good');return;}
+  try{
+   if(kind==='heat'){
+    const fx=cam.postFX.addBarrel?.(1.015);if(!fx)throw new Error('Barrel FX недоступен');this.devLab.shaderLab.fx=fx;this.scene.tweens.add({targets:fx,amount:1.045,duration:520,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+   }else if(kind==='displace'){
+    const key=this.ensureDevDisplacementTexture();const fx=cam.postFX.addDisplacement?.(key,.004,.004);if(!fx)throw new Error('Displacement FX недоступен');this.devLab.shaderLab.fx=fx;
+   }else{
+    const fx=cam.postFX.addColorMatrix();if(kind==='chromatic'){fx.hue?.(7);fx.contrast?.(1.08);}
+    else if(kind==='cold'){fx.hue?.(-10);fx.saturate?.(-.12);fx.contrast?.(1.06);}
+    else if(kind==='warm'){fx.hue?.(9);fx.saturate?.(.10);fx.brightness?.(1.04);}
+    else if(kind==='contrast'){fx.contrast?.(1.32);fx.saturate?.(-.08);}this.devLab.shaderLab.fx=fx;
+   }
+   this.notifyDev(`Shader/Color Lab: ${kind}.`,'good');
+  }catch(error){this.devLab.shaderLab.kind='none';this.notifyDev(`Shader Lab: ${error?.message||error}`,'error');}
+ }
+
+ runBlendDemo(kind){
+  const s=this.scene,p=s.player;if(!p?.active)return;this.ensureDevParticleTextures();const emitter=s.add.particles(p.x,p.y-20,'lkdev_particle_dot',{speed:{min:30,max:150},angle:{min:0,max:360},lifespan:900,scale:{start:1.4,end:0},alpha:{start:.8,end:0},tint:kind==='multiply'?[0x5c3928,0x2c241f]:[0xffd46a,0xff693a,0xffffff],frequency:-1}).setDepth(240);try{emitter.setBlendMode(kind==='multiply'?Phaser.BlendModes.MULTIPLY:Phaser.BlendModes.ADD);}catch{}emitter.explode(42);s.time.delayedCall(1300,()=>emitter.destroy());this.notifyDev(`Blend Mode: ${kind}.`);
+ }
+
+ ensureProceduralDecalTexture(kind){
+  const s=this.scene,key=`lkdev_decal_${kind}`;if(s.textures.exists(key))return key;const g=s.make.graphics({x:0,y:0,add:false});g.clear();
+  if(kind==='blood'){g.fillStyle(0x7f1212,.92);g.fillEllipse(48,48,72,38);g.fillCircle(22,54,10);g.fillCircle(76,39,8);g.fillCircle(84,60,5);}
+  else if(kind==='scorch'){g.fillStyle(0x1a1512,.72);g.fillCircle(48,48,35);g.lineStyle(5,0x322217,.55);for(let a=0;a<6;a++){const ang=a*Math.PI/3;g.lineBetween(48,48,48+Math.cos(ang)*43,48+Math.sin(ang)*43);}}
+  else if(kind==='rune'){g.lineStyle(4,0x78e7ff,.86);g.strokeCircle(48,48,34);g.lineBetween(22,61,48,18);g.lineBetween(48,18,76,61);g.lineBetween(22,61,76,61);}
+  else if(kind==='crack'){g.lineStyle(4,0x17120f,.8);g.lineBetween(48,12,42,42);g.lineBetween(42,42,20,68);g.lineBetween(42,42,64,57);g.lineBetween(64,57,82,84);g.lineBetween(64,57,88,42);}
+  else {g.fillStyle(0x312821,.65);g.fillEllipse(30,38,15,28);g.fillEllipse(66,60,15,28);}
+  g.generateTexture(key,96,96);g.destroy();this.devLab.worldFx.proceduralTextures.add(key);return key;
+ }
+
+ ensureDevRenderTexture(){
+  const s=this.scene,w=this.devLab.worldFx;if(w.renderTexture?.active)return w.renderTexture;const p=s.player||{x:s.cameras.main.worldView.centerX,y:s.cameras.main.worldView.centerY};const width=1024,height=768,left=Phaser.Math.Clamp(p.x-width/2,0,Math.max(0,STAGE0.WORLD_WIDTH-width)),top=Phaser.Math.Clamp(p.y-height/2,0,Math.max(0,STAGE0.WORLD_HEIGHT-height));try{const rt=s.add.renderTexture(left,top,width,height).setOrigin(0,0).setDepth(4.6);w.renderTexture=rt;w.renderTextureBounds={left,top,width,height};return rt;}catch{return null;}
+ }
+
+ runDecalAction(kind,{silent=false}={}){
+  const w=this.devLab.worldFx;if(kind==='clear'){try{w.renderTexture?.clear();}catch{}for(const o of w.decals||[])o?.destroy?.();w.decals=[];if(!silent)this.notifyDev('Следы RenderTexture очищены.','good');return;}
+  const s=this.scene,p=s.player;if(!p?.active)return;const key=this.ensureProceduralDecalTexture(kind);let rt=this.ensureDevRenderTexture(),done=false;
+  if(rt&&w.renderTextureBounds){const b=w.renderTextureBounds,lx=p.x-b.left,ly=p.y-b.top;if(lx>20&&ly>20&&lx<b.width-20&&ly<b.height-20){try{const img=s.make.image({x:0,y:0,key,add:false}).setScale(kind==='footprints'?.65:Phaser.Math.FloatBetween(.7,1.25)).setRotation(Phaser.Math.FloatBetween(-.5,.5)).setAlpha(kind==='rune'?.8:.9);rt.draw(img,lx,ly);img.destroy();done=true;}catch{}}}
+  if(!done){w.decals=w.decals||[];const img=s.add.image(p.x,p.y+10,key).setScale(kind==='footprints'?.65:Phaser.Math.FloatBetween(.7,1.25)).setRotation(Phaser.Math.FloatBetween(-.5,.5)).setAlpha(.85).setDepth(4.6);w.decals.push(img);}
+  if(!silent)this.notifyDev(`${kind}: след оставлен на земле${done?' через RenderTexture':' через fallback sprite'}.`,'good');
+ }
+
+ updateDevTrail(time=this.scene.time.now){
+  const w=this.devLab.worldFx,s=this.scene;if(!w.trail||!s.player?.active)return;if(time-(w.lastTrailAt||0)<150)return;const body=s.player.body;if(body&&Math.hypot(body.velocity.x,body.velocity.y)<18)return;w.lastTrailAt=time;this.runDecalAction('footprints',{silent:true});
+ }
+
+ toggleFogRevealMask(){
+  const s=this.scene,w=this.devLab.worldFx;if(w.fogMask){try{w.fogMask.destroy();}catch{}try{w.fogMaskGraphics.destroy();}catch{}try{w.fogOverlay.destroy();}catch{}w.fogMask=null;w.fogMaskGraphics=null;w.fogOverlay=null;this.notifyDev('Маска тумана выключена.');return;}
+  const overlay=s.add.rectangle(STAGE0.WORLD_WIDTH/2,STAGE0.WORLD_HEIGHT/2,STAGE0.WORLD_WIDTH,STAGE0.WORLD_HEIGHT,0x11171a,.72).setDepth(4800);const g=s.make.graphics({x:0,y:0,add:false});g.fillStyle(0xffffff,1);g.fillCircle(s.player?.x||0,s.player?.y||0,180);const mask=g.createGeometryMask();mask.invertAlpha=true;overlay.setMask(mask);w.fogOverlay=overlay;w.fogMaskGraphics=g;w.fogMask=mask;this.notifyDev('GeometryMask: герой прорезает туман.','good');
+ }
+
+ applyScreenFx(kind){
+  const s=this.scene,w=this.devLab.worldFx;if(w.screenOverlay){w.screenOverlay.destroy(true);w.screenOverlay=null;}w.screenOverlayKind=kind;if(kind==='clear'){this.notifyDev('Screen-space FX очищены.','good');return;}
+  const cam=s.cameras.main,container=s.add.container(0,0).setScrollFactor(0).setDepth(4998);const width=cam.width/Math.max(.1,cam.zoom),height=cam.height/Math.max(.1,cam.zoom);
+  if(kind==='blood'){for(let i=0;i<18;i++)container.add(s.add.circle(Phaser.Math.Between(0,width),Phaser.Math.Between(0,height),Phaser.Math.Between(5,28),0x7d0c0c,Phaser.Math.FloatBetween(.12,.35)).setScrollFactor(0));}
+  else if(kind==='dirt'){for(let i=0;i<35;i++)container.add(s.add.ellipse(Phaser.Math.Between(0,width),Phaser.Math.Between(0,height),Phaser.Math.Between(8,45),Phaser.Math.Between(4,18),0x332a21,Phaser.Math.FloatBetween(.05,.18)).setScrollFactor(0));}
+  else if(kind==='cracks'){const g=s.add.graphics().setScrollFactor(0);g.lineStyle(2,0xd9e0df,.18);for(let i=0;i<8;i++){let x=Phaser.Math.Between(0,width),y=Phaser.Math.Between(0,height);for(let j=0;j<4;j++){const nx=x+Phaser.Math.Between(-45,45),ny=y+Phaser.Math.Between(-45,45);g.lineBetween(x,y,nx,ny);x=nx;y=ny;}}container.add(g);}
+  else if(kind==='ash'){for(let i=0;i<42;i++)container.add(s.add.rectangle(Phaser.Math.Between(0,width),Phaser.Math.Between(0,height),Phaser.Math.Between(1,4),Phaser.Math.Between(1,4),0xb7b2a6,Phaser.Math.FloatBetween(.08,.28)).setRotation(Phaser.Math.FloatBetween(0,Math.PI)).setScrollFactor(0));}
+  w.screenOverlay=container;this.notifyDev(`Screen-space FX: ${kind}.`,'good');
+ }
+
+ toggleWorldLayer(kind){
+  const s=this.scene,w=this.devLab.worldFx;
+  if(kind==='depth'){w.depthSort=!w.depthSort;if(!w.depthSort)this.restoreDevDepths();this.notifyDev(`Depth-sort по Y: ${w.depthSort?'ВКЛ':'ВЫКЛ'}.`);return;}
+  if(kind==='foreground'){if(w.foreground.length){for(const o of w.foreground)o.destroy();w.foreground=[];this.notifyDev('Foreground выключен.');return;}const cam=s.cameras.main;for(let i=0;i<7;i++){const e=s.add.ellipse(Phaser.Math.Between(0,cam.width),Phaser.Math.Between(-80,cam.height+80),Phaser.Math.Between(130,330),Phaser.Math.Between(25,70),0x090b0b,Phaser.Math.FloatBetween(.12,.28)).setScrollFactor(0).setDepth(4995).setRotation(Phaser.Math.FloatBetween(-.5,.5));w.foreground.push(e);}this.notifyDev('Foreground layer включён.','good');return;}
+  if(kind==='parallax'){if(w.parallax.length){for(const o of w.parallax)o.destroy();w.parallax=[];this.notifyDev('Parallax выключен.');return;}const p=s.player||{x:0,y:0};for(let i=0;i<10;i++){const e=s.add.ellipse(p.x+Phaser.Math.Between(-700,700),p.y+Phaser.Math.Between(-420,420),Phaser.Math.Between(120,360),Phaser.Math.Between(35,110),0x777c78,Phaser.Math.FloatBetween(.025,.08)).setDepth(1.5).setScrollFactor(Phaser.Math.FloatBetween(.35,.72));w.parallax.push(e);}this.notifyDev('Parallax слой включён.','good');return;}
+  if(kind==='shadows'){w.dynamicShadows=!w.dynamicShadows;if(!w.dynamicShadows)this.clearDynamicShadows();this.notifyDev(`Динамические тени: ${w.dynamicShadows?'ВКЛ':'ВЫКЛ'}.`);return;}
+  if(kind==='clear'){for(const o of w.foreground)o.destroy();for(const o of w.parallax)o.destroy();w.foreground=[];w.parallax=[];w.depthSort=false;this.restoreDevDepths();w.dynamicShadows=false;this.clearDynamicShadows();this.notifyDev('Тестовые мировые слои очищены.','good');}
+ }
+
+ updateDepthSort(){
+  const s=this.scene,w=this.devLab.worldFx;if(!w.depthSort)return;w.depthRestore=w.depthRestore||new Map();const actors=[s.playerVisual,...(s.enemies||[]).map(e=>e?.visual)].filter(o=>o?.active);for(const o of actors){if(!w.depthRestore.has(o))w.depthRestore.set(o,o.depth);o.setDepth(10+o.y*.02);}
+ }
+ restoreDevDepths(){const w=this.devLab.worldFx;for(const [o,d] of w.depthRestore||[])if(o?.active)o.setDepth(d);w.depthRestore?.clear?.();}
+
+ updateDynamicShadows(){
+  const s=this.scene,w=this.devLab.worldFx;if(!w.dynamicShadows)return;const lightX=(s.player?.x||0)-180,lightY=(s.player?.y||0)-160;const actors=[s.player,...(s.enemies||[]).filter(e=>e?.active&&e.hp>0).slice(0,35)];const alive=new Set();for(const a of actors){if(!a?.active)continue;alive.add(a);let sh=w.shadowMap.get(a);if(!sh){sh=s.add.ellipse(a.x,a.y,34,12,0x000000,.26).setDepth(5.2);w.shadowMap.set(a,sh);}const dx=a.x-lightX,dy=a.y-lightY,len=Math.max(1,Math.hypot(dx,dy));sh.setPosition(a.x+dx/len*18,a.y+dy/len*12).setRotation(Math.atan2(dy,dx)).setScale(1.2,.75).setVisible(true);}for(const [a,sh] of [...w.shadowMap])if(!alive.has(a)||!a?.active){sh.destroy();w.shadowMap.delete(a);}}
+ clearDynamicShadows(){const w=this.devLab.worldFx;for(const sh of w.shadowMap.values())sh?.destroy?.();w.shadowMap.clear();}
+
+ runDestructionDemo(){
+  const s=this.scene,p=s.player;if(!p?.active)return;const x=p.x+110,y=p.y;const crate=s.add.rectangle(x,y,70,54,0x5c4330,1).setStrokeStyle(3,0x2b1d13,.9).setDepth(16);s.tweens.add({targets:crate,scaleX:1.08,scaleY:.92,duration:90,yoyo:true,repeat:1,onComplete:()=>{crate.destroy();this.spawnPhysicsDebris(x,y,{bounce:false,count:10});}});this.notifyDev('Разрушаемый объект: тест запущен.','good');
+ }
+
+ stopAudioLab(){const a=this.devLab.audioLab;if(a.lastSound){try{a.lastSound.stop();a.lastSound.destroy();}catch{}a.lastSound=null;}if(a.source){a.source.destroy();a.source=null;}a.spatial=false;this.notifyDev('Тестовые SFX остановлены.');}
+ getAudioLabKey(kind){const s=this.scene,sets={sword:['sfx_hero_sword_impact','sfx_hero_sword_attack'],skill:['sfx_mage_cast','sfx_broken_saint_holy_beam'],crow:['crow_wings_takeoff']};return (sets[kind]||sets.sword).find(k=>s.cache.audio.exists(k))||null;}
+ playAudioLab(kind='sword'){const s=this.scene,a=this.devLab.audioLab,key=this.getAudioLabKey(kind);if(!key||!s.sound||s.sound.locked){this.notifyDev(`Audio Lab: звук ${kind} не загружен.`,'error');return null;}this.stopAudioLab();try{const sound=s.sound.add(key,{volume:.48*getGameSettings().sfxVolume,rate:a.rate,detune:a.detune});sound.setRate?.(a.rate);sound.setDetune?.(a.detune);sound.setPan?.(a.pan);a.lastSound=sound;sound.once('complete',()=>{if(a.lastSound===sound)a.lastSound=null;sound.destroy();});sound.play();this.notifyDev(`Audio Lab: ${kind}.`,'good');return sound;}catch(error){this.notifyDev(`Audio Lab: ${error?.message||error}`,'error');return null;}}
+ toggleAudioSpatial(){const a=this.devLab.audioLab,s=this.scene;if(a.spatial){this.stopAudioLab();return;}const sound=this.playAudioLab('crow');if(!sound)return;a.spatial=true;a.source=s.add.circle((s.player?.x||0)+230,s.player?.y||0,8,0x6ed8ff,.8).setDepth(4990);try{sound.setLoop?.(true);}catch{}this.notifyDev('Spatial audio: голубая точка — источник, pan зависит от камеры.','good');}
+ runAudioSweep(){const a=this.devLab.audioLab,s=this.scene;const sound=this.playAudioLab('crow');if(!sound)return;try{sound.setLoop?.(true);}catch{}const holder={pan:-1};sound.setPan?.(-1);s.tweens.add({targets:holder,pan:1,duration:2200,ease:'Sine.easeInOut',onUpdate:()=>sound.setPan?.(holder.pan),onComplete:()=>{try{sound.stop();sound.destroy();}catch{}if(a.lastSound===sound)a.lastSound=null;}});this.notifyDev('Audio pan sweep: L → R.','good');}
+ updateAudioSpatial(){const a=this.devLab.audioLab,s=this.scene;if(!a.spatial||!a.lastSound?.isPlaying||!a.source?.active)return;const cam=s.cameras.main,p=s.player;if(p?.active){const t=s.time.now*.00065;a.source.setPosition(p.x+Math.cos(t)*260,p.y+Math.sin(t)*120);}const center=cam.worldView.centerX,half=Math.max(1,cam.worldView.width*.5),pan=Phaser.Math.Clamp((a.source.x-center)/half,-1,1);a.lastSound.setPan?.(pan);}
+
+ spawnBoids(count=12){
+  const s=this.scene,b=this.devLab.boids;if(!s.textures.exists('crown_fly_1')){this.notifyDev('Boids: текстуры ворон не загружены.','error');return;}this.clearBoids();count=Phaser.Math.Clamp(Math.round(count)||12,4,40);const p=s.player||{x:s.cameras.main.worldView.centerX,y:s.cameras.main.worldView.centerY};for(let i=0;i<count;i++){const x=p.x+Phaser.Math.Between(-180,180),y=p.y-110+Phaser.Math.Between(-120,120),sprite=s.add.sprite(x,y,'crown_fly_1').setScale(CROW_VISUAL_SCALE).setDepth(235).play({key:'crown_fly',startFrame:i%4});b.list.push({sprite,x,y,vx:Phaser.Math.Between(-90,90),vy:Phaser.Math.Between(-60,60),wander:Phaser.Math.FloatBetween(0,Math.PI*2)});}b.enabled=true;this.notifyDev(`Boids: ${count} живых ворон. Быстро двигай героя и смотри, как стая перестраивается.`,'good');}
+ clearBoids(){const b=this.devLab.boids;for(const x of b.list)x.sprite?.destroy?.();b.list=[];b.enabled=false;}
+ applyBoidPreset(name){const b=this.devLab.boids;if(name==='tight')Object.assign(b,{separation:1.55,cohesion:1.35,alignment:1.05,wander:.18});else Object.assign(b,{separation:.85,cohesion:.42,alignment:.48,wander:1.35});this.refreshAdvancedLabUi();this.notifyDev(`Boids preset: ${name}.`,'good');}
+ updateBoids(delta=16){
+  const b=this.devLab.boids,s=this.scene;if(!b.enabled||!b.list.length)return;const dt=Math.min(.05,delta/1000),center=s.player?.active?s.player:{x:s.cameras.main.worldView.centerX,y:s.cameras.main.worldView.centerY};for(const boid of b.list){if(!boid.sprite?.active)continue;let sx=0,sy=0,cx=0,cy=0,ax=0,ay=0,n=0;for(const other of b.list){if(other===boid||!other.sprite?.active)continue;const dx=boid.x-other.x,dy=boid.y-other.y,d2=dx*dx+dy*dy;if(d2>140*140)continue;n++;cx+=other.x;cy+=other.y;ax+=other.vx;ay+=other.vy;if(d2<58*58){const d=Math.max(1,Math.sqrt(d2));sx+=dx/d*(58-d)/58;sy+=dy/d*(58-d)/58;}}if(n){cx=cx/n-boid.x;cy=cy/n-boid.y;ax=ax/n-boid.vx;ay=ay/n-boid.vy;}boid.wander+=Phaser.Math.FloatBetween(-1,1)*dt*2.8;let fx=sx*150*b.separation+cx*.018*b.cohesion+ax*.018*b.alignment+Math.cos(boid.wander)*42*b.wander+(center.x-boid.x)*.006,fy=sy*150*b.separation+cy*.018*b.cohesion+ay*.018*b.alignment+Math.sin(boid.wander)*42*b.wander+((center.y-105)-boid.y)*.006;boid.vx+=fx*dt;boid.vy+=fy*dt;const speed=Math.hypot(boid.vx,boid.vy),max=145;if(speed>max){boid.vx=boid.vx/speed*max;boid.vy=boid.vy/speed*max;}boid.x+=boid.vx*dt;boid.y+=boid.vy*dt;boid.sprite.setPosition(boid.x,boid.y).setFlipX(boid.vx<0);}}
+
+ spawnPhysicsDebris(x,y,{bounce=false,count=8}={}){const s=this.scene,w=this.devLab.worldFx;for(let i=0;i<count;i++){const r=s.add.rectangle(x+Phaser.Math.Between(-15,15),y+Phaser.Math.Between(-10,10),Phaser.Math.Between(7,18),Phaser.Math.Between(5,13),0x7d684e,1).setDepth(210);s.physics.add.existing(r);r.body.setVelocity(Phaser.Math.Between(-170,170),Phaser.Math.Between(-210,-70));r.body.setGravityY(360);r.body.setBounce(bounce?.65:.15);s.tweens.add({targets:r,rotation:Phaser.Math.FloatBetween(-5,5),alpha:0,duration:Phaser.Math.Between(1100,1800),onComplete:()=>{r.destroy();}});w.debris.push(r);}}
+ runPhysicsLab(kind){const s=this.scene,p=s.player||{x:0,y:0},w=this.devLab.worldFx;if(kind==='clear'){for(const o of w.debris)o?.destroy?.();w.debris=[];for(const c of w.chain){c.graphics?.destroy?.();for(const n of c.nodes||[])n.destroy?.();}w.chain=[];this.notifyDev('Physics Lab очищен.');return;}if(kind==='matter'){this.notifyDev(s.matter?'Matter plugin доступен в этой Scene. Основную игру всё равно не переключаем.':'Matter сейчас не инжектирован в Scene — это ожидаемо: билд остаётся Arcade Physics.','good');return;}if(kind==='debris'||kind==='bounce'){this.spawnPhysicsDebris(p.x+100,p.y,{bounce:kind==='bounce',count:12});this.notifyDev(`Physics Lab: ${kind}.`,'good');return;}if(kind==='chain'){const g=s.add.graphics().setDepth(220),nodes=[];for(let i=0;i<9;i++)nodes.push(s.add.circle(p.x+50+i*18,p.y-80,5,0xc8b077,1).setDepth(221));w.chain.push({graphics:g,nodes,originX:p.x+50,originY:p.y-80,phase:0});this.notifyDev('Arcade-safe constraint demo: цепь симулируется математически.','good');}}
+ updatePhysicsLab(delta=16){const w=this.devLab.worldFx;if(!w.chain.length)return;const t=this.scene.time.now*.003;for(const c of w.chain){if(!c.graphics?.active)continue;c.graphics.clear().lineStyle(3,0x8f774a,.9);let px=c.originX,py=c.originY;for(let i=0;i<c.nodes.length;i++){const n=c.nodes[i];const x=c.originX+i*18+Math.sin(t+i*.55)*i*2.4,y=c.originY+i*4+Math.sin(t*1.3+i*.38)*10;n.setPosition(x,y);c.graphics.lineBetween(px,py,x,y);px=x;py=y;}}}
+
+ updateFogMask(){const w=this.devLab.worldFx,s=this.scene;if(!w.fogMaskGraphics||!s.player?.active)return;w.fogMaskGraphics.clear();w.fogMaskGraphics.fillStyle(0xffffff,1);w.fogMaskGraphics.fillCircle(s.player.x,s.player.y,185);}
+
+ clearAdvancedLabs(){
+  this.toggleExtraCamera('clear');this.clearBoids();this.stopAudioLab();const w=this.devLab.worldFx;try{w.fogMask?.destroy();}catch{}try{w.fogMaskGraphics?.destroy();}catch{}try{w.fogOverlay?.destroy();}catch{}w.fogMask=null;w.fogMaskGraphics=null;w.fogOverlay=null;if(w.screenOverlay){w.screenOverlay.destroy(true);w.screenOverlay=null;}for(const o of w.foreground)o.destroy();for(const o of w.parallax)o.destroy();w.foreground=[];w.parallax=[];this.restoreDevDepths();w.depthSort=false;this.clearDynamicShadows();w.dynamicShadows=false;this.runPhysicsLab('clear');try{w.renderTexture?.destroy();}catch{}w.renderTexture=null;w.renderTextureBounds=null;for(const o of w.decals||[])o?.destroy?.();w.decals=[];w.trail=false;w.lastTrailAt=0;try{this.scene.cameras.main.setDeadzone(0,0).setFollowOffset(0,0).setLerp(.12,.12);}catch{}
+ }
+
+ setEnvironmentAiMode(mode){
+  const allowed=new Set(['normal','mageCover','shieldChoke']);this.scene.devFlags.environmentAiMode=allowed.has(mode)?mode:'normal';this.notifyDev(`AI × окружение: ${this.scene.devFlags.environmentAiMode}.`,'good');this.refreshStateButtons();
+ }
+
  setDevAiMode(mode){
   const legacy={distance:'skirmish',retreat:'reserve'};
   mode=legacy[mode]||mode;
@@ -1727,7 +2042,7 @@ class LastKnightDevTools {
 
  saveDevLabPreset(){
   try{
-   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],fxSelected:this.devLab.fxSelected,fxSettings:Object.fromEntries([...this.devLab.fxSettings.entries()].map(([k,v])=>[k,{...v}])),lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity};
+   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',environmentAiMode:this.scene.devFlags.environmentAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],fxSelected:this.devLab.fxSelected,fxSettings:Object.fromEntries([...this.devLab.fxSettings.entries()].map(([k,v])=>[k,{...v}])),lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity,impact:{...this.devLab.impact},audioLab:{rate:this.devLab.audioLab.rate,detune:this.devLab.audioLab.detune,pan:this.devLab.audioLab.pan},boids:{separation:this.devLab.boids.separation,cohesion:this.devLab.boids.cohesion,alignment:this.devLab.boids.alignment,wander:this.devLab.boids.wander},camera2:{deadzone:this.devLab.camera2.deadzone,lookAhead:this.devLab.camera2.lookAhead,threatLook:this.devLab.camera2.threatLook,damping:this.devLab.camera2.damping}};
    localStorage.setItem(this.devLabPresetKey,JSON.stringify(data));this.notifyDev('Текущий набор лаборатории сохранён локально.','good');
   }catch(error){this.notifyDev(`Не удалось сохранить: ${error?.message||error}`,'error');}
  }
@@ -1735,10 +2050,13 @@ class LastKnightDevTools {
  loadDevLabPreset(){
   try{
    const data=JSON.parse(localStorage.getItem(this.devLabPresetKey)||'null');if(!data){this.notifyDev('Сохранённого набора пока нет.','error');return;}
-   this.setTimeScale(Number(data.time)||1);this.setDevAiMode(data.aiMode||'normal');this.clearDevParticles({silent:true});
+   this.setTimeScale(Number(data.time)||1);this.setDevAiMode(data.aiMode||'normal');this.setEnvironmentAiMode(data.environmentAiMode||'normal');this.clearDevParticles({silent:true});
    this.devLab.fxSettings.clear();for(const [k,v] of Object.entries(data.fxSettings||{}))this.devLab.fxSettings.set(k,{...this.getDevFxSettings(k),...v});this.devLab.fxSelected=data.fxSelected||'fog';
    for(const k of data.ambient||[])this.toggleAmbientDevFx(k,true,{silent:true});
-   this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});this.refreshFxLabUi();
+   this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});
+   if(data.impact)Object.assign(this.devLab.impact,data.impact);if(data.audioLab)Object.assign(this.devLab.audioLab,data.audioLab);if(data.boids)Object.assign(this.devLab.boids,data.boids);
+   if(data.camera2){Object.assign(this.devLab.camera2,data.camera2);const cam=this.scene.cameras.main;cam.setDeadzone(this.devLab.camera2.deadzone?Math.round(cam.width*.22):0,this.devLab.camera2.deadzone?Math.round(cam.height*.18):0);cam.setLerp(this.devLab.camera2.damping||.12,this.devLab.camera2.damping||.12);}
+   this.refreshFxLabUi();this.refreshAdvancedLabUi();
    this.notifyDev('Сохранённый набор лаборатории загружен.','good');
   }catch(error){this.notifyDev(`Не удалось загрузить набор: ${error?.message||error}`,'error');}
  }
@@ -1746,7 +2064,7 @@ class LastKnightDevTools {
  clearDevLabEffects({silent=false}={}){
   try{this.scene.cameras.main?.postFX?.clear?.();}catch{}
   try{const hero=this.getDevFxHero();hero?.postFX?.clear?.();hero?.preFX?.clear?.();}catch{}
-  this.clearDevParticles({silent:true});this.disableDevLight({silent:true});this.clearDevCrowFlocks({silent:true});
+  this.clearDevParticles({silent:true});this.disableDevLight({silent:true});this.clearDevCrowFlocks({silent:true});this.clearAdvancedLabs();
   this.devLab.cameraFxKind='none';this.devLab.playerFxKind='none';
   if(!silent)this.notifyDev('Тестовые FX очищены.','good');
  }
@@ -2827,12 +3145,22 @@ FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} 
    if(a==='renderScale'){const target=Number(v);on=Number.isFinite(target)&&Math.abs(target-LK_RENDER_SCALE)<0.01;}
    if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}
    if(a==='aiMode')on=(f.enemyAiMode||'normal')===v;
+   if(a==='envAi')on=(f.environmentAiMode||'normal')===v;
    if(a==='ambientFx')on=this.devLab.ambient.has(v);
    if(a==='fxSelect')on=(this.devLab.fxSelected||'fog')===v;
    if(a==='fxToggle')on=this.devLab.ambient.has(this.devLab.fxSelected||'fog');
    if(a==='fxFollow')on=this.getDevFxSettings(this.devLab.fxSelected||'fog').follow===v;
    if(a==='postFx')on=v!=='clear'&&this.devLab.cameraFxKind===v;
    if(a==='playerFx')on=v!=='clear'&&this.devLab.playerFxKind===v;
+   if(a==='impactParticles')on=this.devLab.impact.particles===v;
+   if(a==='camera2'){const c=this.devLab.camera2;on=(v==='deadzone'&&c.deadzone)||(v==='lookAhead'&&c.lookAhead)||(v==='threat'&&c.threatLook);}
+   if(a==='extraCamera')on=(v==='minimap'&&Boolean(this.devLab.camera2.minimap))||(v==='pip'&&Boolean(this.devLab.camera2.pip));
+   if(a==='shaderLab')on=v!=='clear'&&this.devLab.shaderLab.kind===v;
+   if(a==='fogMask')on=Boolean(this.devLab.worldFx.fogMask);
+   if(a==='trailToggle')on=Boolean(this.devLab.worldFx.trail);
+   if(a==='screenFx')on=v!=='clear'&&this.devLab.worldFx.screenOverlayKind===v;
+   if(a==='worldLayer'){const w=this.devLab.worldFx;on=(v==='depth'&&w.depthSort)||(v==='foreground'&&w.foreground.length>0)||(v==='parallax'&&w.parallax.length>0)||(v==='shadows'&&w.dynamicShadows);}
+   if(a==='audioSpatial')on=this.devLab.audioLab.spatial;
    btn.classList.toggle('on',on);
    if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Автоспавн ВЫКЛ':'Автоспавн ВКЛ';
   });
@@ -2853,7 +3181,8 @@ FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} 
 Баланс ${WORLD_DESIGN.ZONES[s.progressionBalanceZoneIndex]?.name||'-'}   HP ×${rb.playerMaxHpMultiplier.toFixed(2)}   Меч +${rb.meleeDamageBonus}
 Чемпион ${champ?.active?champ.championName+' '+Math.ceil(champ.hp)+'/'+champ.maxHp:'нет'}
 Камера zoom ${s.cameras.main.zoom.toFixed(2)}   PostFX ${this.devLab.cameraFxKind}   Light2D ${this.devLab.lightEnabled?'ВКЛ':'выкл'}
-Атмосфера ${particles}   Вороны ${(s.crows||[]).filter(c=>c?.sprite?.active).length}
+Атмосфера ${particles}   Вороны ${(s.crows||[]).filter(c=>c?.sprite?.active).length}   Boids ${this.devLab.boids.list.length}
+Camera2 ${[this.devLab.camera2.deadzone?'deadzone':null,this.devLab.camera2.lookAhead?'look-ahead':null,this.devLab.camera2.threatLook?'threat':null].filter(Boolean).join('+')||'off'}   Shader ${this.devLab.shaderLab.kind}   Spatial ${this.devLab.audioLab.spatial?'ON':'off'}
 Меч ${s.meleeAttack.damage}+${rb.meleeDamageBonus}=${effectiveSword} урона / ${s.meleeAttack.cooldown} мс / R${s.meleeAttack.radius}
 Пауза ${Array.from(s.gameplayPauseReasons||[]).join(', ')||'нет'}
 Редактор ${this.editMode?'ВКЛ':'выкл'}${this.placingProp?' / РАЗМЕЩЕНИЕ':''}   Объект ${this.selected?.devEnvMeta?.id||'—'}`;
@@ -2910,6 +3239,14 @@ FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} 
    const light=this.devLab.light;if(light&&this.scene.player?.active){light.x=this.scene.player.x;light.y=this.scene.player.y;light.radius=this.devLab.lightRadius;light.intensity=this.devLab.lightIntensity;}
    this.refreshDevLightTargets(false);
   }
+  this.updateCamera2(delta||dt);
+  this.updateAudioSpatial();
+  this.updateBoids(delta||dt);
+  this.updateDepthSort();
+  this.updateDynamicShadows();
+  this.updateDevTrail(_time);
+  this.updateFogMask();
+  this.updatePhysicsLab(delta||dt);
 
   // DEV rendering is opt-in. Previously both graphics layers were cleared and
   // redrawn every game frame even when the panel and every overlay were off.
@@ -4822,6 +5159,7 @@ class MainScene extends Phaser.Scene {
    enemyMovementFrozen:false,
    enemyAttacksDisabled:false,
    enemyAiMode:'normal',
+   environmentAiMode:'normal',
    championFrozen:false,
    championMovementFrozen:false,
    championAttacksDisabled:false,
@@ -4982,6 +5320,7 @@ class MainScene extends Phaser.Scene {
    enemyMovementFrozen:false,
    enemyAttacksDisabled:false,
    enemyAiMode:'normal',
+   environmentAiMode:'normal',
    championFrozen:false,
    championMovementFrozen:false,
    championAttacksDisabled:false,
@@ -6218,6 +6557,22 @@ class MainScene extends Phaser.Scene {
     const role=slot%3;
     if(role===0){vx=nx*base*1.18;vy=ny*base*1.18;}
     else apply(orbit(this.player.x,this.player.y,role===1?225:330,slot%2?1:-1,role===1?0.64:0.48));
+   }
+  }
+
+  const environmentAiMode=this.devFlags?.environmentAiMode||'normal';
+  if(environmentAiMode!=='normal'&&this.player?.active){
+   if(environmentAiMode==='mageCover'&&enemy.type==='mage'){
+    const blockers=(this.devEnvironmentColliders||[]).filter(b=>b?.active&&b.body?.enable&&Phaser.Math.Distance.Between(enemy.x,enemy.y,b.x,b.y)<520);
+    if(blockers.length){
+     blockers.sort((a,b)=>Phaser.Math.Distance.Between(enemy.x,enemy.y,a.x,a.y)-Phaser.Math.Distance.Between(enemy.x,enemy.y,b.x,b.y));
+     const cover=blockers[0],awayX=cover.x-this.player.x,awayY=cover.y-this.player.y,awayLen=Math.max(1,Math.hypot(awayX,awayY));
+     const targetX=cover.x+awayX/awayLen*62,targetY=cover.y+awayY/awayLen*62;
+     const v=this.devAiTargetVelocity(enemy,targetX,targetY,Math.max(55,enemy.speed||75),.92);vx=v.vx;vy=v.vy;
+    }
+   }else if(environmentAiMode==='shieldChoke'&&enemy.type==='shield'){
+    const gates=WORLD_DESIGN.GATES||[];let gate=null,best=Infinity;for(const g of gates){const d=Math.abs((g.x||0)-enemy.x);if(d<best&&d<760){best=d;gate=g;}}
+    if(gate){const shields=(this.enemies||[]).filter(e=>e?.active&&e.type==='shield'),slot=Math.max(0,shields.indexOf(enemy)),lane=((slot%5)-2)*42;const v=this.devAiTargetVelocity(enemy,gate.x-55,WORLD_DESIGN.ROUTE_Y+lane,Math.max(55,enemy.speed||75),.9);vx=v.vx;vy=v.vy;}
    }
   }
 
