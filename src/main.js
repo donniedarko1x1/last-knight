@@ -760,6 +760,8 @@ class LastKnightDevTools {
    cameraFxKind:'none',
    playerFxKind:'none',
    ambient:new Map(),
+   fxSelected:'fog',
+   fxSettings:new Map(),
    light:null,
    lightEnabled:false,
    lightRadius:260,
@@ -929,11 +931,31 @@ class LastKnightDevTools {
      <div class="lkdev-row"><button data-action="postFx" data-value="clear">Очистить FX камеры</button><button data-action="playerFx" data-value="clear">Очистить FX героя</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>ЧАСТИЦЫ И АТМОСФЕРА</summary><div class="lkdev-body">
-     <div class="lkdev-note">Тестовые текстуры создаются движком на лету: никаких новых PNG не требуется.</div>
-     <div class="lkdev-label">Постоянная атмосфера</div><div class="lkdev-grid3"><button data-action="ambientFx" data-value="ash">Пепел</button><button data-action="ambientFx" data-value="fog">Туман</button><button data-action="ambientFx" data-value="embers">Угли</button></div>
-     <div class="lkdev-label">Одноразовые выбросы возле героя</div><div class="lkdev-grid3"><button data-action="particleBurst" data-value="sparks">Искры меча</button><button data-action="particleBurst" data-value="blood">Кровь</button><button data-action="particleBurst" data-value="debris">Обломки</button><button data-action="particleBurst" data-value="magic">Магия</button><button data-action="particleBurst" data-value="fire">Огонь</button><button data-action="particleBurst" data-value="smoke">Дым</button></div>
-     <div class="lkdev-row"><button data-action="clearParticles">Убрать тестовые частицы</button></div>
+    <details class="lkdev-section" open><summary>FX LAB · ЧАСТИЦЫ И АТМОСФЕРА</summary><div class="lkdev-body">
+     <div class="lkdev-note">Выбери эффект, включи постоянный тест или сделай одиночный выброс. Ползунки меняют эффект сразу. Всё создаётся Phaser на лету и не затрагивает основной билд.</div>
+     <div class="lkdev-label">Выбери эффект</div>
+     <div class="lkdev-grid3">
+      <button data-action="fxSelect" data-value="fog">Туман</button><button data-action="fxSelect" data-value="smoke">Дым</button><button data-action="fxSelect" data-value="fire">Огонь</button>
+      <button data-action="fxSelect" data-value="ash">Пепел</button><button data-action="fxSelect" data-value="embers">Угли</button><button data-action="fxSelect" data-value="sparks">Искры</button>
+      <button data-action="fxSelect" data-value="blood">Кровь</button><button data-action="fxSelect" data-value="bones">Кости</button><button data-action="fxSelect" data-value="debris">Обломки</button>
+      <button data-action="fxSelect" data-value="magic">Магия</button>
+     </div>
+     <div id="lkdev-fx-description" class="lkdev-status lkdev-ai-desc">Туман</div>
+     <div class="lkdev-label">Тест</div>
+     <div class="lkdev-grid3"><button data-action="fxToggle" class="good">Постоянно ВКЛ/ВЫКЛ</button><button data-action="fxBurst" class="blue">Один выброс</button><button data-action="clearParticles">Убрать всё</button></div>
+     <div class="lkdev-label">Быстрые пресеты</div>
+     <div class="lkdev-grid4"><button data-action="fxPreset" data-value="light">Слабый</button><button data-action="fxPreset" data-value="normal">Обычный</button><button data-action="fxPreset" data-value="heavy">Сильный</button><button data-action="fxPreset" data-value="cinema">Кино</button></div>
+     <div class="lkdev-label">Где держать постоянный эффект</div>
+     <div class="lkdev-grid3"><button data-action="fxFollow" data-value="camera">Камера</button><button data-action="fxFollow" data-value="player">Герой</button><button data-action="fxFollow" data-value="fixed">Точка на карте</button></div>
+     <div class="lkdev-divider"></div>
+     <label class="lkdev-range"><span>Плотность</span><input data-dev-range="fxDensity" type="range" min="0.25" max="3" step="0.05" value="1"><b id="lkdev-fx-density">1.00×</b></label>
+     <label class="lkdev-range"><span>Размер</span><input data-dev-range="fxSize" type="range" min="0.25" max="3" step="0.05" value="1"><b id="lkdev-fx-size">1.00×</b></label>
+     <label class="lkdev-range"><span>Скорость</span><input data-dev-range="fxSpeed" type="range" min="0.15" max="3" step="0.05" value="1"><b id="lkdev-fx-speed">1.00×</b></label>
+     <label class="lkdev-range"><span>Прозрачн.</span><input data-dev-range="fxAlpha" type="range" min="0.15" max="2.5" step="0.05" value="1"><b id="lkdev-fx-alpha">1.00×</b></label>
+     <label class="lkdev-range"><span>Время жизни</span><input data-dev-range="fxLife" type="range" min="0.25" max="3" step="0.05" value="1"><b id="lkdev-fx-life">1.00×</b></label>
+     <label class="lkdev-range"><span>Разброс</span><input data-dev-range="fxSpread" type="range" min="0.25" max="3" step="0.05" value="1"><b id="lkdev-fx-spread">1.00×</b></label>
+     <div class="lkdev-row"><button data-action="fxCopy" class="good">Скопировать параметры эффекта</button></div>
+     <textarea id="lkdev-fx-output" class="lkdev-output" readonly placeholder="Здесь появятся параметры, которые можно прислать мне для переноса в основной билд."></textarea>
     </div></details>
 
     <details class="lkdev-section"><summary>СВЕТ 2D · LIGHT2D</summary><div class="lkdev-body">
@@ -1083,6 +1105,7 @@ class LastKnightDevTools {
   });
   document.body.appendChild(root);
   this.root=root;
+  this.refreshFxLabUi(false);
  }
 
  setPanelInputCapture(active,force=false){
@@ -1118,7 +1141,7 @@ class LastKnightDevTools {
   if(!this.open)this.setPanelInputCapture(false,true);
   const hud=this.scene.scene?.get?.('HUDScene');
   hud?.setDevMenuOpen?.(this.open);
-  if(this.open)this.refreshAiModeDescription();
+  if(this.open){this.refreshAiModeDescription();this.refreshFxLabUi();}
  }
 
  handleAction(action,value,button){
@@ -1137,6 +1160,12 @@ class LastKnightDevTools {
    case 'playerFx':this.applyPlayerDevFx(value);break;
    case 'ambientFx':this.toggleAmbientDevFx(value);break;
    case 'particleBurst':this.burstDevParticles(value);break;
+   case 'fxSelect':this.selectDevFx(value);break;
+   case 'fxToggle':this.toggleAmbientDevFx(this.devLab.fxSelected);break;
+   case 'fxBurst':this.burstDevParticles(this.devLab.fxSelected);break;
+   case 'fxPreset':this.applyDevFxPreset(value);break;
+   case 'fxFollow':this.setDevFxFollow(value);break;
+   case 'fxCopy':this.copyDevFxSettings();break;
    case 'clearParticles':this.clearDevParticles();break;
    case 'lightToggle':this.toggleDevLight();break;
    case 'lightPulse':this.pulseDevLight();break;
@@ -1276,6 +1305,14 @@ class LastKnightDevTools {
    this.devLab.lightIntensity=Phaser.Math.Clamp(value,0.2,3);
    const out=document.getElementById('lkdev-light-intensity');if(out)out.textContent=this.devLab.lightIntensity.toFixed(1);
    if(this.devLab.light)this.devLab.light.intensity=this.devLab.lightIntensity;
+  }else if(kind?.startsWith?.('fx')){
+   const map={fxDensity:'density',fxSize:'size',fxSpeed:'speed',fxAlpha:'alpha',fxLife:'life',fxSpread:'spread'};
+   const prop=map[kind];if(!prop)return;
+   const settings=this.getDevFxSettings(this.devLab.fxSelected);
+   const limits={density:[0.25,3],size:[0.25,3],speed:[0.15,3],alpha:[0.15,2.5],life:[0.25,3],spread:[0.25,3]};
+   const [min,max]=limits[prop];settings[prop]=Phaser.Math.Clamp(value,min,max);
+   if(this.devLab.ambient.has(this.devLab.fxSelected))this.rebuildDevFx(this.devLab.fxSelected);
+   this.refreshFxLabUi(false);
   }
  }
 
@@ -1360,46 +1397,156 @@ class LastKnightDevTools {
   if(!s.textures.exists('lkdev_particle_square')){
    const g=s.make.graphics({x:0,y:0,add:false});g.fillStyle(0xffffff,1);g.fillRect(1,1,8,8);g.generateTexture('lkdev_particle_square',10,10);g.destroy();
   }
+  if(!s.textures.exists('lkdev_particle_bone')){
+   const g=s.make.graphics({x:0,y:0,add:false});g.fillStyle(0xe0d8c2,1);g.fillRoundedRect(1,3,10,4,2);g.fillCircle(2.5,3,2);g.fillCircle(9.5,7,2);g.generateTexture('lkdev_particle_bone',12,10);g.destroy();
+  }
   if(!s.textures.exists('lkdev_particle_smoke')){
    const tex=s.textures.createCanvas('lkdev_particle_smoke',64,64);const ctx=tex.getContext();const grad=ctx.createRadialGradient(32,32,3,32,32,30);grad.addColorStop(0,'rgba(255,255,255,.66)');grad.addColorStop(.45,'rgba(255,255,255,.22)');grad.addColorStop(1,'rgba(255,255,255,0)');ctx.clearRect(0,0,64,64);ctx.fillStyle=grad;ctx.fillRect(0,0,64,64);tex.refresh();
   }
  }
 
- makeDevParticleEmitter(x,y,key,config){
-  this.ensureDevParticleTextures();
-  const emitter=this.scene.add.particles(x,y,key,{...config,frequency:-1}).setDepth(200);
-  return emitter;
+ getDevFxMeta(kind){
+  const meta={
+   fog:{name:'Туман',desc:'Большие полупрозрачные облака. Лучше всего тестировать с привязкой к камере.',follow:'camera',depth:5},
+   smoke:{name:'Дым',desc:'Поднимающийся дым: костры, разрушения, появление персонажа, горящие объекты.',follow:'player',depth:188},
+   fire:{name:'Огонь',desc:'Живое пламя из горячих частиц. Удобно подбирать костры, факелы и горящие телеги.',follow:'player',depth:192},
+   ash:{name:'Пепел',desc:'Медленно падающие частицы для постоянной атмосферы зоны.',follow:'camera',depth:180},
+   embers:{name:'Угли',desc:'Лёгкие светящиеся искры, которые поднимаются вверх возле источника огня.',follow:'player',depth:194},
+   sparks:{name:'Искры',desc:'Короткие яркие искры для удара меча, парирования и столкновения с металлом.',follow:'player',depth:202},
+   blood:{name:'Кровь',desc:'Брызги с гравитацией. Постоянный режим нужен только для настройки; в игре обычно используется выброс.',follow:'player',depth:201},
+   bones:{name:'Кости',desc:'Фрагменты костей с вращением и гравитацией для смерти скелетов и тяжёлых ударов.',follow:'player',depth:201},
+   debris:{name:'Обломки',desc:'Каменные и земляные фрагменты для разрушений, ударов о землю и объектов окружения.',follow:'player',depth:199},
+   magic:{name:'Магия',desc:'Светящиеся магические частицы с ADD-смешиванием для заклинаний и реликвий.',follow:'player',depth:203}
+  };
+  return meta[kind]||meta.fog;
  }
 
- burstDevParticles(kind){
+ getDevFxSettings(kind=this.devLab.fxSelected){
+  let settings=this.devLab.fxSettings.get(kind);
+  if(settings)return settings;
+  const meta=this.getDevFxMeta(kind);
+  settings={density:1,size:1,speed:1,alpha:1,life:1,spread:1,follow:meta.follow,fixedX:null,fixedY:null};
+  this.devLab.fxSettings.set(kind,settings);
+  return settings;
+ }
+
+ selectDevFx(kind){
+  const allowed=new Set(['fog','smoke','fire','ash','embers','sparks','blood','bones','debris','magic']);
+  if(!allowed.has(kind))return;
+  this.devLab.fxSelected=kind;this.getDevFxSettings(kind);this.refreshFxLabUi();
+  this.notifyDev(`FX Lab: выбран «${this.getDevFxMeta(kind).name}».`);
+ }
+
+ applyDevFxPreset(name){
+  const presets={
+   light:{density:0.55,size:0.78,speed:0.72,alpha:0.62,life:0.78,spread:0.82},
+   normal:{density:1,size:1,speed:1,alpha:1,life:1,spread:1},
+   heavy:{density:1.75,size:1.22,speed:0.92,alpha:1.35,life:1.3,spread:1.18},
+   cinema:{density:2.35,size:1.62,speed:0.68,alpha:1.55,life:1.62,spread:1.48}
+  };
+  const preset=presets[name]||presets.normal,kind=this.devLab.fxSelected,settings=this.getDevFxSettings(kind);
+  Object.assign(settings,preset);
+  if(this.devLab.ambient.has(kind))this.rebuildDevFx(kind);
+  this.refreshFxLabUi();
+  const label={light:'Слабый',normal:'Обычный',heavy:'Сильный',cinema:'Кино'}[name]||name;
+  this.notifyDev(`${this.getDevFxMeta(kind).name}: пресет «${label}».`,'good');
+ }
+
+ setDevFxFollow(follow){
+  if(!['camera','player','fixed'].includes(follow))return;
+  const kind=this.devLab.fxSelected,settings=this.getDevFxSettings(kind);settings.follow=follow;
+  if(follow==='fixed'){
+   settings.fixedX=this.scene.player?.x??this.scene.cameras.main.worldView.centerX;
+   settings.fixedY=this.scene.player?.y??this.scene.cameras.main.worldView.centerY;
+  }
+  if(this.devLab.ambient.has(kind))this.rebuildDevFx(kind);
+  this.refreshFxLabUi();
+  const label={camera:'камера',player:'герой',fixed:'точка на карте'}[follow];
+  this.notifyDev(`${this.getDevFxMeta(kind).name}: привязка — ${label}.`,'good');
+ }
+
+ buildDevFxConfig(kind,{burst=false}={}){
+  const s=this.scene,cam=s.cameras.main,st=this.getDevFxSettings(kind);
+  const halfW=Math.max(400,cam.worldView.width*0.62),halfH=Math.max(280,cam.worldView.height*0.62);
+  const den=Math.max(.25,st.density),size=st.size,speed=st.speed,alpha=st.alpha,life=st.life,spread=st.spread;
+  const freq=(base)=>Math.max(18,Math.round(base/den));
+  const A=(v)=>Phaser.Math.Clamp(v*alpha,0.005,1);
+  const R=(min,max,mul=1)=>({min:min*mul,max:max*mul});
+  const L=(min,max)=>({min:Math.round(min*life),max:Math.round(max*life)});
+  let key='lkdev_particle_dot',count=Math.max(1,Math.round(24*den)),cfg={};
+
+  if(kind==='fog'){
+   key='lkdev_particle_smoke';count=Math.max(3,Math.round(12*den));
+   cfg=burst?{lifespan:L(3500,7000),speedX:R(10,30,speed),speedY:R(-5,5,speed),scale:{start:1.9*size,end:4.8*size},alpha:{start:A(.08),end:0},tint:[0xaeb7b2,0x7e8782]}:
+    {x:-halfW*1.08,y:{min:-halfH*.62*spread,max:halfH*.62*spread},speedX:R(12,27,speed),speedY:R(-3,3,speed),lifespan:L(9000,14000),frequency:freq(620),quantity:1,scale:{start:2.8*size,end:5.8*size},alpha:{start:A(.055),end:0},tint:[0x9ca5a0,0x737b78]};
+  }else if(kind==='smoke'){
+   key='lkdev_particle_smoke';count=Math.max(5,Math.round(18*den));
+   cfg={x:R(-56,56,spread),y:R(-12,22,spread),speedX:R(-16,16,speed),speedY:R(-58,-14,speed),lifespan:L(1100,2600),scale:{start:.38*size,end:2.15*size},alpha:{start:A(.24),end:0},tint:[0xc2c2b9,0x777a76,0x4e504e],...(burst?{}:{frequency:freq(115),quantity:1})};
+  }else if(kind==='fire'){
+   count=Math.max(6,Math.round(30*den));
+   cfg={x:R(-30,30,spread),y:R(-12,20,spread),speedX:R(-20,20,speed),speedY:R(-86,-30,speed),lifespan:L(420,980),scale:{start:1.05*size,end:0},alpha:{start:A(.95),end:0},tint:[0xfff0a3,0xffa135,0xe84b1d],blendMode:'ADD',...(burst?{}:{frequency:freq(68),quantity:1})};
+  }else if(kind==='ash'){
+   key='lkdev_particle_square';count=Math.max(8,Math.round(36*den));
+   cfg=burst?{lifespan:L(2200,4600),speedX:R(-16,14,speed),speedY:R(18,48,speed),scale:{start:.34*size,end:.12*size},alpha:{start:A(.42),end:0},tint:[0xc6c3b7,0x837f74,0x57554f]}:
+    {x:{min:-halfW*spread,max:halfW*spread},y:-halfH,speedX:R(-12,10,speed),speedY:R(20,48,speed),lifespan:L(6500,9500),frequency:freq(115),quantity:1,scale:{start:.35*size,end:.12*size},alpha:{start:A(.4),end:0},tint:[0xc6c3b7,0x837f74,0x57554f]};
+  }else if(kind==='embers'){
+   count=Math.max(5,Math.round(24*den));
+   cfg={x:R(-75,75,spread),y:R(-28,34,spread),speedX:R(-10,10,speed),speedY:R(-48,-16,speed),lifespan:L(750,1900),scale:{start:.38*size,end:0},alpha:{start:A(.85),end:0},tint:[0xffd77b,0xff963e,0xff6124],blendMode:'ADD',...(burst?{}:{frequency:freq(145),quantity:1})};
+  }else if(kind==='sparks'){
+   count=Math.max(6,Math.round(28*den));
+   cfg={x:R(-12,12,spread),y:R(-12,12,spread),lifespan:L(220,560),speed:R(110,285,speed),angle:{min:0,max:360},scale:{start:.62*size,end:0},alpha:{start:A(.98),end:0},tint:[0xfff1a8,0xffb94f,0xffffff],blendMode:'ADD',...(burst?{}:{frequency:freq(190),quantity:1})};
+  }else if(kind==='blood'){
+   count=Math.max(5,Math.round(24*den));
+   cfg={x:R(-12,12,spread),y:R(-18,4,spread),lifespan:L(420,900),speed:R(55,175,speed),angle:{min:190-70*spread,max:350+10*spread},gravityY:220*speed,scale:{start:.65*size,end:.12*size},alpha:{start:A(.95),end:0},tint:[0x8d1717,0xc02b22,0x5f1010],...(burst?{}:{frequency:freq(220),quantity:1})};
+  }else if(kind==='bones'){
+   key='lkdev_particle_bone';count=Math.max(4,Math.round(18*den));
+   cfg={x:R(-18,18,spread),y:R(-15,10,spread),lifespan:L(650,1450),speed:R(60,185,speed),angle:{min:190,max:350},gravityY:210*speed,rotate:{min:-240,max:240},scale:{start:.72*size,end:.42*size},alpha:{start:A(.98),end:0},tint:[0xeee5cf,0xc7bda5,0x948a74],...(burst?{}:{frequency:freq(260),quantity:1})};
+  }else if(kind==='debris'){
+   key='lkdev_particle_square';count=Math.max(5,Math.round(30*den));
+   cfg={x:R(-18,18,spread),y:R(-12,12,spread),lifespan:L(520,1200),speed:R(45,160,speed),angle:{min:195,max:345},gravityY:180*speed,rotate:{min:-180,max:180},scale:{start:.65*size,end:.18*size},alpha:{start:A(.95),end:0},tint:[0x8a7556,0xc1ad87,0x4d4438],...(burst?{}:{frequency:freq(235),quantity:1})};
+  }else{
+   count=Math.max(6,Math.round(34*den));
+   cfg={x:R(-34,34,spread),y:R(-34,34,spread),lifespan:L(450,1050),speed:R(38,155,speed),angle:{min:0,max:360},scale:{start:.9*size,end:0},alpha:{start:A(.95),end:0},tint:[0x7fe7ff,0x8bffcf,0xa7a0ff],blendMode:'ADD',...(burst?{}:{frequency:freq(120),quantity:1})};
+  }
+  return {key,count,cfg,depth:this.getDevFxMeta(kind).depth};
+ }
+
+ makeDevParticleEmitter(x,y,key,config,depth=200){
+  this.ensureDevParticleTextures();
+  return this.scene.add.particles(x,y,key,{...config,frequency:-1}).setDepth(depth);
+ }
+
+ burstDevParticles(kind=this.devLab.fxSelected){
   const s=this.scene,p=s.player;if(!p?.active)return;
   this.ensureDevParticleTextures();
-  const base={lifespan:{min:380,max:920},alpha:{start:0.95,end:0},scale:{start:0.85,end:0},speed:{min:70,max:190},angle:{min:0,max:360}};
-  let key='lkdev_particle_dot',count=22,cfg={...base};
-  if(kind==='sparks'){count=28;cfg={...base,lifespan:{min:220,max:520},speed:{min:110,max:280},scale:{start:0.6,end:0},tint:[0xfff1a8,0xffb94f,0xffffff],blendMode:'ADD'};}
-  else if(kind==='blood'){count=24;cfg={...base,lifespan:{min:420,max:850},speed:{min:55,max:170},gravityY:220,scale:{start:0.65,end:0.12},tint:[0x8d1717,0xc02b22,0x5f1010]};}
-  else if(kind==='debris'){key='lkdev_particle_square';count=30;cfg={...base,lifespan:{min:500,max:1100},speed:{min:45,max:155},gravityY:180,rotate:{min:-180,max:180},scale:{start:0.65,end:0.18},tint:[0x8a7556,0xc1ad87,0x4d4438]};}
-  else if(kind==='magic'){count=34;cfg={...base,lifespan:{min:450,max:950},speed:{min:40,max:150},scale:{start:0.9,end:0},tint:[0x7fe7ff,0x8bffcf,0xa7a0ff],blendMode:'ADD'};}
-  else if(kind==='fire'){count=34;cfg={...base,lifespan:{min:350,max:800},speed:{min:35,max:125},angle:{min:235,max:305},gravityY:-45,scale:{start:1.05,end:0},tint:[0xfff0a3,0xffa135,0xe84b1d],blendMode:'ADD'};}
-  else if(kind==='smoke'){key='lkdev_particle_smoke';count=16;cfg={...base,lifespan:{min:900,max:1800},speed:{min:12,max:48},angle:{min:235,max:305},scale:{start:0.45,end:1.8},alpha:{start:0.2,end:0},tint:[0xb8b8ae,0x777a76]};}
-  const emitter=this.makeDevParticleEmitter(p.x,p.y-8,key,cfg);emitter.explode(count);s.time.delayedCall(2100,()=>emitter?.destroy?.());
-  this.notifyDev(`Частицы: ${kind}, ${count} шт.`);
+  const built=this.buildDevFxConfig(kind,{burst:true});
+  const emitter=this.makeDevParticleEmitter(p.x,p.y-8,built.key,built.cfg,built.depth);emitter.explode(built.count);
+  const st=this.getDevFxSettings(kind);s.time.delayedCall(Math.max(2200,Math.round(5200*st.life)),()=>emitter?.destroy?.());
+  this.notifyDev(`${this.getDevFxMeta(kind).name}: одиночный выброс · ${built.count} частиц.`,'good');
  }
 
- toggleAmbientDevFx(kind,force=null){
-  const current=this.devLab.ambient.get(kind);
-  const shouldEnable=force===null?!current:Boolean(force);
-  if(!shouldEnable){if(current?.emitter?.active)current.emitter.destroy();this.devLab.ambient.delete(kind);this.notifyDev(`Атмосфера «${kind}» выключена.`);this.refreshStateButtons();return;}
+ toggleAmbientDevFx(kind,force=null,{silent=false}={}){
+  const current=this.devLab.ambient.get(kind),shouldEnable=force===null?!current:Boolean(force);
+  if(!shouldEnable){
+   if(current?.emitter?.active)current.emitter.destroy();this.devLab.ambient.delete(kind);
+   if(!silent)this.notifyDev(`${this.getDevFxMeta(kind).name}: постоянный эффект выключен.`);
+   this.refreshStateButtons();this.refreshFxLabUi(false);return;
+  }
   if(current)return;
-  const s=this.scene,cam=s.cameras.main;this.ensureDevParticleTextures();
-  const halfW=Math.max(400,cam.worldView.width*0.62),halfH=Math.max(280,cam.worldView.height*0.62);
-  let key='lkdev_particle_square',cfg={},follow='camera';
-  if(kind==='ash')cfg={x:{min:-halfW,max:halfW},y:-halfH,speedX:{min:-12,max:10},speedY:{min:20,max:48},lifespan:{min:6500,max:9500},frequency:115,quantity:1,scale:{start:0.35,end:0.12},alpha:{start:0.4,end:0},tint:[0xc6c3b7,0x837f74,0x57554f]};
-  else if(kind==='fog'){key='lkdev_particle_smoke';cfg={x:-halfW,y:{min:-halfH*0.55,max:halfH*0.55},speedX:{min:12,max:26},speedY:{min:-3,max:3},lifespan:{min:9000,max:14000},frequency:620,quantity:1,scale:{start:2.8,end:5.8},alpha:{start:0.055,end:0},tint:[0x9ca5a0,0x737b78]};}
-  else {follow='player';cfg={x:{min:-120,max:120},y:{min:-35,max:40},speedX:{min:-6,max:6},speedY:{min:-34,max:-12},lifespan:{min:850,max:1700},frequency:150,quantity:1,scale:{start:0.35,end:0},alpha:{start:0.8,end:0},tint:[0xffcc69,0xff7e2d],blendMode:'ADD'};}
-  const emitter=s.add.particles(0,0,key,cfg).setDepth(kind==='fog'?5:190);
-  const entry={emitter,follow};this.devLab.ambient.set(kind,entry);this.updateDevAmbientPositions();
-  this.notifyDev(`Атмосфера «${kind}» включена.`,'good');this.refreshStateButtons();
+  const s=this.scene,st=this.getDevFxSettings(kind),built=this.buildDevFxConfig(kind,{burst:false});
+  const emitter=s.add.particles(0,0,built.key,built.cfg).setDepth(built.depth);
+  const entry={emitter,follow:st.follow,kind,fixedX:st.fixedX,fixedY:st.fixedY};
+  if(st.follow==='fixed' && (!Number.isFinite(st.fixedX)||!Number.isFinite(st.fixedY))){
+   st.fixedX=s.player?.x??s.cameras.main.worldView.centerX;st.fixedY=s.player?.y??s.cameras.main.worldView.centerY;entry.fixedX=st.fixedX;entry.fixedY=st.fixedY;
+  }
+  this.devLab.ambient.set(kind,entry);this.updateDevAmbientPositions();
+  if(!silent)this.notifyDev(`${this.getDevFxMeta(kind).name}: постоянный эффект включён.`,'good');
+  this.refreshStateButtons();this.refreshFxLabUi(false);
+ }
+
+ rebuildDevFx(kind){
+  if(!this.devLab.ambient.has(kind))return;
+  this.toggleAmbientDevFx(kind,false,{silent:true});this.toggleAmbientDevFx(kind,true,{silent:true});
  }
 
  updateDevAmbientPositions(){
@@ -1407,15 +1554,38 @@ class LastKnightDevTools {
   for(const entry of this.devLab.ambient.values()){
    if(!entry?.emitter?.active)continue;
    if(entry.follow==='player'&&s.player?.active)entry.emitter.setPosition(s.player.x,s.player.y);
+   else if(entry.follow==='fixed')entry.emitter.setPosition(entry.fixedX??s.player?.x??cam.worldView.centerX,entry.fixedY??s.player?.y??cam.worldView.centerY);
    else entry.emitter.setPosition(cam.worldView.centerX,cam.worldView.centerY);
   }
+ }
+
+ refreshFxLabUi(refreshButtons=true){
+  if(typeof document==='undefined')return;
+  const kind=this.devLab.fxSelected||'fog',meta=this.getDevFxMeta(kind),st=this.getDevFxSettings(kind);
+  const desc=document.getElementById('lkdev-fx-description');if(desc)desc.textContent=`${meta.name} — ${meta.desc}`;
+  const defs=[['fxDensity','density','lkdev-fx-density'],['fxSize','size','lkdev-fx-size'],['fxSpeed','speed','lkdev-fx-speed'],['fxAlpha','alpha','lkdev-fx-alpha'],['fxLife','life','lkdev-fx-life'],['fxSpread','spread','lkdev-fx-spread']];
+  for(const [range,prop,outId] of defs){const input=document.querySelector(`[data-dev-range="${range}"]`);if(input)input.value=String(st[prop]);const out=document.getElementById(outId);if(out)out.textContent=`${Number(st[prop]).toFixed(2)}×`;}
+  const toggle=this.root?.querySelector?.('[data-action="fxToggle"]');if(toggle)toggle.textContent=this.devLab.ambient.has(kind)?'Постоянно · ВЫКЛ':'Постоянно · ВКЛ';
+  if(refreshButtons)this.refreshStateButtons();
+ }
+
+ formatDevFxSettings(){
+  const kind=this.devLab.fxSelected,meta=this.getDevFxMeta(kind),st=this.getDevFxSettings(kind);
+  const follow={camera:'камера',player:'герой',fixed:'точка на карте'}[st.follow]||st.follow;
+  return `Эффект: ${meta.name}\nРежим: ${this.devLab.ambient.has(kind)?'постоянный ВКЛ':'постоянный ВЫКЛ / можно использовать выброс'}\nПривязка: ${follow}\nПлотность: ${st.density.toFixed(2)}x\nРазмер: ${st.size.toFixed(2)}x\nСкорость: ${st.speed.toFixed(2)}x\nПрозрачность: ${st.alpha.toFixed(2)}x\nВремя жизни: ${st.life.toFixed(2)}x\nРазброс: ${st.spread.toFixed(2)}x`;
+ }
+
+ copyDevFxSettings(){
+  const text=this.formatDevFxSettings();const out=document.getElementById('lkdev-fx-output');if(out)out.value=text;
+  try{navigator.clipboard?.writeText(text);}catch{}
+  this.notifyDev(`${this.getDevFxMeta(this.devLab.fxSelected).name}: параметры подготовлены для копирования.`,'good');
  }
 
  clearDevParticles({silent=false}={}){
   for(const entry of this.devLab.ambient.values())if(entry?.emitter?.active)entry.emitter.destroy();
   this.devLab.ambient.clear();
-  if(!silent)this.notifyDev('Все тестовые атмосферные частицы выключены.','good');
-  this.refreshStateButtons();
+  if(!silent)this.notifyDev('Все тестовые FX-частицы выключены.','good');
+  this.refreshStateButtons();this.refreshFxLabUi(false);
  }
 
  devLightCandidates(){
@@ -1546,7 +1716,7 @@ class LastKnightDevTools {
   if(name==='combat'){
    this.clearDevParticles({silent:true});this.applyCameraPostFx('clear');this.setDevAiMode('surround');this.spawnMixed(20);s.devFlags.godMode=true;
   }else if(name==='atmosphere'){
-   this.toggleAmbientDevFx('ash',true);this.toggleAmbientDevFx('fog',true);this.applyCameraPostFx('vignette');
+   this.toggleAmbientDevFx('ash',true);this.toggleAmbientDevFx('fog',true);this.devLab.fxSelected='fog';this.applyCameraPostFx('vignette');this.refreshFxLabUi();
   }else if(name==='boss'){
    if(!s.activeChampion?.active)this.spawnSelectedChampion();s.devFlags.godMode=true;this.testCameraEffect('bossFocus');
   }else if(name==='critical'){
@@ -1557,7 +1727,7 @@ class LastKnightDevTools {
 
  saveDevLabPreset(){
   try{
-   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity};
+   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],fxSelected:this.devLab.fxSelected,fxSettings:Object.fromEntries([...this.devLab.fxSettings.entries()].map(([k,v])=>[k,{...v}])),lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity};
    localStorage.setItem(this.devLabPresetKey,JSON.stringify(data));this.notifyDev('Текущий набор лаборатории сохранён локально.','good');
   }catch(error){this.notifyDev(`Не удалось сохранить: ${error?.message||error}`,'error');}
  }
@@ -1565,8 +1735,10 @@ class LastKnightDevTools {
  loadDevLabPreset(){
   try{
    const data=JSON.parse(localStorage.getItem(this.devLabPresetKey)||'null');if(!data){this.notifyDev('Сохранённого набора пока нет.','error');return;}
-   this.setTimeScale(Number(data.time)||1);this.setDevAiMode(data.aiMode||'normal');this.clearDevParticles({silent:true});for(const k of data.ambient||[])this.toggleAmbientDevFx(k,true);
-   this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});
+   this.setTimeScale(Number(data.time)||1);this.setDevAiMode(data.aiMode||'normal');this.clearDevParticles({silent:true});
+   this.devLab.fxSettings.clear();for(const [k,v] of Object.entries(data.fxSettings||{}))this.devLab.fxSettings.set(k,{...this.getDevFxSettings(k),...v});this.devLab.fxSelected=data.fxSelected||'fog';
+   for(const k of data.ambient||[])this.toggleAmbientDevFx(k,true,{silent:true});
+   this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});this.refreshFxLabUi();
    this.notifyDev('Сохранённый набор лаборатории загружен.','good');
   }catch(error){this.notifyDev(`Не удалось загрузить набор: ${error?.message||error}`,'error');}
  }
@@ -2656,6 +2828,9 @@ FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} 
    if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}
    if(a==='aiMode')on=(f.enemyAiMode||'normal')===v;
    if(a==='ambientFx')on=this.devLab.ambient.has(v);
+   if(a==='fxSelect')on=(this.devLab.fxSelected||'fog')===v;
+   if(a==='fxToggle')on=this.devLab.ambient.has(this.devLab.fxSelected||'fog');
+   if(a==='fxFollow')on=this.getDevFxSettings(this.devLab.fxSelected||'fog').follow===v;
    if(a==='postFx')on=v!=='clear'&&this.devLab.cameraFxKind===v;
    if(a==='playerFx')on=v!=='clear'&&this.devLab.playerFxKind===v;
    btn.classList.toggle('on',on);
@@ -2668,7 +2843,7 @@ FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} 
  updateInfo(force=false){
   const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;
   const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();
-  const particles=[...this.devLab.ambient.keys()].join(', ')||'нет';
+  const particles=[...this.devLab.ambient.keys()].map(k=>this.getDevFxMeta(k).name).join(', ')||'нет';
   const aiName=(DEV_AI_MODE_META[s.devFlags.enemyAiMode||'normal']||DEV_AI_MODE_META.normal).name;
   const txt=`FPS ${fps.toFixed(0)}   Время ${(s.devTimeScale||1).toFixed(2)}×   WebGL ${this.isWebGlDev()?'ДА':'НЕТ'}
 Герой ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Мана ${s.mana}/${s.maxMana}
