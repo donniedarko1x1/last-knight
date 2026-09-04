@@ -158,6 +158,30 @@ const CROW_TAKEOFF_MS=470;
 const CROW_FLIGHT_LIFETIME_MS=7600;
 const CROW_FLOCK_BIRD_MIN=5;
 const CROW_FLOCK_BIRD_MAX=20;
+const DEV_AI_MODE_META=Object.freeze({
+ normal:Object.freeze({name:'Обычное поведение',desc:'Штатный AI игры без экспериментального построения.'}),
+ aggressive:Object.freeze({name:'Штурм',desc:'Все бойцы максимально быстро давят прямо на героя.'}),
+ surround:Object.freeze({name:'Кольцо',desc:'Скелеты занимают окружность вокруг героя и вращаются, удерживая дистанцию.'}),
+ wedge:Object.freeze({name:'Клин',desc:'Группа собирается клином: острие впереди, следующие бойцы расходятся назад по сторонам.'}),
+ pincer:Object.freeze({name:'Клещи',desc:'Отряд делится пополам, широко обходит героя слева и справа и сходится с флангов.'}),
+ protectMages:Object.freeze({name:'Защита магов',desc:'Ближние бойцы прикрывают магов телом, а маги стараются держать безопасную дистанцию.'}),
+ protectBoss:Object.freeze({name:'Защита босса',desc:'Скелеты формируют живой заслон вокруг Капитана или чемпиона и перехватывают героя.'}),
+ shieldWall:Object.freeze({name:'Щитовая стена',desc:'Щитовики становятся первой линией, обычные скелеты — второй, маги держатся позади.'}),
+ phalanx:Object.freeze({name:'Фаланга',desc:'Плотный прямоугольный строй с несколькими шеренгами, который движется к герою единым блоком.'}),
+ spearhead:Object.freeze({name:'Острие',desc:'Узкий агрессивный клин: несколько передних бойцов прорываются, остальные держат хвост построения.'}),
+ column:Object.freeze({name:'Колонна',desc:'Скелеты выстраиваются цепью один за другим и наступают по одной оси.'}),
+ echelonLeft:Object.freeze({name:'Левый эшелон',desc:'Диагональный строй со смещением влево относительно направления атаки.'}),
+ echelonRight:Object.freeze({name:'Правый эшелон',desc:'Диагональный строй со смещением вправо относительно направления атаки.'}),
+ doubleRing:Object.freeze({name:'Двойное кольцо',desc:'Два кольца вращаются в противоположные стороны: внутреннее давит, внешнее запирает отход.'}),
+ spiral:Object.freeze({name:'Спираль',desc:'Бойцы двигаются по вращающейся спирали и постепенно меняют радиус вокруг героя.'}),
+ crescent:Object.freeze({name:'Полумесяц',desc:'Широкая дуга охватывает фронт героя, а края построения заходят глубже во фланги.'}),
+ swarm:Object.freeze({name:'Рой',desc:'Каждый скелет атакует самостоятельно с небольшими случайными боковыми рывками — строй выглядит хаотично.'}),
+ wave:Object.freeze({name:'Волна',desc:'Отряд наступает фронтом, но отдельные бойцы смещаются влево-вправо синусоидальной волной.'}),
+ flank:Object.freeze({name:'Глубокий обход',desc:'Часть бойцов сначала уходит далеко на фланги и только после этого разворачивается на героя.'}),
+ skirmish:Object.freeze({name:'Налёт и отход',desc:'Бойцы чередуют короткое сближение, боковой манёвр и отход, не зависая постоянно в ближнем бою.'}),
+ reserve:Object.freeze({name:'Резерв',desc:'Треть отряда атакует, вторая линия держит среднюю дистанцию, третья остаётся дальним резервом.'})
+});
+const DEV_AI_TACTICAL_MODES=Object.freeze(Object.keys(DEV_AI_MODE_META).filter(key=>key!=='normal'));
 const ZONE2_FIRST_WAGON_OFFSET_X=1420;
 const ZONE2_FIRST_WAGON_OFFSET_Y=115;
 const ZONE2_WAGON_TRIGGER_RADIUS=185;
@@ -638,7 +662,7 @@ class LastKnightUiLayoutEditor {
   set('lkdev-ui-depth',Math.round(t.depth));set('lkdev-ui-font',Number(t.fontScale).toFixed(2));
   const info=document.getElementById('lkdev-ui-selected');
   const g=this.getGroup();const b=this.getGroupBounds(g);
-  if(info)info.textContent=`${g?.label||this.selectedId} · ${this.currentProfile()}${t.locked?' · LOCKED':''}\nOffset ${Math.round(t.dx)},${Math.round(t.dy)} · Scale ${t.scale.toFixed(2)} · W ${t.width.toFixed(2)} · H ${t.height.toFixed(2)}${b?`\nScreen ${Math.round(b.centerX)},${Math.round(b.centerY)} · ${Math.round(b.width)}×${Math.round(b.height)}`:''}`;
+  if(info)info.textContent=`${g?.label||this.selectedId} · ${this.currentProfile()}${t.locked?' · ЗАФИКСИРОВАНО':''}\nСмещение ${Math.round(t.dx)},${Math.round(t.dy)} · Масштаб ${t.scale.toFixed(2)} · Ширина ${t.width.toFixed(2)} · Высота ${t.height.toFixed(2)}${b?`\nЭкран ${Math.round(b.centerX)},${Math.round(b.centerY)} · ${Math.round(b.width)}×${Math.round(b.height)}`:''}`;
   const root=this.devTools.root;
   root?.querySelector('[data-action="uiEdit"]')?.classList.toggle('on',this.editMode);
   root?.querySelector('[data-action="uiLock"]')?.classList.toggle('on',Boolean(t.locked));
@@ -730,6 +754,19 @@ class LastKnightDevTools {
   this.hideGameUi=false;
   this.lastInfoAt=0;
   this.lastUpdateReal=performance.now();
+  this.devLab={
+   cameraFxKind:'none',
+   playerFxKind:'none',
+   ambient:new Map(),
+   light:null,
+   lightEnabled:false,
+   lightRadius:260,
+   lightIntensity:1.6,
+   lightTargets:new Set(),
+   lastLightRefreshAt:0,
+   lastStatus:'Готово. F10 — открыть / закрыть панель.'
+  };
+  this.devLabPresetKey='lastKnight.dev.phaserLab.v1';
 
   // Low-overhead performance trace. Samples are aggregated at 4 Hz while
   // browser/page lifecycle transitions are recorded immediately, including
@@ -754,6 +791,8 @@ class LastKnightDevTools {
   this.uiEditor=new LastKnightUiLayoutEditor(this);
   this.root=null;
   this.button=null;
+  this.panelInputCapture=false;
+  this.panelInputStates=new Map();
   this.graphics=null;
   this.camKeys=null;
   this.pointerHandler=(pointer)=>this.handleWorldPointer(pointer);
@@ -762,7 +801,10 @@ class LastKnightDevTools {
   this.wheelHandler=(pointer,gameObjects,deltaX,deltaY,deltaZ)=>this.handleCameraWheel(pointer,deltaY);
   this.contextMenuHandler=(event)=>{if(this.freeCamera||this.editMode)event.preventDefault();};
   this.keyHandler=(event)=>{
-   if(event.key.toLowerCase()==='g'){event.preventDefault();this.togglePanel();}
+   if(event.key==='F10'){
+    event.preventDefault();
+    this.togglePanel();
+   }
    if(event.key==='Escape' && this.editMode){this.setEditMode(false);}
   };
  }
@@ -771,6 +813,7 @@ class LastKnightDevTools {
   if(!this.enabled || typeof document==='undefined') return;
   this.installStyle();
   this.buildDom();
+  // The in-game HUD owns the DEV button; F10 remains the keyboard fallback.
   this.graphics=this.scene.add.graphics().setDepth(5000);
   this.camKeys=this.scene.input.keyboard.addKeys({up:'I',down:'K',left:'J',right:'L'});
   this.scene.input.on('pointerdown',this.pointerHandler);
@@ -803,6 +846,8 @@ class LastKnightDevTools {
   try{this.scene.game?.canvas?.removeEventListener?.('contextmenu',this.contextMenuHandler);}catch{}
   document.removeEventListener('keydown',this.keyHandler);
   this.removeTraceListeners();
+  this.clearDevLabEffects?.({silent:true});
+  this.setPanelInputCapture(false,true);
   this.uiEditor?.destroy();
   this.graphics?.destroy();
   this.root?.remove();
@@ -810,169 +855,268 @@ class LastKnightDevTools {
   if(window.__LK_DEV===this) delete window.__LK_DEV;
  }
 
+
  installStyle(){
   if(document.getElementById('lk-dev-style')) return;
   const style=document.createElement('style');
   style.id='lk-dev-style';
   style.textContent=`
-   #lk-dev-button{position:fixed;right:12px;top:12px;z-index:100001;border:1px solid #d7b86d;background:#17140fdd;color:#ffe6a3;border-radius:7px;padding:8px 12px;font:700 12px/1 system-ui;letter-spacing:.08em;box-shadow:0 3px 18px #0009;cursor:pointer;touch-action:manipulation}
-   #lk-dev-panel{position:fixed;right:10px;top:10px;bottom:10px;width:min(390px,calc(100vw - 20px));z-index:100002;background:#0d0d0dec;color:#eee;border:1px solid #9b7d47;border-radius:10px;box-shadow:0 8px 36px #000c;display:none;overflow:hidden;font:12px/1.3 system-ui,sans-serif;touch-action:pan-y}
+   :root{--lkdev-gold:#d6b56d;--lkdev-gold2:#ffe0a0;--lkdev-bg:#0b0c0deF;--lkdev-card:#141618;--lkdev-border:#35383b;--lkdev-muted:#969b9f;--lkdev-green:#78cf91;--lkdev-red:#ef8078;--lkdev-blue:#8fc9f4}
+   #lk-dev-button{position:fixed;right:14px;top:14px;z-index:100001;border:1px solid #8f7644;background:linear-gradient(180deg,#211d16ee,#11110fee);color:#f4d895;border-radius:9px;padding:8px 11px;font:800 11px/1 system-ui;letter-spacing:.08em;box-shadow:0 6px 22px #0009;cursor:pointer;touch-action:manipulation;backdrop-filter:blur(7px)}
+   #lk-dev-button:hover{border-color:#d6b56d;background:#282116}
+   #lk-dev-panel{position:fixed;right:10px;top:10px;bottom:10px;width:min(446px,calc(100vw - 20px));z-index:100002;background:var(--lkdev-bg);color:#e8e8e5;border:1px solid #826d43;border-radius:14px;box-shadow:0 14px 54px #000d;display:none;overflow:hidden;font:12px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;touch-action:pan-y;backdrop-filter:blur(12px)}
    #lk-dev-panel.open{display:flex;flex-direction:column}
    #lk-dev-panel *{box-sizing:border-box}
-   .lkdev-head{display:flex;align-items:center;gap:8px;padding:9px 10px;background:#17140f;border-bottom:1px solid #5e4d2f;flex:0 0 auto}.lkdev-title{font-weight:800;color:#ffe3a0;flex:1;letter-spacing:.05em}.lkdev-close{font-size:18px;background:none!important;border:0!important;padding:0 5px!important;color:#ddd!important}
-   .lkdev-scroll{overflow:auto;padding:7px;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}.lkdev-section{border:1px solid #343028;border-radius:7px;margin:0 0 7px;background:#151512cc}.lkdev-section>summary{cursor:pointer;padding:7px 9px;font-weight:800;color:#d9c28a;background:#1c1a15;border-radius:7px;position:sticky;top:0}.lkdev-body{padding:7px}.lkdev-row{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0}.lkdev-row>*{flex:1 1 auto}
-   #lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input,#lk-dev-panel textarea{background:#23231f;color:#eee;border:1px solid #4a463b;border-radius:5px;padding:6px 7px;font:11px system-ui;min-height:29px}#lk-dev-panel button{cursor:pointer;touch-action:manipulation}#lk-dev-panel button:hover{background:#333126}#lk-dev-panel button.on{background:#5c4926;border-color:#e0b85b;color:#fff0b8}#lk-dev-panel button.danger{border-color:#7e3934;color:#ffb4aa}#lk-dev-panel button.good{border-color:#416d42;color:#b8f5b9}
-   .lkdev-info{white-space:pre-wrap;color:#bfc9bc;background:#090a09;padding:7px;border-radius:5px;font:11px/1.35 ui-monospace,monospace}.lkdev-selected{color:#ffdf8e;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap}.lkdev-label{color:#918b7c;font-size:10px;margin:5px 0 2px}.lkdev-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.lkdev-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.lkdev-output{width:100%;height:92px;resize:vertical;font:10px/1.2 ui-monospace,monospace!important}
-   @media(max-height:620px){#lk-dev-panel{width:min(430px,calc(100vw - 20px))}.lkdev-section>summary{padding:5px 8px}.lkdev-body{padding:5px}#lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input{min-height:25px;padding:4px 5px}}
+   .lkdev-head{display:flex;align-items:center;gap:10px;padding:11px 12px;background:linear-gradient(180deg,#211d16,#141310);border-bottom:1px solid #584b31;flex:0 0 auto}.lkdev-head-text{min-width:0;flex:1}.lkdev-title{font-weight:900;color:var(--lkdev-gold2);letter-spacing:.055em;font-size:13px}.lkdev-subtitle{color:#a99d83;font-size:10px;margin-top:2px}.lkdev-close{font-size:21px!important;background:none!important;border:0!important;padding:2px 7px!important;color:#ddd!important;min-height:30px!important}
+   .lkdev-status{margin:8px 9px 2px;padding:7px 9px;border:1px solid #3b3e3f;border-radius:8px;background:#0a0b0c;color:#bec9c0;font-size:10.5px;line-height:1.35}
+   .lkdev-scroll{overflow:auto;padding:7px 8px 14px;overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#62533a #111}
+   .lkdev-section{border:1px solid var(--lkdev-border);border-radius:9px;margin:0 0 7px;background:#121416e8;overflow:hidden}.lkdev-section>summary{cursor:pointer;padding:8px 10px;font-weight:850;color:#dac89f;background:linear-gradient(90deg,#1f1c16,#17191a);position:sticky;top:0;letter-spacing:.025em}.lkdev-section[open]>summary{border-bottom:1px solid #302d27}.lkdev-body{padding:8px}.lkdev-note{color:#8f979c;font-size:10px;line-height:1.35;margin:5px 1px 7px}.lkdev-label{color:#a6aaac;font-size:10px;margin:7px 1px 3px;font-weight:700}.lkdev-divider{height:1px;background:#2b2d2f;margin:8px 0}
+   .lkdev-row{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0}.lkdev-row>*{flex:1 1 auto;min-width:0}.lkdev-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.lkdev-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.lkdev-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}.lkdev-ai-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.lkdev-ai-grid button{min-height:36px!important;text-align:left;padding-left:9px!important}.lkdev-ai-desc{margin-top:7px;border-color:#665633!important;color:#e1d4b7!important}
+   #lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input,#lk-dev-panel textarea{background:#202326;color:#ecece8;border:1px solid #414548;border-radius:6px;padding:6px 7px;font:11px system-ui;min-height:31px}#lk-dev-panel button{cursor:pointer;touch-action:manipulation;font-weight:650}#lk-dev-panel button:hover{background:#2d302f;border-color:#666057}#lk-dev-panel button.on{background:#5b4828;border-color:#d6b56d;color:#fff0c6;box-shadow:inset 0 0 0 1px #d6b56d33}#lk-dev-panel button.danger{border-color:#79413e;color:#ffb1aa}#lk-dev-panel button.good{border-color:#3e6749;color:#baf0c8}#lk-dev-panel button.blue{border-color:#385c73;color:#b9e3ff}
+   #lk-dev-panel input[type=range]{padding:0;min-height:28px;accent-color:#c9a75d}.lkdev-range{display:grid;grid-template-columns:105px 1fr 48px;align-items:center;gap:7px;margin:5px 0}.lkdev-range b{color:#e7d6ad;font-size:10px;text-align:right}
+   .lkdev-info{white-space:pre-wrap;color:#bfc9bc;background:#090a0b;padding:8px;border:1px solid #25282a;border-radius:6px;font:10.5px/1.42 ui-monospace,"Cascadia Mono",monospace}.lkdev-selected{color:#ffdf8e;font:10.5px/1.35 ui-monospace,monospace;white-space:pre-wrap}.lkdev-output{width:100%;height:92px;resize:vertical;font:10px/1.2 ui-monospace,monospace!important}.lkdev-badge{display:inline-block;padding:2px 6px;border-radius:999px;border:1px solid #4b4f51;color:#b8bec2;font-size:9px;margin-left:4px}
+   @media(max-width:520px){#lk-dev-panel{right:5px;top:5px;bottom:5px;width:calc(100vw - 10px)}.lkdev-grid4{grid-template-columns:repeat(2,minmax(0,1fr))}.lkdev-ai-grid{grid-template-columns:1fr}.lkdev-range{grid-template-columns:90px 1fr 42px}}
+   @media(max-height:620px){.lkdev-section>summary{padding:6px 8px}.lkdev-body{padding:6px}#lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input{min-height:27px;padding:4px 5px}}
   `;
   document.head.appendChild(style);
+ }
+
+ buildDevLauncher(){
+  if(this.button || typeof document==='undefined')return;
+  const btn=document.createElement('button');
+  btn.id='lk-dev-button';
+  btn.type='button';
+  btn.textContent='DEV · F10';
+  btn.title='Открыть лабораторию Phaser';
+  btn.addEventListener('click',()=>this.togglePanel(true));
+  document.body.appendChild(btn);
+  this.button=btn;
  }
 
  buildDom(){
   const root=document.createElement('div');
   root.id='lk-dev-panel';
   root.innerHTML=`
-   <div class="lkdev-head"><div class="lkdev-title">LAST KNIGHT · DEV SCENE TUNER</div><button class="lkdev-close" data-action="close">×</button></div>
+   <div class="lkdev-head">
+    <div class="lkdev-head-text"><div class="lkdev-title">LAST KNIGHT · ЛАБОРАТОРИЯ PHASER</div><div class="lkdev-subtitle">F10 — открыть / закрыть · всё ниже предназначено только для разработки</div></div>
+    <button class="lkdev-close" data-action="close" title="Закрыть">×</button>
+   </div>
+   <div id="lkdev-status" class="lkdev-status">Готово. Выбери механику и проверяй её прямо в текущей сцене.</div>
    <div class="lkdev-scroll">
-    <details class="lkdev-section" open><summary>WORLD / TIME</summary><div class="lkdev-body">
-     <div class="lkdev-row"><button data-action="pause">Pause World</button><button data-action="resume" class="good">Resume</button><button data-action="autoSpawns">Auto Spawns</button></div>
-     <div class="lkdev-grid4"><button data-action="time" data-value="0.25">0.25×</button><button data-action="time" data-value="0.5">0.5×</button><button data-action="time" data-value="1">1×</button><button data-action="time" data-value="2">2×</button></div>
+
+    <details class="lkdev-section" open><summary>БЫСТРЫЙ СТАРТ · МИР И ВРЕМЯ</summary><div class="lkdev-body">
+     <div class="lkdev-row"><button data-action="pause">Пауза мира</button><button data-action="resume" class="good">Продолжить</button><button data-action="autoSpawns">Автоспавн</button></div>
+     <div class="lkdev-label">Скорость времени</div><div class="lkdev-grid4"><button data-action="time" data-value="0.25">0.25×</button><button data-action="time" data-value="0.5">0.5×</button><button data-action="time" data-value="1">1×</button><button data-action="time" data-value="2">2×</button></div>
+     <div class="lkdev-label">Быстрый переход в наш основной тест</div><div class="lkdev-row"><button data-action="wave6Lab" class="blue">Акт 2 · Волна 6</button></div>
+     <div class="lkdev-label">Готовые наборы для теста</div><div class="lkdev-grid3"><button data-action="labPreset" data-value="combat">Бой</button><button data-action="labPreset" data-value="atmosphere">Атмосфера</button><button data-action="labPreset" data-value="boss">Босс</button><button data-action="labPreset" data-value="critical">Мало HP</button><button data-action="labPresetSave" class="good">Сохранить мой</button><button data-action="labPresetLoad">Загрузить мой</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>ENEMIES</summary><div class="lkdev-body">
-     <div class="lkdev-grid3"><button data-action="spawn" data-value="skeleton">+ Skeleton</button><button data-action="spawn" data-value="mage">+ Mage</button><button data-action="spawn" data-value="shield">+ Shield</button></div>
-     <div class="lkdev-row"><button data-action="spawnMixed" data-value="5">+5 Mixed</button><button data-action="spawnMixed" data-value="10">+10 Mixed</button><button data-action="clearProjectiles">Clear Shots</button></div>
-     <div class="lkdev-row"><button data-action="enemyFreezeAI">Freeze AI</button><button data-action="enemyFreezeMove">Freeze Move</button><button data-action="enemyAttacks">Disable Attacks</button></div>
-     <div class="lkdev-row"><button data-action="killEnemies" class="danger">Kill All</button><button data-action="deleteEnemies" class="danger">Delete All</button></div>
-     <div class="lkdev-label">REGION POPULATION TEST · recalculates current wave</div>
-     <div class="lkdev-grid3"><button data-action="regionPopulation" data-value="auto">AUTO</button><button data-action="regionPopulation" data-value="1">1.00×</button><button data-action="regionPopulation" data-value="1.15">1.15×</button><button data-action="regionPopulation" data-value="1.30">1.30×</button><button data-action="regionPopulation" data-value="1.45">1.45×</button><button data-action="regionPopulation" data-value="1.60">1.60×</button></div>
+    <details class="lkdev-section" open><summary>КАМЕРА И КИНО</summary><div class="lkdev-body">
+     <div class="lkdev-note">Встроенные Camera FX Phaser: shake, flash, fade, pan/zoom. Удобно подбирать силу ударов, боссов и сюжетных моментов.</div>
+     <div class="lkdev-label">Тряска</div><div class="lkdev-grid3"><button data-action="cameraFx" data-value="shakeSoft">Лёгкая</button><button data-action="cameraFx" data-value="shakeHit">Сильный удар</button><button data-action="cameraFx" data-value="shakeQuake">Землетрясение</button></div>
+     <div class="lkdev-label">Киноэффекты</div><div class="lkdev-grid3"><button data-action="cameraFx" data-value="zoomPulse">Зум-акцент</button><button data-action="cameraFx" data-value="bossFocus">Фокус на враге</button><button data-action="cameraFx" data-value="rotationHit">Наклон удара</button><button data-action="cameraFx" data-value="flashWhite">Белая вспышка</button><button data-action="cameraFx" data-value="flashRed">Красная вспышка</button><button data-action="cameraFx" data-value="fade">Затемнение</button></div>
+     <div class="lkdev-divider"></div>
+     <div class="lkdev-grid4"><button data-action="zoom" data-value="0.75">Масштаб .75</button><button data-action="zoom" data-value="1">Масштаб 1.0</button><button data-action="zoom" data-value="1.25">Масштаб 1.25</button><button data-action="zoom" data-value="1.5">Масштаб 1.5</button></div>
+     <div class="lkdev-row"><button data-action="followCamera">За героем</button><button data-action="lockCamera">Зафиксировать</button><button data-action="freeCamera">Свободная · IJKL</button><button data-action="cameraFx" data-value="reset">Сброс камеры</button></div>
     </div></details>
 
-    <details class="lkdev-section"><summary>CHAMPION</summary><div class="lkdev-body">
-     <select id="lkdev-champion" style="width:100%"><option value="brokenSaint">Broken Saint</option><option value="necromancer">Necromancer</option><option value="shieldWarden">Shield Warden</option><option value="hollowTree">Hollow Tree</option></select>
-     <div class="lkdev-row"><button data-action="spawnChampion">Spawn</button><button data-action="resetChampion">Reset</button><button data-action="clearHazards">Clear Hazards</button><button data-action="killChampion" class="danger">Kill</button><button data-action="deleteChampion" class="danger">Delete</button></div>
-     <div class="lkdev-row"><button data-action="championFreeze">Freeze Champion</button><button data-action="championMove">Freeze Move</button></div>
-     <div class="lkdev-row"><button data-action="championAttacks">Disable Attacks</button><button data-action="championSkills">Disable Skills</button></div>
+    <details class="lkdev-section" open><summary>POST FX · WEBGL <span class="lkdev-badge">Phaser 3.90</span></summary><div class="lkdev-body">
+     <div class="lkdev-note">Эффекты применяются ко всей камере. Свечение (Bloom) и размытие заметно тяжелее обычной цветокоррекции — поэтому рядом есть замеры FPS.</div>
+     <div class="lkdev-grid3"><button data-action="postFx" data-value="vignette">Виньетка</button><button data-action="postFx" data-value="bloom">Свечение (Bloom)</button><button data-action="postFx" data-value="blur">Размытие</button><button data-action="postFx" data-value="pixelate">Пикселизация</button><button data-action="postFx" data-value="barrel">Искажение</button><button data-action="postFx" data-value="bokeh">Боке</button><button data-action="postFx" data-value="grayscale">Ч/Б</button><button data-action="postFx" data-value="sepia">Сепия</button><button data-action="postFx" data-value="night">Ночной тон</button></div>
+     <div class="lkdev-label">FX только на герое — дешевле, чем эффект на всю камеру</div><div class="lkdev-grid3"><button data-action="playerFx" data-value="glow">Свечение</button><button data-action="playerFx" data-value="bloom">Свечение героя</button><button data-action="playerFx" data-value="shine">Блик</button></div>
+     <div class="lkdev-row"><button data-action="postFx" data-value="clear">Очистить FX камеры</button><button data-action="playerFx" data-value="clear">Очистить FX героя</button></div>
+    </div></details>
+
+    <details class="lkdev-section" open><summary>ЧАСТИЦЫ И АТМОСФЕРА</summary><div class="lkdev-body">
+     <div class="lkdev-note">Тестовые текстуры создаются движком на лету: никаких новых PNG не требуется.</div>
+     <div class="lkdev-label">Постоянная атмосфера</div><div class="lkdev-grid3"><button data-action="ambientFx" data-value="ash">Пепел</button><button data-action="ambientFx" data-value="fog">Туман</button><button data-action="ambientFx" data-value="embers">Угли</button></div>
+     <div class="lkdev-label">Одноразовые выбросы возле героя</div><div class="lkdev-grid3"><button data-action="particleBurst" data-value="sparks">Искры меча</button><button data-action="particleBurst" data-value="blood">Кровь</button><button data-action="particleBurst" data-value="debris">Обломки</button><button data-action="particleBurst" data-value="magic">Магия</button><button data-action="particleBurst" data-value="fire">Огонь</button><button data-action="particleBurst" data-value="smoke">Дым</button></div>
+     <div class="lkdev-row"><button data-action="clearParticles">Убрать тестовые частицы</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>СВЕТ 2D · LIGHT2D</summary><div class="lkdev-body">
+     <div class="lkdev-note">Настоящий Phaser Light2D. В тесте свет следует за героем и временно переводит ближайшие спрайты в конвейер Light2D.</div>
+     <div class="lkdev-row"><button data-action="lightToggle" class="good">Свет героя ВКЛ/ВЫКЛ</button><button data-action="lightPulse">Пульсация света</button></div>
+     <label class="lkdev-range"><span>Радиус</span><input data-dev-range="lightRadius" type="range" min="100" max="600" step="10" value="260"><b id="lkdev-light-radius">260</b></label>
+     <label class="lkdev-range"><span>Интенсивность</span><input data-dev-range="lightIntensity" type="range" min="0.2" max="3" step="0.1" value="1.6"><b id="lkdev-light-intensity">1.6</b></label>
+    </div></details>
+
+    <details class="lkdev-section" open><summary>ВРАГИ И AI</summary><div class="lkdev-body">
+     <div class="lkdev-grid3"><button data-action="spawn" data-value="skeleton">+ Скелет</button><button data-action="spawn" data-value="mage">+ Маг</button><button data-action="spawn" data-value="shield">+ Щитовик</button></div>
+     <div class="lkdev-grid4"><button data-action="spawnMixed" data-value="5">+5</button><button data-action="spawnMixed" data-value="10">+10</button><button data-action="spawnMixed" data-value="20">+20</button><button data-action="spawnMixed" data-value="50">+50</button></div>
+     <div class="lkdev-divider"></div>
+     <div class="lkdev-label">AI LAB · 20 тактик скелетов</div>
+     <div class="lkdev-note">Режим меняет движение обычных скелетов и щитовиков. Маги, Капитан и чемпионы сохраняют свой авторский AI, поэтому их можно использовать как реальные цели охраны.</div>
+     <div class="lkdev-row"><button data-action="aiMode" data-value="normal" class="good">Обычный AI · сброс</button><button data-action="overlay" data-value="navigation">Пути AI</button></div>
+     <div class="lkdev-label">Атака и охват</div><div class="lkdev-ai-grid">
+      <button data-action="aiMode" data-value="aggressive">01 · Штурм</button><button data-action="aiMode" data-value="surround">02 · Кольцо</button>
+      <button data-action="aiMode" data-value="wedge">03 · Клин</button><button data-action="aiMode" data-value="pincer">04 · Клещи</button>
+      <button data-action="aiMode" data-value="crescent">05 · Полумесяц</button>
+     </div>
+     <div class="lkdev-label">Защита и дисциплина</div><div class="lkdev-ai-grid">
+      <button data-action="aiMode" data-value="protectMages">06 · Защита магов</button><button data-action="aiMode" data-value="protectBoss">07 · Защита босса</button>
+      <button data-action="aiMode" data-value="shieldWall">08 · Щитовая стена</button><button data-action="aiMode" data-value="phalanx">09 · Фаланга</button>
+      <button data-action="aiMode" data-value="reserve">10 · Резерв</button>
+     </div>
+     <div class="lkdev-label">Строи и манёвры</div><div class="lkdev-ai-grid">
+      <button data-action="aiMode" data-value="spearhead">11 · Острие</button><button data-action="aiMode" data-value="column">12 · Колонна</button>
+      <button data-action="aiMode" data-value="echelonLeft">13 · Левый эшелон</button><button data-action="aiMode" data-value="echelonRight">14 · Правый эшелон</button>
+      <button data-action="aiMode" data-value="doubleRing">15 · Двойное кольцо</button>
+     </div>
+     <div class="lkdev-label">Живые / нестабильные тактики</div><div class="lkdev-ai-grid">
+      <button data-action="aiMode" data-value="spiral">16 · Спираль</button><button data-action="aiMode" data-value="swarm">17 · Рой</button>
+      <button data-action="aiMode" data-value="wave">18 · Волна</button><button data-action="aiMode" data-value="flank">19 · Глубокий обход</button>
+      <button data-action="aiMode" data-value="skirmish">20 · Налёт и отход</button>
+     </div>
+     <div id="lkdev-ai-description" class="lkdev-info lkdev-ai-desc">Обычное поведение — штатный AI игры без экспериментального построения.</div>
+     <div class="lkdev-row"><button data-action="enemyFreezeAI">Заморозить AI</button><button data-action="enemyFreezeMove">Заморозить движение</button><button data-action="enemyAttacks">Отключить атаки</button></div>
+     <div class="lkdev-row"><button data-action="clearProjectiles">Убрать снаряды</button><button data-action="killEnemies" class="danger">Убить всех</button><button data-action="deleteEnemies" class="danger">Удалить всех</button></div>
+     <div class="lkdev-label">Плотность текущей волны</div><div class="lkdev-grid3"><button data-action="regionPopulation" data-value="auto">Авто</button><button data-action="regionPopulation" data-value="1">1.00×</button><button data-action="regionPopulation" data-value="1.30">1.30×</button><button data-action="regionPopulation" data-value="1.60">1.60×</button><button data-action="regionPopulation" data-value="2">2.00×</button></div>
+    </div></details>
+
+    <details class="lkdev-section"><summary>ЧЕМПИОНЫ</summary><div class="lkdev-body">
+     <select id="lkdev-champion" style="width:100%"><option value="brokenSaint">Broken Saint · зона 1</option><option value="necromancer">Necromancer</option><option value="shieldWarden">Shield Warden</option><option value="hollowTree">Hollow Tree</option></select>
+     <div class="lkdev-row"><button data-action="spawnChampion">Создать</button><button data-action="resetChampion">Сбросить</button><button data-action="clearHazards">Убрать зоны атак</button></div>
+     <div class="lkdev-row"><button data-action="championFreeze">Заморозить AI</button><button data-action="championMove">Без движения</button><button data-action="championAttacks">Без атак</button><button data-action="championSkills">Без навыков</button></div>
      <div class="lkdev-grid3"><button data-action="championHp" data-value="10">HP 10%</button><button data-action="championHp" data-value="50">HP 50%</button><button data-action="championHp" data-value="100">HP 100%</button></div>
+     <div class="lkdev-row"><button data-action="killChampion" class="danger">Убить</button><button data-action="deleteChampion" class="danger">Удалить</button></div>
     </div></details>
 
-    <details class="lkdev-section"><summary>PLAYER</summary><div class="lkdev-body">
-     <div class="lkdev-row"><button data-action="god">God Mode</button><button data-action="oneHit">One Hit</button><button data-action="noCollision">No Collision</button><button data-action="infiniteMana">Mana ∞</button></div>
-     <div class="lkdev-grid4"><button data-action="playerHp" data-value="100">Full HP</button><button data-action="playerHp" data-value="30">HP 30%</button><button data-action="playerHp" data-value="20">HP 20%</button><button data-action="playerHp" data-value="10">HP 10%</button></div>
-     <div class="lkdev-row"><button data-action="levelUp">+1 Level</button><button data-action="xp100">+100 XP</button><button data-action="resetUpgrades">Reset Sword</button><button data-action="clearRelics">Clear Relics</button></div>
-     <div class="lkdev-grid4"><button data-action="damage" data-value="-3">Dmg −</button><button data-action="damage" data-value="3">Dmg +</button><button data-action="cooldown" data-value="50">Speed −</button><button data-action="cooldown" data-value="-50">Speed +</button></div>
-     <div class="lkdev-row"><button data-action="radius" data-value="-10">Radius −</button><button data-action="radius" data-value="10">Radius +</button></div>
+    <details class="lkdev-section" open><summary>ГЕРОЙ И НАВЫКИ</summary><div class="lkdev-body">
+     <div class="lkdev-grid4"><button data-action="god">Бессмертие</button><button data-action="oneHit">Убийство с 1 удара</button><button data-action="noCollision">Без коллизий</button><button data-action="infiniteMana">Мана ∞</button></div>
+     <div class="lkdev-grid4"><button data-action="playerHp" data-value="100">HP 100%</button><button data-action="playerHp" data-value="30">HP 30%</button><button data-action="playerHp" data-value="20">HP 20%</button><button data-action="playerHp" data-value="10">HP 10%</button></div>
+     <div class="lkdev-label">Мгновенный тест боевых навыков</div><div class="lkdev-grid3"><button data-action="skillTest" data-value="1">Разлом</button><button data-action="skillTest" data-value="2">Подъём</button><button data-action="skillTest" data-value="3">Вихрь</button></div>
+     <div class="lkdev-row"><button data-action="levelUp">+1 уровень</button><button data-action="xp100">+100 XP</button><button data-action="resetUpgrades">Сброс меча</button><button data-action="clearRelics">Убрать реликвии</button></div>
+     <div class="lkdev-grid4"><button data-action="damage" data-value="-3">Урон −</button><button data-action="damage" data-value="3">Урон +</button><button data-action="cooldown" data-value="50">Атака медленнее</button><button data-action="cooldown" data-value="-50">Атака быстрее</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>TRAVEL</summary><div class="lkdev-body">
-     <div class="lkdev-grid4"><button data-action="travel" data-value="400">Start</button><button data-action="travel" data-value="900">x900</button><button data-action="travel" data-value="1900">x1900</button><button data-action="travel" data-value="2900">x2900</button></div>
-     <div class="lkdev-row"><button data-action="travel" data-value="2260">Sword</button><button data-action="travel" data-value="3030">Altar</button><button data-action="travel" data-value="3700">Boss Gate</button></div>
-     <div class="lkdev-label">Zone jump · bypasses progression gates for testing</div>
-     <div class="lkdev-grid3"><button data-action="jumpZone" data-value="0">ZONE 1</button><button data-action="jumpZone" data-value="1">ZONE 2</button><button data-action="jumpZone" data-value="2">ZONE 3</button><button data-action="jumpZone" data-value="3">ZONE 4</button><button data-action="jumpZone" data-value="4">ZONE 5</button></div>
-     <div class="lkdev-label">Wave jump · resets active combat and starts the selected wave</div>
-     <div class="lkdev-grid4"><button data-action="jumpWave" data-value="1">WAVE 1</button><button data-action="jumpWave" data-value="2">WAVE 2</button><button data-action="jumpWave" data-value="3">WAVE 3</button><button data-action="jumpWave" data-value="4">WAVE 4</button><button data-action="jumpWave" data-value="5">WAVE 5</button></div>
-     <div class="lkdev-row"><input id="lkdev-goto-x" type="number" min="0" max="18400" step="10" value="2000"><button data-action="gotoX">GO X</button></div>
+    <details class="lkdev-section" open><summary>ВОРОНЫ И СОБЫТИЯ МИРА</summary><div class="lkdev-body">
+     <div class="lkdev-label">Тестовая стая возле героя</div><div class="lkdev-grid4"><button data-action="crowSpawn" data-value="5">5 ворон</button><button data-action="crowSpawn" data-value="10">10</button><button data-action="crowSpawn" data-value="20">20</button><button data-action="crowScatter">Разогнать</button></div>
+     <div class="lkdev-row"><button data-action="crowClear">Убрать тестовых ворон</button><button data-action="worldEvent" data-value="storyCrows">Разогнать сюжетных</button></div>
+     <div class="lkdev-label">Сюжет / окружение</div><div class="lkdev-grid3"><button data-action="worldEvent" data-value="closeGate">Закрыть путь сзади</button><button data-action="worldEvent" data-value="openGate">Открыть ворота впереди</button><button data-action="worldEvent" data-value="wagonCinematic">3-кадровый синематик</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>SCENE / OVERLAYS</summary><div class="lkdev-body">
-     <div class="lkdev-grid3"><button data-action="envToggle" data-value="props">Props</button><button data-action="envToggle" data-value="trees">Trees</button><button data-action="envToggle" data-value="rocks">Rocks</button><button data-action="envToggle" data-value="grass">Grass</button><button data-action="envToggle" data-value="landmarks">Landmarks</button><button data-action="envToggle" data-value="shadows">Shadows</button></div>
-     <div class="lkdev-row"><button data-action="groundOnly">Ground Only</button><button data-action="collisionTest">Collision Test</button></div>
-     <div class="lkdev-grid3"><button data-action="overlay" data-value="hitboxes">Hitboxes</button><button data-action="overlay" data-value="enemyRange">Enemy Range</button><button data-action="overlay" data-value="meleeRadius">Melee Radius</button><button data-action="overlay" data-value="championRange">Champion Range</button><button data-action="overlay" data-value="propColliders">Prop Colliders</button><button data-action="overlay" data-value="navigation">Navigation</button><button data-action="overlay" data-value="safeLane">Safe Lane</button><button data-action="overlay" data-value="cameraBounds">Camera Bounds</button><button data-action="overlay" data-value="mobileFrame">Mobile Frame</button><button data-action="overlay" data-value="desktopFrame">Desktop Frame</button></div>
-     <div class="lkdev-label">Ash Fields segments</div><div class="lkdev-grid4"><button data-action="segment" data-value="intro">Intro</button><button data-action="segment" data-value="burntEdge">Burnt Edge</button><button data-action="segment" data-value="brokenSword">Sword</button><button data-action="segment" data-value="postLandmark">Post</button></div>
+    <details class="lkdev-section" open><summary>ПЕРЕМЕЩЕНИЕ ПО МИРУ</summary><div class="lkdev-body">
+     <div class="lkdev-label">Перейти в зону без прохождения ворот</div><div class="lkdev-grid3"><button data-action="jumpZone" data-value="0">Зона 1</button><button data-action="jumpZone" data-value="1">Зона 2</button><button data-action="jumpZone" data-value="2">Зона 3</button><button data-action="jumpZone" data-value="3">Зона 4</button><button data-action="jumpZone" data-value="4">Зона 5</button></div>
+     <div class="lkdev-label">Запустить локальную волну зоны</div><div class="lkdev-grid4"><button data-action="jumpWave" data-value="1">Волна 1</button><button data-action="jumpWave" data-value="2">Волна 2</button><button data-action="jumpWave" data-value="3">Волна 3</button><button data-action="jumpWave" data-value="4">Волна 4</button><button data-action="jumpWave" data-value="5">Волна 5</button></div>
+     <div class="lkdev-row"><input id="lkdev-goto-x" type="number" min="0" max="18400" step="10" value="4200" aria-label="Координата X"><button data-action="gotoX">Перейти к X</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>EDIT ENVIRONMENT</summary><div class="lkdev-body">
-     <div class="lkdev-row"><button data-action="editEnv">EDIT ENV</button><button data-action="undo">Undo</button><button data-action="redo">Redo</button></div>
-     <div class="lkdev-label">Prop palette · choose asset, then place it</div>
-     <select id="lkdev-env-prop" style="width:100%">
-      <option value="ash_tree_01">Tree 01</option><option value="ash_tree_02">Tree 02</option>
-      <option value="ash_rock_01">Rock 01</option><option value="ash_rock_02">Rock 02</option><option value="ash_rock_03">Rock 03</option>
-      <option value="ash_grass_01">Grass 01</option><option value="ash_grass_02">Grass 02</option><option value="ash_grass_03">Grass 03</option>
-      <option value="ash_landmark_sword">Landmark · Sword</option><option value="ash_landmark_altar">Landmark · Altar</option>
-     </select>
-     <div class="lkdev-row"><button data-action="placeProp" class="good">PLACE ON CLICK</button><button data-action="addPropCenter">+ AT VIEW CENTER</button><button data-action="deleteSelected" class="danger">DELETE SELECTED</button></div>
-     <div class="lkdev-label">Tip: in EDIT ENV drag a prop with left mouse. Right/middle drag pans the camera.</div>
-     <div id="lkdev-selected" class="lkdev-selected">No object selected</div>
-     <div class="lkdev-grid4"><button data-action="moveX" data-value="-20">X−20</button><button data-action="moveX" data-value="-5">X−5</button><button data-action="moveX" data-value="5">X+5</button><button data-action="moveX" data-value="20">X+20</button><button data-action="moveY" data-value="-20">Y−20</button><button data-action="moveY" data-value="-5">Y−5</button><button data-action="moveY" data-value="5">Y+5</button><button data-action="moveY" data-value="20">Y+20</button></div>
-     <div class="lkdev-row"><button data-action="scale" data-value="-0.02">Scale −</button><button data-action="scale" data-value="0.02">Scale +</button><button data-action="rotate" data-value="-0.035">Rotate −</button><button data-action="rotate" data-value="0.035">Rotate +</button></div>
-     <div class="lkdev-row"><button data-action="alpha" data-value="-0.05">Alpha −</button><button data-action="alpha" data-value="0.05">Alpha +</button><button data-action="flip">Flip X</button><button data-action="duplicateSelected">Duplicate</button></div>
-     <div class="lkdev-label">Exact selected values</div><div class="lkdev-grid3"><input id="lkdev-env-x" type="number" step="1" placeholder="X"><input id="lkdev-env-y" type="number" step="1" placeholder="Y"><input id="lkdev-env-scale" type="number" step="0.01" placeholder="Scale"><input id="lkdev-env-rotation" type="number" step="0.01" placeholder="Rotation"><input id="lkdev-env-alpha" type="number" step="0.05" placeholder="Alpha"></div><div class="lkdev-row"><button data-action="applyExact">Apply values</button></div>
-     <div class="lkdev-row"><button data-action="resetSelected">Reset Selected</button><button data-action="resetSegment">Reset Segment</button><button data-action="resetAll">Reset All</button></div>
-     <div class="lkdev-row"><button data-action="saveLocal" class="good">Save Local</button><button data-action="loadLocal">Load Local</button><button data-action="copyLayout">Copy Layout</button></div>
-     <textarea id="lkdev-output" class="lkdev-output" readonly placeholder="Layout JSON appears here"></textarea>
+    <details class="lkdev-section"><summary>ОТЛАДКА СЦЕНЫ</summary><div class="lkdev-body">
+     <div class="lkdev-grid3"><button data-action="envToggle" data-value="props">Декор</button><button data-action="envToggle" data-value="trees">Деревья</button><button data-action="envToggle" data-value="rocks">Камни</button><button data-action="envToggle" data-value="grass">Трава</button><button data-action="envToggle" data-value="landmarks">Ориентиры</button><button data-action="envToggle" data-value="shadows">Тени</button></div>
+     <div class="lkdev-row"><button data-action="groundOnly">Только земля</button><button data-action="collisionTest">Тест коллизий</button></div>
+     <div class="lkdev-grid3"><button data-action="overlay" data-value="hitboxes">Хитбоксы</button><button data-action="overlay" data-value="enemyRange">Радиусы врагов</button><button data-action="overlay" data-value="meleeRadius">Радиус меча</button><button data-action="overlay" data-value="championRange">Радиус босса</button><button data-action="overlay" data-value="propColliders">Коллайдеры декора</button><button data-action="overlay" data-value="navigation">Сетка навигации</button><button data-action="overlay" data-value="safeLane">Безопасный коридор</button><button data-action="overlay" data-value="cameraBounds">Границы камеры</button><button data-action="overlay" data-value="mobileFrame">Мобильная рамка</button></div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>EDIT INTERFACE / UI LAYOUT</summary><div class="lkdev-body">
-     <div class="lkdev-row"><button data-action="uiEdit">EDIT UI</button><button data-action="uiUndo">Undo</button><button data-action="uiRedo">Redo</button><button data-action="uiLock">Lock</button></div>
-     <div class="lkdev-label">Profile</div><div class="lkdev-row"><select id="lkdev-ui-profile" data-ui-change="profile"><option value="auto">Auto (device)</option><option value="desktop">Desktop</option><option value="mobileLandscape">Mobile Landscape</option></select><select id="lkdev-ui-element" data-ui-change="element"></select><select id="lkdev-ui-snap" data-ui-change="snap"><option value="1">Snap 1 px</option><option value="5">Snap 5 px</option><option value="10">Snap 10 px</option></select></div>
-     <div id="lkdev-ui-selected" class="lkdev-selected">UI editor loading…</div>
-     <div class="lkdev-label">Drag on screen, or fine tune</div>
-     <div class="lkdev-grid4"><button data-action="uiMoveX" data-value="-10">X−10</button><button data-action="uiMoveX" data-value="-1">X−1</button><button data-action="uiMoveX" data-value="1">X+1</button><button data-action="uiMoveX" data-value="10">X+10</button><button data-action="uiMoveY" data-value="-10">Y−10</button><button data-action="uiMoveY" data-value="-1">Y−1</button><button data-action="uiMoveY" data-value="1">Y+1</button><button data-action="uiMoveY" data-value="10">Y+10</button></div>
-     <div class="lkdev-grid4"><button data-action="uiScale" data-value="-0.05">Scale−.05</button><button data-action="uiScale" data-value="-0.01">Scale−.01</button><button data-action="uiScale" data-value="0.01">Scale+.01</button><button data-action="uiScale" data-value="0.05">Scale+.05</button></div>
-     <div class="lkdev-row"><button data-action="uiWidth" data-value="-0.05">Width −</button><button data-action="uiWidth" data-value="0.05">Width +</button><button data-action="uiHeight" data-value="-0.05">Height −</button><button data-action="uiHeight" data-value="0.05">Height +</button></div>
-     <div class="lkdev-row"><button data-action="uiAlpha" data-value="-0.05">Alpha −</button><button data-action="uiAlpha" data-value="0.05">Alpha +</button><button data-action="uiFont" data-value="-0.05">Font −</button><button data-action="uiFont" data-value="0.05">Font +</button><button data-action="uiDepth" data-value="-1">Depth −</button><button data-action="uiDepth" data-value="1">Depth +</button></div>
-     <div class="lkdev-label">Exact overrides</div><div class="lkdev-grid4"><input id="lkdev-ui-x" type="number" step="1" placeholder="X offset"><input id="lkdev-ui-y" type="number" step="1" placeholder="Y offset"><input id="lkdev-ui-scale" type="number" step="0.01" placeholder="Scale"><input id="lkdev-ui-width" type="number" step="0.01" placeholder="Width"><input id="lkdev-ui-height" type="number" step="0.01" placeholder="Height"><input id="lkdev-ui-alpha" type="number" step="0.05" placeholder="Alpha"><input id="lkdev-ui-depth" type="number" step="1" placeholder="Depth"><input id="lkdev-ui-font" type="number" step="0.05" placeholder="Font"></div><div class="lkdev-row"><button data-action="uiApplyExact">Apply values</button></div>
-     <div class="lkdev-label">Align / duplicate position</div><div class="lkdev-grid3"><button data-action="uiAlignX" data-value="left">Align Left</button><button data-action="uiAlignX" data-value="center">Center X</button><button data-action="uiAlignX" data-value="right">Align Right</button><button data-action="uiAlignY" data-value="top">Align Top</button><button data-action="uiAlignY" data-value="middle">Center Y</button><button data-action="uiAlignY" data-value="bottom">Align Bottom</button></div>
-     <div class="lkdev-row"><button data-action="uiCopyPos">Copy Pos</button><button data-action="uiPastePos">Paste Pos</button><button data-action="uiSafeArea">Safe Area</button><button data-action="uiGrid">Grid</button><button data-action="uiBounds">Bounds</button></div>
-     <div class="lkdev-row"><button data-action="uiResetSelected">Reset Selected</button><button data-action="uiResetProfile">Reset Profile</button><button data-action="uiResetAll" class="danger">Reset All UI</button></div>
-     <div class="lkdev-row"><button data-action="uiSaveLocal" class="good">Save Local</button><button data-action="uiLoadLocal">Load Local</button><button data-action="uiCopyLayout">Copy UI JSON</button><button data-action="uiDownload">Download JSON</button></div>
-     <textarea id="lkdev-ui-output" class="lkdev-output" readonly placeholder="UI layout JSON appears here"></textarea>
+    <details class="lkdev-section"><summary>РЕДАКТОР ОКРУЖЕНИЯ</summary><div class="lkdev-body">
+     <div class="lkdev-row"><button data-action="editEnv">Режим редактирования</button><button data-action="undo">Отменить</button><button data-action="redo">Повторить</button></div>
+     <select id="lkdev-env-prop" style="width:100%"><option value="ash_tree_01">Дерево 01</option><option value="ash_tree_02">Дерево 02</option><option value="ash_rock_01">Камень 01</option><option value="ash_rock_02">Камень 02</option><option value="ash_rock_03">Камень 03</option><option value="ash_grass_01">Трава 01</option><option value="ash_grass_02">Трава 02</option><option value="ash_grass_03">Трава 03</option><option value="ash_landmark_sword">Ориентир · меч</option><option value="ash_landmark_altar">Ориентир · алтарь</option></select>
+     <div class="lkdev-row"><button data-action="placeProp" class="good">Ставить кликом</button><button data-action="addPropCenter">Добавить в центр</button><button data-action="duplicateSelected">Дублировать</button><button data-action="deleteSelected" class="danger">Удалить</button></div>
+     <div id="lkdev-selected" class="lkdev-selected">Объект не выбран</div>
+     <div class="lkdev-grid4"><button data-action="moveX" data-value="-10">X −10</button><button data-action="moveX" data-value="10">X +10</button><button data-action="moveY" data-value="-10">Y −10</button><button data-action="moveY" data-value="10">Y +10</button><button data-action="scale" data-value="-0.05">Масштаб −</button><button data-action="scale" data-value="0.05">Масштаб +</button><button data-action="rotate" data-value="-0.087266">Поворот −5°</button><button data-action="rotate" data-value="0.087266">Поворот +5°</button></div>
+     <div class="lkdev-row"><button data-action="alpha" data-value="-0.05">Прозрачность −</button><button data-action="alpha" data-value="0.05">Прозрачность +</button><button data-action="flip">Отзеркалить</button><button data-action="resetSelected">Сброс объекта</button></div>
+     <div class="lkdev-grid3"><input id="lkdev-env-x" type="number" step="1" placeholder="X"><input id="lkdev-env-y" type="number" step="1" placeholder="Y"><input id="lkdev-env-scale" type="number" step="0.01" placeholder="Масштаб"><input id="lkdev-env-rotation" type="number" step="1" placeholder="Поворот °"><input id="lkdev-env-alpha" type="number" step="0.05" placeholder="Прозрачность"><button data-action="applyExact">Применить</button></div>
+     <div class="lkdev-row"><button data-action="saveLocal" class="good">Сохранить локально</button><button data-action="loadLocal">Загрузить</button><button data-action="copyLayout">Скопировать JSON</button><button data-action="resetAll" class="danger">Сбросить окружение</button></div>
+     <textarea id="lkdev-output" class="lkdev-output" readonly placeholder="JSON окружения"></textarea>
     </div></details>
 
-    <details class="lkdev-section" open><summary>PERFORMANCE TRACE</summary><div class="lkdev-body">
-     <div class="lkdev-label">Record FPS, frame stalls, game/story state, browser visibility, camera FX, HiDPI/backing canvas, WebGL, audio and scene load.</div>
-     <div class="lkdev-row"><button data-action="traceStart" class="good">START TRACE</button><button data-action="traceStop">STOP</button><button data-action="traceExport">EXPORT JSON</button><button data-action="traceClear" class="danger">CLEAR</button></div>
-     <div id="lkdev-trace-info" class="lkdev-info">Trace idle</div>
+    <details class="lkdev-section"><summary>РЕДАКТОР ИНТЕРФЕЙСА</summary><div class="lkdev-body">
+     <div class="lkdev-row"><button data-action="uiEdit">Редактировать UI</button><button data-action="uiUndo">Отменить</button><button data-action="uiRedo">Повторить</button><button data-action="uiLock">Зафиксировать</button></div>
+     <div class="lkdev-row"><select id="lkdev-ui-profile" data-ui-change="profile"><option value="auto">Авто · устройство</option><option value="desktop">ПК</option><option value="mobileLandscape">Мобильный · горизонтально</option></select><select id="lkdev-ui-element" data-ui-change="element"></select><select id="lkdev-ui-snap" data-ui-change="snap"><option value="1">Шаг 1 px</option><option value="5">Шаг 5 px</option><option value="10">Шаг 10 px</option></select></div>
+     <div id="lkdev-ui-selected" class="lkdev-selected">Редактор UI загружается…</div>
+     <div class="lkdev-grid4"><button data-action="uiMoveX" data-value="-10">X−10</button><button data-action="uiMoveX" data-value="10">X+10</button><button data-action="uiMoveY" data-value="-10">Y−10</button><button data-action="uiMoveY" data-value="10">Y+10</button><button data-action="uiScale" data-value="-0.05">Масштаб −</button><button data-action="uiScale" data-value="0.05">Масштаб +</button><button data-action="uiFont" data-value="-0.05">Шрифт −</button><button data-action="uiFont" data-value="0.05">Шрифт +</button></div>
+     <div class="lkdev-grid4"><input id="lkdev-ui-x" type="number" step="1" placeholder="Смещение X"><input id="lkdev-ui-y" type="number" step="1" placeholder="Смещение Y"><input id="lkdev-ui-scale" type="number" step="0.01" placeholder="Масштаб"><input id="lkdev-ui-width" type="number" step="0.01" placeholder="Ширина"><input id="lkdev-ui-height" type="number" step="0.01" placeholder="Высота"><input id="lkdev-ui-alpha" type="number" step="0.05" placeholder="Прозрачность"><input id="lkdev-ui-depth" type="number" step="1" placeholder="Глубина"><input id="lkdev-ui-font" type="number" step="0.05" placeholder="Шрифт"></div>
+     <div class="lkdev-row"><button data-action="uiApplyExact">Применить значения</button><button data-action="uiSafeArea">Safe Area</button><button data-action="uiGrid">Сетка</button><button data-action="uiBounds">Границы</button></div>
+     <div class="lkdev-row"><button data-action="uiResetSelected">Сброс элемента</button><button data-action="uiResetProfile">Сброс профиля</button><button data-action="uiResetAll" class="danger">Сброс всего UI</button></div>
+     <div class="lkdev-row"><button data-action="uiSaveLocal" class="good">Сохранить</button><button data-action="uiLoadLocal">Загрузить</button><button data-action="uiCopyLayout">Скопировать JSON</button><button data-action="uiDownload">Скачать JSON</button></div>
+     <textarea id="lkdev-ui-output" class="lkdev-output" readonly placeholder="JSON раскладки UI"></textarea>
     </div></details>
 
-    <details class="lkdev-section" open><summary>RENDER / DPI TEST</summary><div class="lkdev-body">
-     <div class="lkdev-label">Live render scale. Manual presets lock quality; AUTO measures sustained frame pressure and only changes scale at safe gameplay moments.</div>
-     <div class="lkdev-row"><button data-action="qualityAuto" class="good">AUTO QUALITY</button><button data-action="renderBenchmark" class="good">RUN 4-SCALE BENCHMARK</button></div>
+    <details class="lkdev-section" open><summary>ПРОИЗВОДИТЕЛЬНОСТЬ И РЕНДЕР</summary><div class="lkdev-body">
+     <div class="lkdev-row"><button data-action="qualityAuto" class="good">Автокачество</button><button data-action="renderBenchmark" class="good">Бенчмарк 4 масштабов</button></div>
      <div class="lkdev-grid4"><button data-action="renderScale" data-value="1">1.00×</button><button data-action="renderScale" data-value="1.25">1.25×</button><button data-action="renderScale" data-value="1.5">1.50×</button><button data-action="renderScale" data-value="1.75">1.75×</button></div>
-     <div id="lkdev-quality-info" class="lkdev-info">Adaptive quality…</div>
-     <div id="lkdev-render-info" class="lkdev-info">Render diagnostics…</div>
-     <div id="lkdev-render-benchmark" class="lkdev-info">Benchmark idle · 10s per scale</div>
+     <div id="lkdev-quality-info" class="lkdev-info">Адаптивное качество…</div><div id="lkdev-render-info" class="lkdev-info">Диагностика рендера…</div><div id="lkdev-render-benchmark" class="lkdev-info">Бенчмарк не запущен</div>
+     <div class="lkdev-divider"></div>
+     <div class="lkdev-label">Трассировка: FPS, подвисания, браузер, сцены, WebGL, звук, эффекты камеры</div><div class="lkdev-row"><button data-action="traceStart" class="good">Старт трассировки</button><button data-action="traceStop">Стоп</button><button data-action="traceExport">Экспорт JSON</button><button data-action="traceClear" class="danger">Очистить</button></div><div id="lkdev-trace-info" class="lkdev-info">Трассировка не запущена</div>
     </div></details>
 
-    <details class="lkdev-section" open><summary>CAMERA / SCENE VIEW</summary><div class="lkdev-body">
-     <div class="lkdev-grid4"><button data-action="zoom" data-value="0.30">0.30</button><button data-action="zoom" data-value="0.50">0.50</button><button data-action="zoom" data-value="0.75">0.75</button><button data-action="zoom" data-value="1">1.0</button></div>
-     <div class="lkdev-grid4"><button data-action="zoom" data-value="1.25">1.25</button><button data-action="zoom" data-value="1.5">1.5</button><button data-action="zoom" data-value="2">2.0</button><button data-action="fitAsh" class="good">FIT ASH</button></div>
-     <div class="lkdev-row"><button data-action="followCamera">Follow Player</button><button data-action="lockCamera">Lock Camera</button><button data-action="freeCamera">Free Camera · Drag / IJKL</button></div>
-     <div class="lkdev-label">Free Camera: left-drag empty scene to pan. In EDIT ENV use right/middle-drag. Mouse wheel zooms around cursor.</div>
+    <details class="lkdev-section"><summary>СТРЕСС-ТЕСТ И СКРИНШОТ</summary><div class="lkdev-body">
+     <div class="lkdev-grid3"><button data-action="scenario" data-value="empty">Пустая сцена</button><button data-action="scenario" data-value="skeleton10">10 скелетов</button><button data-action="scenario" data-value="mixed">Смешанная толпа</button><button data-action="scenario" data-value="heavy">Тяжёлый бой</button><button data-action="scenario" data-value="critical">Критический HP</button><button data-action="scenario" data-value="champion">Только чемпион</button></div>
+     <div class="lkdev-row"><button data-action="stress" data-value="50">50 врагов</button><button data-action="stress" data-value="100">100 врагов</button><button data-action="hideUi">Скрыть игровой UI</button><button data-action="screenshot">Снимок PNG</button></div>
     </div></details>
 
-    <details class="lkdev-section"><summary>QUICK SCENARIOS</summary><div class="lkdev-body">
-     <div class="lkdev-grid3"><button data-action="scenario" data-value="empty">Empty Scene</button><button data-action="scenario" data-value="skeleton10">10 Skeletons</button><button data-action="scenario" data-value="mage5">5 Mages</button><button data-action="scenario" data-value="mixed">Mixed Horde</button><button data-action="scenario" data-value="champion">Champion Only</button><button data-action="scenario" data-value="heavy">Heavy Combat</button><button data-action="scenario" data-value="critical">Critical HP</button><button data-action="scenario" data-value="lowHorde">Low HP + Horde</button></div>
-    </div></details>
-
-    <details class="lkdev-section"><summary>STRESS / SCREENSHOT</summary><div class="lkdev-body">
-     <div class="lkdev-row"><button data-action="stress" data-value="50">50 Enemies</button><button data-action="stress" data-value="100">100 Enemies</button><button data-action="hideUi">Hide Game UI</button><button data-action="screenshot">Capture PNG</button></div>
-    </div></details>
-
-    <details class="lkdev-section" open><summary>LIVE INFO</summary><div class="lkdev-body"><div id="lkdev-info" class="lkdev-info"></div></div></details>
+    <details class="lkdev-section" open><summary>ЖИВАЯ ИНФОРМАЦИЯ</summary><div class="lkdev-body"><div id="lkdev-info" class="lkdev-info"></div></div></details>
    </div>`;
+  // DOM Dev controls must never leak pointer events into Phaser's canvas / HUD.
+  const stopPanelPointer=(event)=>{
+   this.setPanelInputCapture(true);
+   event.stopPropagation();
+  };
+  for(const type of ['pointerdown','pointerup','mousedown','mouseup','touchstart','touchend','contextmenu']){
+   root.addEventListener(type,stopPanelPointer,{passive:false});
+  }
+  root.addEventListener('wheel',(event)=>event.stopPropagation(),{passive:true});
+  root.addEventListener('pointerenter',()=>this.setPanelInputCapture(true));
+  root.addEventListener('pointerleave',()=>this.setPanelInputCapture(false));
+  root.addEventListener('keydown',(event)=>event.stopPropagation());
+  root.addEventListener('keyup',(event)=>event.stopPropagation());
   root.addEventListener('click',(event)=>{
    const btn=event.target.closest('[data-action]');
-   if(!btn) return;
+   if(!btn)return;
    event.preventDefault();event.stopPropagation();
    this.handleAction(btn.dataset.action,btn.dataset.value,btn);
   });
   root.addEventListener('change',(event)=>{
    const el=event.target.closest('[data-ui-change]');
-   if(!el)return;
-   const kind=el.dataset.uiChange;
-   if(kind==='profile'){this.uiEditor.profileMode=el.value;this.uiEditor.apply();this.uiEditor.refreshPanel();}
-   else if(kind==='element')this.uiEditor.select(el.value);
-   else if(kind==='snap'){this.uiEditor.snap=Number(el.value)||1;this.uiEditor.refreshPanel();}
+   if(el){
+    const kind=el.dataset.uiChange;
+    if(kind==='profile'){this.uiEditor.profileMode=el.value;this.uiEditor.apply();this.uiEditor.refreshPanel();}
+    else if(kind==='element')this.uiEditor.select(el.value);
+    else if(kind==='snap'){this.uiEditor.snap=Number(el.value)||1;this.uiEditor.refreshPanel();}
+   }
+  });
+  root.addEventListener('input',(event)=>{
+   const el=event.target.closest('[data-dev-range]');
+   if(el)this.handleDevLabRange(el.dataset.devRange,Number(el.value));
   });
   document.body.appendChild(root);
   this.root=root;
+ }
+
+ setPanelInputCapture(active,force=false){
+  active=Boolean(active);
+  if(!force && this.panelInputCapture===active)return;
+  this.panelInputCapture=active;
+  const scenes=[this.scene,this.scene.scene?.get?.('HUDScene')].filter(Boolean);
+  if(active){
+   for(const scene of scenes){
+    if(!scene?.input || this.panelInputStates.has(scene))continue;
+    this.panelInputStates.set(scene,scene.input.enabled);
+    scene.input.enabled=false;
+   }
+  }else{
+   for(const [scene,wasEnabled] of this.panelInputStates.entries()){
+    if(scene?.input)scene.input.enabled=wasEnabled;
+   }
+   this.panelInputStates.clear();
+  }
+ }
+
+ refreshAiModeDescription(){
+  const mode=this.scene.devFlags?.enemyAiMode||'normal';
+  const meta=DEV_AI_MODE_META[mode]||DEV_AI_MODE_META.normal;
+  const el=document.getElementById('lkdev-ai-description');
+  if(el)el.textContent=`${meta.name} — ${meta.desc}`;
  }
 
  togglePanel(force=null){
   this.open=force===null?!this.open:Boolean(force);
   this.root?.classList.toggle('open',this.open);
   if(this.button) this.button.style.display=this.open?'none':'';
+  if(!this.open)this.setPanelInputCapture(false,true);
+  const hud=this.scene.scene?.get?.('HUDScene');
+  hud?.setDevMenuOpen?.(this.open);
+  if(this.open)this.refreshAiModeDescription();
  }
 
  handleAction(action,value,button){
@@ -981,7 +1125,19 @@ class LastKnightDevTools {
    case 'close':this.togglePanel(false);break;
    case 'pause':s.setGameplayPaused('devPanel',true);break;
    case 'resume':s.setGameplayPaused('devPanel',false);break;
-   case 'time':this.setTimeScale(Number(value));break;
+   case 'time':this.setTimeScale(Number(value));this.notifyDev(`Скорость времени: ${Number(value).toFixed(2)}×`);break;
+   case 'labPreset':this.runDevLabPreset(value);break;
+   case 'labPresetSave':this.saveDevLabPreset();break;
+   case 'labPresetLoad':this.loadDevLabPreset();break;
+   case 'wave6Lab':this.jumpToZone(1);this.notifyDev('Открыт тест: Акт 2 · Волна 6.','good');break;
+   case 'cameraFx':this.testCameraEffect(value);break;
+   case 'postFx':this.applyCameraPostFx(value);break;
+   case 'playerFx':this.applyPlayerDevFx(value);break;
+   case 'ambientFx':this.toggleAmbientDevFx(value);break;
+   case 'particleBurst':this.burstDevParticles(value);break;
+   case 'clearParticles':this.clearDevParticles();break;
+   case 'lightToggle':this.toggleDevLight();break;
+   case 'lightPulse':this.pulseDevLight();break;
    case 'autoSpawns':f.autoSpawnsDisabled=!f.autoSpawnsDisabled;if(!f.autoSpawnsDisabled&&s.championEventActive&&!s.activeChampion){const k=s.getChampionForWave(s.wave);if(k)s.spawnChampion(k,true);}break;
    case 'spawn':this.spawnEnemies(value,1);break;
    case 'spawnMixed':this.spawnMixed(Number(value));break;
@@ -991,6 +1147,7 @@ class LastKnightDevTools {
    case 'enemyFreezeAI':f.enemyAiFrozen=!f.enemyAiFrozen;break;
    case 'enemyFreezeMove':f.enemyMovementFrozen=!f.enemyMovementFrozen;break;
    case 'enemyAttacks':f.enemyAttacksDisabled=!f.enemyAttacksDisabled;if(f.enemyAttacksDisabled){this.clearProjectiles();for(const e of s.enemies){if(e.type!=='champion'){e.pendingMeleeHitAt=0;e.pendingMeleeDamage=0;e.pendingMeleeRange=0;}}}break;
+   case 'aiMode':this.setDevAiMode(value);break;
    case 'killEnemies':this.killOrdinaryEnemies();break;
    case 'deleteEnemies':this.deleteOrdinaryEnemies();break;
    case 'spawnChampion':this.spawnSelectedChampion();break;
@@ -1014,6 +1171,11 @@ class LastKnightDevTools {
    case 'damage':s.meleeAttack.damage=Math.max(1,s.meleeAttack.damage+Number(value));break;
    case 'cooldown':s.meleeAttack.cooldown=Math.max(100,s.meleeAttack.cooldown+Number(value));break;
    case 'radius':s.meleeAttack.radius=Math.max(20,s.meleeAttack.radius+Number(value));break;
+   case 'skillTest':this.testDevSkill(Number(value));break;
+   case 'crowSpawn':this.spawnDevCrowFlock(Number(value));break;
+   case 'crowScatter':this.scatterDevCrowFlocks();break;
+   case 'crowClear':this.clearDevCrowFlocks();break;
+   case 'worldEvent':this.runDevWorldEvent(value);break;
    case 'travel':this.teleport(Number(value));break;
    case 'jumpZone':this.jumpToZone(Number(value));break;
    case 'jumpWave':this.jumpToWave(Number(value));break;
@@ -1090,6 +1252,331 @@ class LastKnightDevTools {
   this.refreshStateButtons();this.refreshSelectedPanel();this.refreshTraceUi();this.updateInfo(true);
  }
 
+ notifyDev(message,tone='info'){
+  const text=String(message||'Готово');
+  this.devLab.lastStatus=text;
+  const el=typeof document!=='undefined'?document.getElementById('lkdev-status'):null;
+  if(el){
+   el.textContent=text;
+   el.style.borderColor=tone==='error'?'#824b47':tone==='good'?'#45684e':'#3b3e3f';
+   el.style.color=tone==='error'?'#ffc0ba':tone==='good'?'#bff1cb':'#bec9c0';
+  }
+ }
+
+ isWebGlDev(){return this.scene.game?.renderer?.type===Phaser.WEBGL;}
+
+ handleDevLabRange(kind,value){
+  if(kind==='lightRadius'){
+   this.devLab.lightRadius=Phaser.Math.Clamp(value,100,600);
+   const out=document.getElementById('lkdev-light-radius');if(out)out.textContent=String(Math.round(this.devLab.lightRadius));
+   if(this.devLab.light)this.devLab.light.radius=this.devLab.lightRadius;
+  }else if(kind==='lightIntensity'){
+   this.devLab.lightIntensity=Phaser.Math.Clamp(value,0.2,3);
+   const out=document.getElementById('lkdev-light-intensity');if(out)out.textContent=this.devLab.lightIntensity.toFixed(1);
+   if(this.devLab.light)this.devLab.light.intensity=this.devLab.lightIntensity;
+  }
+ }
+
+ testCameraEffect(kind){
+  const s=this.scene,cam=s.cameras.main;
+  if(!cam)return;
+  const reset=()=>{try{cam.resetFX();}catch{}cam.setRotation(0);};
+  if(kind==='reset'){
+   reset();this.followCamera();this.setCameraZoom(1);this.notifyDev('Камера сброшена.','good');return;
+  }
+  if(kind==='shakeSoft')cam.shake(140,0.0025,true);
+  else if(kind==='shakeHit')cam.shake(210,0.0075,true);
+  else if(kind==='shakeQuake')cam.shake(620,0.012,true);
+  else if(kind==='flashWhite')cam.flash(220,255,245,220,true);
+  else if(kind==='flashRed')cam.flash(260,180,28,24,true);
+  else if(kind==='fade'){
+   cam.fadeOut(330,0,0,0,true);
+   s.time.delayedCall(390,()=>cam.fadeIn(420,0,0,0));
+  }else if(kind==='zoomPulse'){
+   const base=cam.zoom;
+   s.tweens.add({targets:cam,zoom:base*1.16,duration:180,ease:'Quad.easeOut',yoyo:true,hold:80,onComplete:()=>cam.setZoom(base)});
+  }else if(kind==='rotationHit'){
+   cam.setRotation(0);
+   s.tweens.add({targets:cam,rotation:Phaser.Math.DegToRad(1.5),duration:75,ease:'Sine.easeOut',yoyo:true,repeat:1,onComplete:()=>cam.setRotation(0)});
+  }else if(kind==='bossFocus'){
+   const target=s.activeChampion?.active?s.activeChampion:(s.enemies||[]).find(e=>e?.active&&e.hp>0);
+   if(!target){this.notifyDev('Для фокуса нужен живой враг.','error');return;}
+   const returnX=s.player.x,returnY=s.player.y,baseZoom=cam.zoom;
+   cam.pan(target.x,target.y,360,'Sine.easeInOut',true);
+   cam.zoomTo(Math.min(1.55,baseZoom*1.22),360,'Sine.easeInOut',true);
+   s.time.delayedCall(850,()=>{cam.pan(returnX,returnY,430,'Sine.easeInOut',true);cam.zoomTo(baseZoom,430,'Sine.easeInOut',true);});
+  }
+  this.notifyDev('Камера: тест эффекта выполнен.');
+ }
+
+ applyCameraPostFx(kind){
+  const cam=this.scene.cameras.main;
+  if(!this.isWebGlDev() || !cam?.postFX){this.notifyDev('Post FX доступны только в WebGL.','error');return;}
+  try{cam.postFX.clear();}catch{}
+  if(kind==='clear'){
+   this.devLab.cameraFxKind='none';this.notifyDev('Post FX камеры очищены.','good');this.refreshStateButtons();return;
+  }
+  try{
+   if(kind==='vignette')cam.postFX.addVignette(0.5,0.5,0.82,0.62);
+   else if(kind==='bloom')cam.postFX.addBloom(0xffdca0,1,1,1.1,0.85,3);
+   else if(kind==='blur')cam.postFX.addBlur(1,2,2,1.2,0xffffff,2);
+   else if(kind==='pixelate')cam.postFX.addPixelate(4);
+   else if(kind==='barrel')cam.postFX.addBarrel(1.12);
+   else if(kind==='bokeh')cam.postFX.addBokeh(0.45,0.75,0.16);
+   else if(kind==='grayscale'){const fx=cam.postFX.addColorMatrix();fx.grayscale(1);}
+   else if(kind==='sepia'){const fx=cam.postFX.addColorMatrix();fx.sepia();}
+   else if(kind==='night'){const fx=cam.postFX.addColorMatrix();fx.night(0.28);}
+   this.devLab.cameraFxKind=kind;
+   this.notifyDev(`Post FX камеры: ${kind}.`,'good');
+  }catch(error){this.devLab.cameraFxKind='none';this.notifyDev(`FX не запустился: ${error?.message||error}`,'error');}
+  this.refreshStateButtons();
+ }
+
+ getDevFxHero(){return this.scene.playerVisual?.active?this.scene.playerVisual:this.scene.player;}
+
+ applyPlayerDevFx(kind){
+  const hero=this.getDevFxHero();
+  if(!this.isWebGlDev() || !hero?.postFX){this.notifyDev('FX героя требуют WebGL и Sprite с PostFX.','error');return;}
+  try{hero.postFX.clear();hero.preFX?.clear?.();}catch{}
+  if(kind==='clear'){this.devLab.playerFxKind='none';this.notifyDev('FX героя очищены.','good');this.refreshStateButtons();return;}
+  try{
+   const fx=hero.preFX||hero.postFX;
+   if(kind==='glow')fx.addGlow(0xffd978,4,0,false,0.12,10);
+   else if(kind==='bloom')fx.addBloom(0xffdca0,1,1,1,1,3);
+   else if(kind==='shine')fx.addShine(0.7,0.18,3);
+   this.devLab.playerFxKind=kind;
+   this.notifyDev(`FX героя: ${kind}.`,'good');
+  }catch(error){this.devLab.playerFxKind='none';this.notifyDev(`FX героя не запустился: ${error?.message||error}`,'error');}
+  this.refreshStateButtons();
+ }
+
+ ensureDevParticleTextures(){
+  const s=this.scene;
+  if(!s.textures.exists('lkdev_particle_dot')){
+   const g=s.make.graphics({x:0,y:0,add:false});g.fillStyle(0xffffff,1);g.fillCircle(5,5,4);g.generateTexture('lkdev_particle_dot',10,10);g.destroy();
+  }
+  if(!s.textures.exists('lkdev_particle_square')){
+   const g=s.make.graphics({x:0,y:0,add:false});g.fillStyle(0xffffff,1);g.fillRect(1,1,8,8);g.generateTexture('lkdev_particle_square',10,10);g.destroy();
+  }
+  if(!s.textures.exists('lkdev_particle_smoke')){
+   const tex=s.textures.createCanvas('lkdev_particle_smoke',64,64);const ctx=tex.getContext();const grad=ctx.createRadialGradient(32,32,3,32,32,30);grad.addColorStop(0,'rgba(255,255,255,.66)');grad.addColorStop(.45,'rgba(255,255,255,.22)');grad.addColorStop(1,'rgba(255,255,255,0)');ctx.clearRect(0,0,64,64);ctx.fillStyle=grad;ctx.fillRect(0,0,64,64);tex.refresh();
+  }
+ }
+
+ makeDevParticleEmitter(x,y,key,config){
+  this.ensureDevParticleTextures();
+  const emitter=this.scene.add.particles(x,y,key,{...config,frequency:-1}).setDepth(200);
+  return emitter;
+ }
+
+ burstDevParticles(kind){
+  const s=this.scene,p=s.player;if(!p?.active)return;
+  this.ensureDevParticleTextures();
+  const base={lifespan:{min:380,max:920},alpha:{start:0.95,end:0},scale:{start:0.85,end:0},speed:{min:70,max:190},angle:{min:0,max:360}};
+  let key='lkdev_particle_dot',count=22,cfg={...base};
+  if(kind==='sparks'){count=28;cfg={...base,lifespan:{min:220,max:520},speed:{min:110,max:280},scale:{start:0.6,end:0},tint:[0xfff1a8,0xffb94f,0xffffff],blendMode:'ADD'};}
+  else if(kind==='blood'){count=24;cfg={...base,lifespan:{min:420,max:850},speed:{min:55,max:170},gravityY:220,scale:{start:0.65,end:0.12},tint:[0x8d1717,0xc02b22,0x5f1010]};}
+  else if(kind==='debris'){key='lkdev_particle_square';count=30;cfg={...base,lifespan:{min:500,max:1100},speed:{min:45,max:155},gravityY:180,rotate:{min:-180,max:180},scale:{start:0.65,end:0.18},tint:[0x8a7556,0xc1ad87,0x4d4438]};}
+  else if(kind==='magic'){count=34;cfg={...base,lifespan:{min:450,max:950},speed:{min:40,max:150},scale:{start:0.9,end:0},tint:[0x7fe7ff,0x8bffcf,0xa7a0ff],blendMode:'ADD'};}
+  else if(kind==='fire'){count=34;cfg={...base,lifespan:{min:350,max:800},speed:{min:35,max:125},angle:{min:235,max:305},gravityY:-45,scale:{start:1.05,end:0},tint:[0xfff0a3,0xffa135,0xe84b1d],blendMode:'ADD'};}
+  else if(kind==='smoke'){key='lkdev_particle_smoke';count=16;cfg={...base,lifespan:{min:900,max:1800},speed:{min:12,max:48},angle:{min:235,max:305},scale:{start:0.45,end:1.8},alpha:{start:0.2,end:0},tint:[0xb8b8ae,0x777a76]};}
+  const emitter=this.makeDevParticleEmitter(p.x,p.y-8,key,cfg);emitter.explode(count);s.time.delayedCall(2100,()=>emitter?.destroy?.());
+  this.notifyDev(`Частицы: ${kind}, ${count} шт.`);
+ }
+
+ toggleAmbientDevFx(kind,force=null){
+  const current=this.devLab.ambient.get(kind);
+  const shouldEnable=force===null?!current:Boolean(force);
+  if(!shouldEnable){if(current?.emitter?.active)current.emitter.destroy();this.devLab.ambient.delete(kind);this.notifyDev(`Атмосфера «${kind}» выключена.`);this.refreshStateButtons();return;}
+  if(current)return;
+  const s=this.scene,cam=s.cameras.main;this.ensureDevParticleTextures();
+  const halfW=Math.max(400,cam.worldView.width*0.62),halfH=Math.max(280,cam.worldView.height*0.62);
+  let key='lkdev_particle_square',cfg={},follow='camera';
+  if(kind==='ash')cfg={x:{min:-halfW,max:halfW},y:-halfH,speedX:{min:-12,max:10},speedY:{min:20,max:48},lifespan:{min:6500,max:9500},frequency:115,quantity:1,scale:{start:0.35,end:0.12},alpha:{start:0.4,end:0},tint:[0xc6c3b7,0x837f74,0x57554f]};
+  else if(kind==='fog'){key='lkdev_particle_smoke';cfg={x:-halfW,y:{min:-halfH*0.55,max:halfH*0.55},speedX:{min:12,max:26},speedY:{min:-3,max:3},lifespan:{min:9000,max:14000},frequency:620,quantity:1,scale:{start:2.8,end:5.8},alpha:{start:0.055,end:0},tint:[0x9ca5a0,0x737b78]};}
+  else {follow='player';cfg={x:{min:-120,max:120},y:{min:-35,max:40},speedX:{min:-6,max:6},speedY:{min:-34,max:-12},lifespan:{min:850,max:1700},frequency:150,quantity:1,scale:{start:0.35,end:0},alpha:{start:0.8,end:0},tint:[0xffcc69,0xff7e2d],blendMode:'ADD'};}
+  const emitter=s.add.particles(0,0,key,cfg).setDepth(kind==='fog'?5:190);
+  const entry={emitter,follow};this.devLab.ambient.set(kind,entry);this.updateDevAmbientPositions();
+  this.notifyDev(`Атмосфера «${kind}» включена.`,'good');this.refreshStateButtons();
+ }
+
+ updateDevAmbientPositions(){
+  const s=this.scene,cam=s.cameras.main;
+  for(const entry of this.devLab.ambient.values()){
+   if(!entry?.emitter?.active)continue;
+   if(entry.follow==='player'&&s.player?.active)entry.emitter.setPosition(s.player.x,s.player.y);
+   else entry.emitter.setPosition(cam.worldView.centerX,cam.worldView.centerY);
+  }
+ }
+
+ clearDevParticles({silent=false}={}){
+  for(const entry of this.devLab.ambient.values())if(entry?.emitter?.active)entry.emitter.destroy();
+  this.devLab.ambient.clear();
+  if(!silent)this.notifyDev('Все тестовые атмосферные частицы выключены.','good');
+  this.refreshStateButtons();
+ }
+
+ devLightCandidates(){
+  const s=this.scene,out=[];
+  if(s.playerVisual?.active)out.push(s.playerVisual);
+  for(const e of s.enemies||[])if(e?.visual?.active)out.push(e.visual);
+  for(const o of s.devEnvironmentObjects||[])if(o?.active && Math.abs(o.x-s.player.x)<700 && Math.abs(o.y-s.player.y)<500)out.push(o);
+  return out.slice(0,140);
+ }
+
+ refreshDevLightTargets(force=false){
+  if(!this.devLab.lightEnabled)return;
+  const now=performance.now();if(!force&&now-this.devLab.lastLightRefreshAt<900)return;this.devLab.lastLightRefreshAt=now;
+  for(const obj of this.devLightCandidates()){
+   if(this.devLab.lightTargets.has(obj) || typeof obj.setPipeline!=='function')continue;
+   try{obj.setPipeline('Light2D');this.devLab.lightTargets.add(obj);}catch{}
+  }
+ }
+
+ toggleDevLight(force=null){
+  if(!this.isWebGlDev()){this.notifyDev('Light2D требует WebGL.','error');return;}
+  const enable=force===null?!this.devLab.lightEnabled:Boolean(force);
+  if(!enable){this.disableDevLight();return;}
+  try{
+   const s=this.scene;s.lights.enable();s.lights.setAmbientColor(0x383a3e);
+   this.devLab.light=s.lights.addLight(s.player.x,s.player.y,this.devLab.lightRadius,0xffbd70,this.devLab.lightIntensity);
+   this.devLab.lightEnabled=true;this.refreshDevLightTargets(true);this.notifyDev('Light2D включён. Свет следует за героем.','good');
+  }catch(error){this.devLab.lightEnabled=false;this.notifyDev(`Light2D не запустился: ${error?.message||error}`,'error');}
+  this.refreshStateButtons();
+ }
+
+ disableDevLight({silent=false}={}){
+  const s=this.scene;
+  if(this.devLab.light){try{s.lights.removeLight(this.devLab.light);}catch{}this.devLab.light=null;}
+  for(const obj of this.devLab.lightTargets){if(obj?.active)try{obj.resetPipeline?.();}catch{}}
+  this.devLab.lightTargets.clear();this.devLab.lightEnabled=false;
+  try{s.lights.disable();}catch{}
+  if(!silent)this.notifyDev('Light2D выключен.','good');
+  this.refreshStateButtons();
+ }
+
+ pulseDevLight(){
+  if(!this.devLab.lightEnabled)this.toggleDevLight(true);
+  const light=this.devLab.light;if(!light)return;
+  const base=this.devLab.lightIntensity;
+  this.scene.tweens.add({targets:light,intensity:Math.min(3,base*1.7),duration:130,ease:'Quad.easeOut',yoyo:true,repeat:2,onComplete:()=>{if(light)light.intensity=base;}});
+  this.notifyDev('Пульсация Light2D запущена.');
+ }
+
+ setDevAiMode(mode){
+  const legacy={distance:'skirmish',retreat:'reserve'};
+  mode=legacy[mode]||mode;
+  this.scene.devFlags.enemyAiMode=Object.prototype.hasOwnProperty.call(DEV_AI_MODE_META,mode)?mode:'normal';
+  const meta=DEV_AI_MODE_META[this.scene.devFlags.enemyAiMode]||DEV_AI_MODE_META.normal;
+  for(const e of this.scene.enemies||[]){
+   delete e.devFlankCommitted;delete e.devOrbitSign;delete e.devAiSeed;
+  }
+  this.scene._devAiContext=null;
+  this.notifyDev(`AI: ${meta.name}. ${meta.desc}`,'good');
+  this.refreshStateButtons();
+  this.refreshAiModeDescription();
+ }
+
+ testDevSkill(index){
+  const s=this.scene;if(![1,2,3].includes(index))return;
+  const previous=s.devFlags.infiniteMana;s.devFlags.infiniteMana=true;s.mana=s.maxMana;s.skillLockUntil=0;
+  try{s.handleSkillInput(index);}finally{s.devFlags.infiniteMana=previous;if(previous)s.mana=s.maxMana;}
+  this.notifyDev(`Навык ${index} запущен.`);
+ }
+
+ spawnDevCrowFlock(count=10){
+  const s=this.scene;if(!s.player?.active||!s.textures.exists('crown_1_1')){this.notifyDev('Спрайты ворон недоступны в этой сборке.','error');return;}
+  count=Phaser.Math.Clamp(Math.round(count)||10,1,30);
+  const id=`dev_crows_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+  const centerX=s.clampWorldX(s.player.x+Phaser.Math.Between(120,190),80),centerY=s.clampWorldY(s.player.y+Phaser.Math.Between(-70,70),80);
+  const flock={id,centerX,centerY,triggered:false,crows:[],devFlock:true};s.crowFlocks.set(id,flock);
+  const used=[];
+  for(let i=0;i<count;i++){
+   let x=centerX,y=centerY;
+   for(let tries=0;tries<90;tries++){
+    const a=Phaser.Math.FloatBetween(0,Math.PI*2),r=Phaser.Math.FloatBetween(45,Math.max(90,48+count*7));
+    const cx=centerX+Math.cos(a)*r,cy=centerY+Math.sin(a)*r*0.68;
+    if(used.every(p=>Phaser.Math.Distance.Between(cx,cy,p.x,p.y)>=34)){x=cx;y=cy;break;}
+   }
+   used.push({x,y});const variant=Phaser.Math.Between(1,3);
+   const shadow=s.add.ellipse(x,y+4,23,8,0x000000,0.24).setDepth(5.4);
+   const sprite=s.add.sprite(x,y,`crown_${variant}_1`).setOrigin(0.5,0.82).setScale(CROW_VISUAL_SCALE*Phaser.Math.FloatBetween(0.94,1.08)).setFlipX(Math.random()<0.5).setDepth(7.2);
+   sprite.play({key:`crown_idle_${variant}`,startFrame:i%3});
+   const crow={flockId:id,index:i,variant,sprite,shadow,state:'idle',groundX:x,groundY:y,homeX:x,homeY:y,altitude:0,launchAt:0,takeoffAt:0,flyAt:0,flightEndsAt:0,speed:0,angle:0,exitAngle:0,turnSign:i%2===0?1:-1,turnUntil:0,retiring:false,scatterAngle:null,maneuverQueue:[],nextManeuverAt:0,devCrow:true};
+   flock.crows.push(crow);s.crows.push(crow);
+  }
+  this.notifyDev(`Создана тестовая стая: ${count} ворон. Подойди или нажми «Разогнать».`,'good');
+ }
+
+ scatterDevCrowFlocks(){
+  let n=0;for(const flock of this.scene.crowFlocks?.values?.()||[])if(flock.devFlock&&!flock.triggered){this.scene.scatterCrowFlock(flock,this.scene.time.now);n++;}
+  this.notifyDev(n?`Разогнано тестовых стай: ${n}.`:'Нет сидящих тестовых стай.',n?'good':'error');
+ }
+
+ clearDevCrowFlocks({silent=false}={}){
+  const s=this.scene;let removed=0;
+  for(const [id,flock] of [...(s.crowFlocks?.entries?.()||[])]){
+   if(!flock.devFlock)continue;
+   for(const crow of flock.crows||[]){if(crow.sprite?.active)crow.sprite.destroy();if(crow.shadow?.active)crow.shadow.destroy();crow.state='gone';removed++;}
+   s.crowFlocks.delete(id);
+  }
+  s.crows=(s.crows||[]).filter(c=>!c.devCrow&&c?.sprite?.active);
+  if(!silent)this.notifyDev(`Тестовые вороны убраны: ${removed}.`,'good');
+ }
+
+ runDevWorldEvent(kind){
+  const s=this.scene;
+  if(kind==='storyCrows'){
+   const flock=s.crowFlocks?.get?.('ruined_wagon_crows_01');if(flock)s.scatterCrowFlock(flock,s.time.now);else{this.notifyDev('Сюжетная стая сейчас не загружена.','error');return;}
+  }else if(kind==='closeGate'){
+   const gate=WORLD_DESIGN.GATES[Math.max(0,(s.currentWorldZoneIndex||0)-1)];if(!gate){this.notifyDev('Позади героя нет ворот для закрытия.','error');return;}s.createBacktrackSeal(gate,{animate:true,silent:true});
+  }else if(kind==='openGate'){
+   const gate=WORLD_DESIGN.GATES[s.currentWorldZoneIndex||0];if(!gate){this.notifyDev('В этой зоне нет следующих ворот.','error');return;}s.unlockWorldGateForChampion(gate.champion);
+  }else if(kind==='wagonCinematic'){
+   const complete=()=>this.notifyDev('Тест 3-кадрового синематика завершён.','good');
+   const started=s.storyDirector?.playCinematic(ZONE2_WAGON_CINEMATIC_PAGES,{eventId:`dev_wagon_cinematic_${Date.now()}`,once:false,releaseTextureKeys:[],onComplete:complete});if(!started){this.notifyDev('Синематик сейчас нельзя запустить.','error');return;}
+  }
+  this.notifyDev('Событие мира запущено.','good');
+ }
+
+ runDevLabPreset(name){
+  const s=this.scene;
+  if(name==='combat'){
+   this.clearDevParticles({silent:true});this.applyCameraPostFx('clear');this.setDevAiMode('surround');this.spawnMixed(20);s.devFlags.godMode=true;
+  }else if(name==='atmosphere'){
+   this.toggleAmbientDevFx('ash',true);this.toggleAmbientDevFx('fog',true);this.applyCameraPostFx('vignette');
+  }else if(name==='boss'){
+   if(!s.activeChampion?.active)this.spawnSelectedChampion();s.devFlags.godMode=true;this.testCameraEffect('bossFocus');
+  }else if(name==='critical'){
+   this.setPlayerHp(10);this.applyCameraPostFx('vignette');this.testCameraEffect('shakeSoft');
+  }
+  this.notifyDev(`Пресет «${name}» применён.`,'good');this.refreshStateButtons();
+ }
+
+ saveDevLabPreset(){
+  try{
+   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity};
+   localStorage.setItem(this.devLabPresetKey,JSON.stringify(data));this.notifyDev('Текущий набор лаборатории сохранён локально.','good');
+  }catch(error){this.notifyDev(`Не удалось сохранить: ${error?.message||error}`,'error');}
+ }
+
+ loadDevLabPreset(){
+  try{
+   const data=JSON.parse(localStorage.getItem(this.devLabPresetKey)||'null');if(!data){this.notifyDev('Сохранённого набора пока нет.','error');return;}
+   this.setTimeScale(Number(data.time)||1);this.setDevAiMode(data.aiMode||'normal');this.clearDevParticles({silent:true});for(const k of data.ambient||[])this.toggleAmbientDevFx(k,true);
+   this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});
+   this.notifyDev('Сохранённый набор лаборатории загружен.','good');
+  }catch(error){this.notifyDev(`Не удалось загрузить набор: ${error?.message||error}`,'error');}
+ }
+
+ clearDevLabEffects({silent=false}={}){
+  try{this.scene.cameras.main?.postFX?.clear?.();}catch{}
+  try{const hero=this.getDevFxHero();hero?.postFX?.clear?.();hero?.preFX?.clear?.();}catch{}
+  this.clearDevParticles({silent:true});this.disableDevLight({silent:true});this.clearDevCrowFlocks({silent:true});
+  this.devLab.cameraFxKind='none';this.devLab.playerFxKind='none';
+  if(!silent)this.notifyDev('Тестовые FX очищены.','good');
+ }
+
  setTimeScale(scale){
   scale=Phaser.Math.Clamp(scale,0.1,4);
   this.scene.devTimeScale=scale;
@@ -1133,7 +1620,7 @@ class LastKnightDevTools {
  resetUpgrades(){const s=this.scene;s.meleeAttack.level=1;s.meleeAttack.damage=15;s.meleeAttack.cooldown=1000;s.meleeAttack.radius=99;s.weaponLevels={sword:1};}
  applyNoCollision(){const enabled=!this.scene.devFlags.noCollision;if(this.scene.playerEnemyCollider)this.scene.playerEnemyCollider.active=enabled;if(this.scene.playerAshCollider)this.scene.playerAshCollider.active=enabled;if(this.scene.enemyAshCollider)this.scene.enemyAshCollider.active=enabled;this.applyAllEnvironmentVisibility();}
  teleport(x){const s=this.scene;x=Phaser.Math.Clamp(x,25,STAGE0.WORLD_WIDTH-25);const pos=s.findNearestFreeGroundPoint(x,WORLD_DESIGN.ROUTE_Y,24,320,18);s.player.setPosition(pos.x,pos.y);s.player.body?.setVelocity(0,0);s.playerVisual?.setPosition(pos.x,pos.y);if(this.freeCamera||this.cameraLocked)s.cameras.main.centerOn(pos.x,pos.y);s.updateWorldRegion();s.progressionBalanceZoneIndex=s.currentWorldZoneIndex;s.applyRegionalHeroBalance(s.progressionBalanceZoneIndex,false);s.recalculateCurrentWaveRegionBalance();s.updateWorldStreaming();}
- jumpToZone(index){const s=this.scene,zone=WORLD_DESIGN.ZONES[index];if(!zone)return;this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.pendingWorldAdvance=null;s.awaitingWorldAdvance=false;s.worldAdvanceTargetZone=null;const x=Math.min(zone.end-300,zone.start+(index===0?400:360));this.teleport(x);s.startZoneWaveSequence(index,{suppressBanner:true});s.showWaveBanner(`DEV · ${zone.name}`,'Zone loaded · wave sequence restarted','#bfe8ff');}
+ jumpToZone(index){const s=this.scene,zone=WORLD_DESIGN.ZONES[index];if(!zone)return;this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.pendingWorldAdvance=null;s.awaitingWorldAdvance=false;s.worldAdvanceTargetZone=null;const x=Math.min(zone.end-300,zone.start+(index===0?400:360));this.teleport(x);s.startZoneWaveSequence(index,{suppressBanner:true});s.showWaveBanner(`DEV · ${zone.name}`,'Зона загружена · последовательность волн перезапущена','#bfe8ff');}
  jumpToWave(wave){const s=this.scene;const safeWave=Phaser.Math.Clamp(Math.round(wave)||1,1,5);this.deleteOrdinaryEnemies();this.deleteChampion();this.clearProjectiles();this.clearHazards();s.waveIntermission=false;s.nextWaveAt=Number.POSITIVE_INFINITY;s.startWave(safeWave,false,{suppressBanner:false});}
 
  toggleGroundOnly(){const on=!(this.groundOnly||false);this.groundOnly=on;if(on){this.envVisibility.props=false;this.envVisibility.landmarks=false;}else{this.envVisibility.props=true;this.envVisibility.trees=true;this.envVisibility.rocks=true;this.envVisibility.grass=true;this.envVisibility.landmarks=true;}this.applyAllEnvironmentVisibility();}
@@ -1251,7 +1738,7 @@ class LastKnightDevTools {
  }
  handleDevPointerUp(pointer){if(this.cameraPan&&pointer.id===this.cameraPan.pointerId)this.cameraPan=null;if(this.envDrag&&pointer.id===this.envDrag.pointerId)this.envDrag=null;}
  handleCameraWheel(pointer,deltaY){if(!this.freeCamera&&!this.cameraLocked&&!this.editMode)return;const c=this.scene.cameras.main,before=this.pointerWorld(pointer),factor=deltaY>0?0.90:1.10;const next=Phaser.Math.Clamp((c.zoom||1)*factor,0.18,2.5);c.setZoom(next);const after=this.pointerWorld(pointer);c.scrollX+=before.x-after.x;c.scrollY+=before.y-after.y;this.updateInfo(true);}
- refreshSelectedPanel(){const el=document.getElementById('lkdev-selected');if(!el)return;if(!this.selected){el.textContent=this.placingProp?'PLACE mode · click on the map':(this.editMode?'EDIT active · click / drag an environment object':'No object selected');return;}const o=this.selected,m=o.devEnvMeta;el.textContent=`${m.id}${m.created?' · NEW':''}\n${m.key} · ${m.kind} · ${m.segment}\nX ${o.x.toFixed(0)}  Y ${o.y.toFixed(0)}  Scale ${Math.abs(o.scaleX).toFixed(2)}  Alpha ${o.alpha.toFixed(2)}${o.devDeleted?' · DELETED':''}`;const set=(id,v)=>{const i=document.getElementById(id);if(i)i.value=v};set('lkdev-env-x',Math.round(o.x));set('lkdev-env-y',Math.round(o.y));set('lkdev-env-scale',Math.abs(o.scaleX).toFixed(2));set('lkdev-env-rotation',o.rotation.toFixed(3));set('lkdev-env-alpha',o.alpha.toFixed(2));}
+ refreshSelectedPanel(){const el=document.getElementById('lkdev-selected');if(!el)return;if(!this.selected){el.textContent=this.placingProp?'РАЗМЕЩЕНИЕ · щёлкни по карте':(this.editMode?'РЕДАКТОР ВКЛ · выбери или перетащи объект':'Объект не выбран');return;}const o=this.selected,m=o.devEnvMeta;el.textContent=`${m.id}${m.created?' · НОВЫЙ':''}\n${m.key} · ${m.kind} · ${m.segment}\nX ${o.x.toFixed(0)}  Y ${o.y.toFixed(0)}  Масштаб ${Math.abs(o.scaleX).toFixed(2)}  Прозрачность ${o.alpha.toFixed(2)}${o.devDeleted?' · УДАЛЁН':''}`;const set=(id,v)=>{const i=document.getElementById(id);if(i)i.value=v};set('lkdev-env-x',Math.round(o.x));set('lkdev-env-y',Math.round(o.y));set('lkdev-env-scale',Math.abs(o.scaleX).toFixed(2));set('lkdev-env-rotation',o.rotation.toFixed(3));set('lkdev-env-alpha',o.alpha.toFixed(2));}
 
 
  followCamera(){const c=this.scene.cameras.main;this.freeCamera=false;this.cameraLocked=false;this.cameraPan=null;c.startFollow(this.scene.player,true,0.10,0.10);this.scene.setupResponsiveWorldCamera?.();}
@@ -1593,16 +2080,19 @@ class LastKnightDevTools {
   const q=this.adaptiveQuality;if(!el||!q)return;
   const now=performance.now();if(!force&&now-q.lastUiAt<400)return;q.lastUiAt=now;
   const profile=lkProfileName(LK_RENDER_SCALE);
-  const pending=q.pendingScale!==null?` · pending ${lkProfileName(q.pendingScale)} ${q.pendingScale.toFixed(2)}×`:'';
+  const modeName=q.mode==='auto'?'АВТО':'РУЧНОЙ';
+  const phaseNames={idle:'ожидание',probing:'анализ',stable:'стабильно',trial:'проверка',cooldown:'пауза'};
+  const phaseName=phaseNames[q.phase]||q.phase;
+  const pending=q.pendingScale!==null?` · ожидает ${lkProfileName(q.pendingScale)} ${q.pendingScale.toFixed(2)}×`:'';
   const upgrade=q.recommendedUpgrade!==null?`
-Headroom detected: ${lkProfileName(q.recommendedUpgrade)} ${q.recommendedUpgrade.toFixed(2)}× available`:'';
+Есть запас: доступно ${lkProfileName(q.recommendedUpgrade)} ${q.recommendedUpgrade.toFixed(2)}×`:'';
   const metrics=q.lastResult?`
-median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
-  const bottleneck=q.bottleneckClass&&q.bottleneckClass!=='unknown'?` · ${q.bottleneckClass.replace('_',' ').toUpperCase()}`:'';
-  const cpu=q.cpuBoundLikely?' · downgrade guard':'';
-  const trial=q.activeTrial?` · testing ${q.activeTrial.from.toFixed(2)}→${q.activeTrial.to.toFixed(2)}`:'';
+медиана ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs} мс`:'';
+  const bottleneck=q.bottleneckClass&&q.bottleneckClass!=='unknown'?` · узкое место: ${q.bottleneckClass.replace('_',' ')}`:'';
+  const cpu=q.cpuBoundLikely?' · защита от лишнего снижения':'';
+  const trial=q.activeTrial?` · проверка ${q.activeTrial.from.toFixed(2)}→${q.activeTrial.to.toFixed(2)}`:'';
   const progress=q.phase==='probing'?` ${(Math.min(1,q.probeValidMs/LK_QUALITY_PROBE_ACTIVE_MS)*100).toFixed(0)}%`:'';
-  el.textContent=`${q.mode.toUpperCase()} · ${q.phase}${progress} · ${profile} ${LK_RENDER_SCALE.toFixed(2)}×${bottleneck}${cpu}${trial}${pending}${metrics}${upgrade}`;
+  el.textContent=`${modeName} · ${phaseName}${progress} · ${profile} ${LK_RENDER_SCALE.toFixed(2)}×${bottleneck}${cpu}${trial}${pending}${metrics}${upgrade}`;
  }
 
  setRenderScale(value){
@@ -1707,14 +2197,16 @@ median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
  refreshRenderBenchmarkUi(){
   const el=document.getElementById('lkdev-render-benchmark');if(!el)return;
   const b=this.renderBenchmark;
-  const lines=this.renderBenchmarkResults.map(r=>`${r.scale.toFixed(2)}×: ${r.avgFps??'-'} FPS · med ${r.medianFps??'-'} · p95 ${r.p95FrameGapMs??'-'}ms · max ${r.maxFrameGapMs??'-'}ms`);
+  const lines=this.renderBenchmarkResults.map(r=>`${r.scale.toFixed(2)}×: ${r.avgFps??'-'} FPS · медиана ${r.medianFps??'-'} · p95 ${r.p95FrameGapMs??'-'} мс · максимум ${r.maxFrameGapMs??'-'} мс`);
   if(b?.active){
    const scale=b.scales[b.index];
    const now=performance.now();
-   const phase=now<b.settleUntil?'settling':'measuring';
+   const phase=now<b.settleUntil?'стабилизация':'измерение';
    const left=Math.max(0,(b.measureUntil-now)/1000).toFixed(1);
-   el.textContent=`RUNNING ${scale.toFixed(2)}× · ${phase} · ${left}s left\n${lines.join('\n')}`;
-  }else el.textContent=lines.length?`DONE\n${lines.join('\n')}`:'Benchmark idle · 10s per scale';
+   el.textContent=`ИДЁТ ТЕСТ ${scale.toFixed(2)}× · ${phase} · осталось ${left} с
+${lines.join('\n')}`;
+  }else el.textContent=lines.length?`ГОТОВО
+${lines.join('\n')}`:'Тест не запущен · 10 секунд на масштаб';
  }
  updateRenderInfo(force=false){
   const el=document.getElementById('lkdev-render-info');if(!el)return;
@@ -1724,12 +2216,12 @@ median ${q.lastResult.medianFps} FPS · p95 ${q.lastResult.p95GapMs}ms`:'';
   const renderer=game.renderer?.type===Phaser.WEBGL?'WEBGL':(game.renderer?.type===Phaser.CANVAS?'CANVAS':String(game.renderer?.type||'?'));
   const hud=this.scene.scene?.get?.('HUDScene');
   const textRes=hud?.hpText?.resolution||'-';
-  el.textContent=`Device DPR ${Number(window.devicePixelRatio||1).toFixed(2)}   Active ${LK_RENDER_SCALE.toFixed(2)}×
-Viewport CSS ${css.width}×${css.height}
-Canvas backing ${cw}×${ch}
-Canvas CSS ${Math.round(rw)}×${Math.round(rh)}
-Backing/CSS ${bx.toFixed(2)}× / ${by.toFixed(2)}×
-Renderer ${renderer}   HUD Text res ${textRes}`;
+  el.textContent=`DPR устройства ${Number(window.devicePixelRatio||1).toFixed(2)}   Активный масштаб ${LK_RENDER_SCALE.toFixed(2)}×
+Область CSS ${css.width}×${css.height}
+Буфер Canvas ${cw}×${ch}
+Canvas в CSS ${Math.round(rw)}×${Math.round(rh)}
+Буфер/CSS ${bx.toFixed(2)}× / ${by.toFixed(2)}×
+Рендерер ${renderer}   Разрешение текста HUD ${textRes}`;
  }
  setCameraZoom(value){const c=this.scene.cameras.main;c.setZoom(Phaser.Math.Clamp(Number(value)||1,0.18,2.5));}
  fitAshFields(){const c=this.scene.cameras.main;c.stopFollow();this.freeCamera=true;this.cameraLocked=false;const z=Math.min(c.width/4000,c.height/STAGE0.WORLD_HEIGHT)*0.94;c.setZoom(Phaser.Math.Clamp(z,0.18,1));c.centerOn(2000,STAGE0.WORLD_HEIGHT/2);this.refreshStateButtons();this.updateInfo(true);}
@@ -2067,11 +2559,14 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   const el=document.getElementById('lkdev-trace-info');
   if(!el)return;
   const t=this.performanceTrace;
-  if(!t){el.textContent='Trace idle';return;}
+  if(!t){el.textContent='Трассировка не запущена';return;}
   const duration=t.active?performance.now()-t.startedPerf:(t.stoppedWall-t.startedWall);
-  const status=t.active?'RECORDING':'stopped';
+  const status=t.active?'ЗАПИСЬ':'остановлено';
   const latest=t.samples[t.samples.length-1];
-  el.textContent=`${status} · ${(Math.max(0,duration)/1000).toFixed(1)}s\nSamples ${t.samples.length} · Events ${t.events.length} · dropped ${t.droppedSamples||0}/${t.droppedEvents||0}\nFPS ${latest?.fps??'-'} · frame max ${latest?.frame?.maxWallGap??'-'}ms · DPR ${latest?.render?.devicePixelRatio??'-'} · render ${latest?.render?.activeRenderScale??LK_RENDER_SCALE}×\nVisibility ${document.visibilityState} · focus ${document.hasFocus?.()?'yes':'no'}`;
+  el.textContent=`${status} · ${(Math.max(0,duration)/1000).toFixed(1)} с
+Сэмплы ${t.samples.length} · События ${t.events.length} · пропущено ${t.droppedSamples||0}/${t.droppedEvents||0}
+FPS ${latest?.fps??'-'} · макс. кадр ${latest?.frame?.maxWallGap??'-'} мс · DPR ${latest?.render?.devicePixelRatio??'-'} · рендер ${latest?.render?.activeRenderScale??LK_RENDER_SCALE}×
+Видимость ${document.visibilityState} · фокус ${document.hasFocus?.()?'да':'нет'}`;
  }
 
  installTraceListeners(){
@@ -2145,21 +2640,48 @@ Renderer ${renderer}   HUD Text res ${textRes}`;
   this.traceBrowserHandlers=null;this.traceGameHandlers=null;
  }
 
- refreshStateButtons(){if(!this.root)return;const f=this.scene.devFlags;const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp};this.root.querySelectorAll('[data-action]').forEach(btn=>{const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);if(a==='envToggle')on=this.envVisibility[v];if(a==='overlay')on=this.overlayFlags[v];if(a==='segment')on=!this.hiddenSegments.has(v);if(a==='qualityAuto')on=this.adaptiveQuality?.mode==='auto';if(a==='renderScale'){const target=Number(v);on=Number.isFinite(target)&&Math.abs(target-LK_RENDER_SCALE)<0.01;}if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}btn.classList.toggle('on',on);if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Auto Spawns OFF':'Auto Spawns ON';});}
+ refreshStateButtons(){
+  if(!this.root)return;
+  const f=this.scene.devFlags;
+  const state={autoSpawns:!f.autoSpawnsDisabled,enemyFreezeAI:f.enemyAiFrozen,enemyFreezeMove:f.enemyMovementFrozen,enemyAttacks:f.enemyAttacksDisabled,championFreeze:f.championFrozen,championMove:f.championMovementFrozen,championAttacks:f.championAttacksDisabled,championSkills:f.championSkillsDisabled,god:f.godMode,oneHit:f.oneHitKill,noCollision:f.noCollision,infiniteMana:f.infiniteMana,editEnv:this.editMode,collisionTest:this.collisionTest,groundOnly:this.groundOnly,hideUi:this.hideGameUi,freeCamera:this.freeCamera,lockCamera:this.cameraLocked,placeProp:this.placingProp,lightToggle:this.devLab.lightEnabled};
+  this.root.querySelectorAll('[data-action]').forEach(btn=>{
+   const a=btn.dataset.action,v=btn.dataset.value;let on=Boolean(state[a]);
+   if(a==='envToggle')on=this.envVisibility[v];
+   if(a==='overlay')on=this.overlayFlags[v];
+   if(a==='segment')on=!this.hiddenSegments.has(v);
+   if(a==='qualityAuto')on=this.adaptiveQuality?.mode==='auto';
+   if(a==='renderScale'){const target=Number(v);on=Number.isFinite(target)&&Math.abs(target-LK_RENDER_SCALE)<0.01;}
+   if(a==='regionPopulation'){const override=this.scene.devRegionPopulationOverride;on=v==='auto'?override===null:override!==null&&Math.abs(Number(v)-override)<0.001;}
+   if(a==='aiMode')on=(f.enemyAiMode||'normal')===v;
+   if(a==='ambientFx')on=this.devLab.ambient.has(v);
+   if(a==='postFx')on=v!=='clear'&&this.devLab.cameraFxKind===v;
+   if(a==='playerFx')on=v!=='clear'&&this.devLab.playerFxKind===v;
+   btn.classList.toggle('on',on);
+   if(a==='autoSpawns')btn.textContent=f.autoSpawnsDisabled?'Автоспавн ВЫКЛ':'Автоспавн ВКЛ';
+  });
+  this.refreshAiModeDescription();
+ }
 
  getCurrentSegment(){const x=this.scene.player?.x||0;return ASH_FIELDS_SEGMENTS.find(seg=>x>=seg.start&&x<seg.end)?.id||'-';}
- updateInfo(force=false){const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();const txt=`FPS ${fps.toFixed(0)}   Time ${(s.devTimeScale||1).toFixed(2)}×
-Player ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Mana ${s.mana}/${s.maxMana}
-Wave ${s.wave}   Level ${s.level}   XP ${s.xp}/${s.getXpRequiredForLevel()}
-Enemies ${e.filter(x=>x.active&&x.type!=='champion').length}   Projectiles ${s.projectiles.length}
-Wave target ${s.spawned}/${s.waveTarget}   Population ${population.toFixed(2)}×   Spawn ${rb.spawnRateMultiplier.toFixed(2)}×
-Region balance ${WORLD_DESIGN.ZONES[s.progressionBalanceZoneIndex]?.name||'-'}   HP ×${rb.playerMaxHpMultiplier.toFixed(2)}   Melee +${rb.meleeDamageBonus}
-Champion ${champ?.active?champ.championName+' '+Math.ceil(champ.hp)+'/'+champ.maxHp:'none'}
-Segment ${this.getCurrentSegment()}   Camera zoom ${s.cameras.main.zoom.toFixed(2)}
-Sword ${s.meleeAttack.damage}+${rb.meleeDamageBonus}=${effectiveSword} dmg / ${s.meleeAttack.cooldown}ms / R${s.meleeAttack.radius}
-Pause ${Array.from(s.gameplayPauseReasons||[]).join(', ')||'-'}
-EDIT ${this.editMode?'ON':'off'}${this.placingProp?' / PLACE':''}   Selected ${this.selected?.devEnvMeta?.id||'-'}
-Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.main.worldView.centerY)}   Drag ${this.freeCamera?'ON':'off'}`;const el=document.getElementById('lkdev-info');if(el)el.textContent=txt;}
+ updateInfo(force=false){
+  const now=performance.now();if(!force&&now-this.lastInfoAt<500)return;this.updateRenderInfo(force);this.lastInfoAt=now;
+  const s=this.scene,e=s.enemies||[],fps=s.game.loop.actualFps||0,champ=s.activeChampion,rb=s.getRegionBalance(),effectiveSword=s.getEffectiveMeleeDamage(),population=s.getWavePopulationMultiplier();
+  const particles=[...this.devLab.ambient.keys()].join(', ')||'нет';
+  const aiName=(DEV_AI_MODE_META[s.devFlags.enemyAiMode||'normal']||DEV_AI_MODE_META.normal).name;
+  const txt=`FPS ${fps.toFixed(0)}   Время ${(s.devTimeScale||1).toFixed(2)}×   WebGL ${this.isWebGlDev()?'ДА':'НЕТ'}
+Герой ${Math.round(s.player.x)},${Math.round(s.player.y)}   HP ${Math.round(s.player.hp)}/${s.player.maxHp||100}   Мана ${s.mana}/${s.maxMana}
+Зона ${(s.currentWorldZoneIndex||0)+1} · Волна ${s.wave}   Уровень ${s.level}   XP ${s.xp}/${s.getXpRequiredForLevel()}
+Враги ${e.filter(x=>x.active&&x.type!=='champion').length}   Снаряды ${s.projectiles.length}   AI ${aiName}
+Цель волны ${s.spawned}/${s.waveTarget}   Плотность ${population.toFixed(2)}×   Spawn ${rb.spawnRateMultiplier.toFixed(2)}×
+Баланс ${WORLD_DESIGN.ZONES[s.progressionBalanceZoneIndex]?.name||'-'}   HP ×${rb.playerMaxHpMultiplier.toFixed(2)}   Меч +${rb.meleeDamageBonus}
+Чемпион ${champ?.active?champ.championName+' '+Math.ceil(champ.hp)+'/'+champ.maxHp:'нет'}
+Камера zoom ${s.cameras.main.zoom.toFixed(2)}   PostFX ${this.devLab.cameraFxKind}   Light2D ${this.devLab.lightEnabled?'ВКЛ':'выкл'}
+Атмосфера ${particles}   Вороны ${(s.crows||[]).filter(c=>c?.sprite?.active).length}
+Меч ${s.meleeAttack.damage}+${rb.meleeDamageBonus}=${effectiveSword} урона / ${s.meleeAttack.cooldown} мс / R${s.meleeAttack.radius}
+Пауза ${Array.from(s.gameplayPauseReasons||[]).join(', ')||'нет'}
+Редактор ${this.editMode?'ВКЛ':'выкл'}${this.placingProp?' / РАЗМЕЩЕНИЕ':''}   Объект ${this.selected?.devEnvMeta?.id||'—'}`;
+  const el=document.getElementById('lkdev-info');if(el)el.textContent=txt;
+ }
 
  drawOverlays(){if(!this.graphics)return;const g=this.graphics,s=this.scene,c=s.cameras.main;g.clear();
   if(this.overlayFlags.safeLane){g.fillStyle(0x4ea7ff,0.055);g.fillRect(0,WORLD_DESIGN.ROUTE_Y-270,4000,540);g.lineStyle(2,0x62b4ff,0.35);g.strokeRect(0,WORLD_DESIGN.ROUTE_Y-270,4000,540);}
@@ -2206,6 +2728,11 @@ Camera ${Math.round(s.cameras.main.worldView.centerX)},${Math.round(s.cameras.ma
   if(this.open){this.refreshRenderBenchmarkUi();this.refreshAdaptiveQualityUi(false);}
   if(this.freeCamera&&this.camKeys){const c=this.scene.cameras.main,spd=0.72*dt/Math.max(0.1,c.zoom);if(this.camKeys.left.isDown)c.scrollX-=spd;if(this.camKeys.right.isDown)c.scrollX+=spd;if(this.camKeys.up.isDown)c.scrollY-=spd;if(this.camKeys.down.isDown)c.scrollY+=spd;}
   if(this.scene.devFlags.infiniteMana)this.scene.mana=this.scene.maxMana;
+  if(this.devLab.ambient.size)this.updateDevAmbientPositions();
+  if(this.devLab.lightEnabled){
+   const light=this.devLab.light;if(light&&this.scene.player?.active){light.x=this.scene.player.x;light.y=this.scene.player.y;light.radius=this.devLab.lightRadius;light.intensity=this.devLab.lightIntensity;}
+   this.refreshDevLightTargets(false);
+  }
 
   // DEV rendering is opt-in. Previously both graphics layers were cleared and
   // redrawn every game frame even when the panel and every overlay were off.
@@ -2520,6 +3047,26 @@ class CinematicScene extends Phaser.Scene {
   this.nextArrowHit.on('pointerup',()=>this.advancePrologue());
 
   this.buildFullscreenButton();
+ }
+
+ buildDevMenuButton(){
+  this.devMenuButton=this.add.circle(0,0,22,0x11100e,0.88).setStrokeStyle(2,0x6f7d65,0.88).setDepth(95).setInteractive({useHandCursor:true});
+  this.devMenuLabel=lkAddText(this,0,0,'DEV',{fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',color:'#bfe8c2',stroke:'#0b120c',strokeThickness:2}).setOrigin(0.5).setDepth(96).setInteractive({useHandCursor:true});
+  const open=(pointer,localX,localY,event)=>{
+   event?.stopPropagation?.();
+   pointer?.event?.stopPropagation?.();
+   if(this.mainScene?.devTools?.uiEditor?.editMode)return;
+   this.mainScene?.devTools?.togglePanel?.(true);
+  };
+  this.devMenuButton.on('pointerdown',open);
+  this.devMenuLabel.on('pointerdown',open);
+  this.setDevMenuOpen(Boolean(this.mainScene?.devTools?.open));
+ }
+
+ setDevMenuOpen(open){
+  if(!this.devMenuButton||!this.devMenuLabel)return;
+  this.devMenuButton.setFillStyle(open?0x33452f:0x11100e,open?0.98:0.88).setStrokeStyle(2,open?0xbadf91:0x6f7d65,0.9);
+  this.devMenuLabel.setColor(open?'#e4ffc8':'#bfe8c2');
  }
 
  buildFullscreenButton(){
@@ -3996,6 +4543,7 @@ class MainScene extends Phaser.Scene {
    enemyAiFrozen:false,
    enemyMovementFrozen:false,
    enemyAttacksDisabled:false,
+   enemyAiMode:'normal',
    championFrozen:false,
    championMovementFrozen:false,
    championAttacksDisabled:false,
@@ -4152,6 +4700,7 @@ class MainScene extends Phaser.Scene {
    enemyAiFrozen:false,
    enemyMovementFrozen:false,
    enemyAttacksDisabled:false,
+   enemyAiMode:'normal',
    championFrozen:false,
    championMovementFrozen:false,
    championAttacksDisabled:false,
@@ -4314,7 +4863,7 @@ class MainScene extends Phaser.Scene {
    this.releaseRetiredWorldZoneTextures(0);
   }
 
-  // Hidden developer panel: toggled exclusively with G, never by a UI button.
+  // Developer Phaser laboratory: F10 or the small DEV launcher toggles the panel.
   this.devTools=new LastKnightDevTools(this);
   this.devTools.install();
 
@@ -5201,11 +5750,146 @@ class MainScene extends Phaser.Scene {
   return {x:startX,y:startY};
  }
 
+ getDevAiContext(time=this.time.now){
+  const stamp=Math.floor((Number(time)||0)/80);
+  if(this._devAiContext?.stamp===stamp)return this._devAiContext;
+  const ordinary=(this.enemies||[]).filter(e=>e?.active&&e.hp>0&&e.type!=='champion'&&e.type!=='captain');
+  const fighters=ordinary.filter(e=>e.type==='skeleton'||e.type==='shield');
+  const mages=ordinary.filter(e=>e.type==='mage');
+  const shields=fighters.filter(e=>e.type==='shield');
+  const bosses=(this.enemies||[]).filter(e=>e?.active&&e.hp>0&&(e.type==='captain'||e.type==='champion'));
+  let cx=this.player?.x||0,cy=this.player?.y||0;
+  const centerActors=fighters.length?fighters:ordinary;
+  if(centerActors.length){cx=centerActors.reduce((a,e)=>a+e.x,0)/centerActors.length;cy=centerActors.reduce((a,e)=>a+e.y,0)/centerActors.length;}
+  let fx=(this.player?.x||cx)-cx,fy=(this.player?.y||cy)-cy,fl=Math.hypot(fx,fy);
+  if(fl<1){fx=1;fy=0;fl=1;}
+  fx/=fl;fy/=fl;
+  const slotMap=new Map();fighters.forEach((e,i)=>slotMap.set(e,i));
+  this._devAiContext={stamp,ordinary,fighters,mages,shields,bosses,slotMap,cx,cy,fx,fy,rx:-fy,ry:fx,phase:(Number(time)||0)*0.001};
+  return this._devAiContext;
+ }
+
+ devAiTargetVelocity(enemy,targetX,targetY,base,multiplier=1){
+  const dx=targetX-enemy.x,dy=targetY-enemy.y,d=Math.hypot(dx,dy);
+  if(d<3)return {vx:0,vy:0};
+  const speed=Math.max(20,base*multiplier);
+  return {vx:dx/d*speed,vy:dy/d*speed};
+ }
+
  setEnemySteeredVelocity(enemy,vx,vy,time,formationTarget=null){
   const traceNavigationAt=this.devTools?.isPerformanceTraceActive?.()?performance.now():0;
   try{
   if(!enemy?.body){return;}
   if(this.devFlags?.noCollision){enemy.body.setVelocity(vx,vy);return;}
+
+  // DEV AI laboratory: 20 tactical steering experiments for ordinary enemies.
+  // Captains and champions keep their authored behaviour so we can test escorts around them.
+  const devAiMode=this.devFlags?.enemyAiMode||'normal';
+  if(devAiMode!=='normal' && (enemy.type==='skeleton'||enemy.type==='shield') && this.player?.active){
+   const ctx=this.getDevAiContext(time);
+   const slot=ctx.slotMap.get(enemy)??0;
+   const count=Math.max(1,ctx.fighters.length);
+   const dx=this.player.x-enemy.x,dy=this.player.y-enemy.y,dist=Math.max(1,Math.hypot(dx,dy));
+   const nx=dx/dist,ny=dy/dist;
+   const base=Math.max(55,Math.hypot(vx,vy)||enemy.speed||80);
+   const phase=ctx.phase;
+   const to=(x,y,m=1)=>this.devAiTargetVelocity(enemy,x,y,base,m);
+   const apply=(v)=>{vx=v.vx;vy=v.vy;};
+   const orbit=(cx,cy,radius,sign=1,tangent=0.9,radialScale=110)=>{
+    const ox=cx-enemy.x,oy=cy-enemy.y,od=Math.max(1,Math.hypot(ox,oy));
+    const onx=ox/od,ony=oy/od;
+    const radial=Phaser.Math.Clamp((od-radius)/radialScale,-0.9,0.9);
+    return {vx:(onx*radial+(-ony)*sign*tangent)*base,vy:(ony*radial+onx*sign*tangent)*base};
+   };
+   const triangularSlot=()=>{let row=0,start=0;while(slot>=start+row+1&&row<12){start+=row+1;row++;}return {row,pos:slot-start};};
+
+   if(devAiMode==='aggressive'){
+    vx=nx*base*1.34;vy=ny*base*1.34;
+   }else if(devAiMode==='surround'){
+    const sign=enemy.devOrbitSign||(enemy.devOrbitSign=Math.random()<0.5?-1:1);
+    const desired=160+((slot%5)-2)*13;
+    apply(orbit(this.player.x,this.player.y,desired,sign,0.92));
+   }else if(devAiMode==='wedge'){
+    const q=triangularSlot(),lateral=(q.pos-q.row/2)*52,depth=92+q.row*48;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,1.03));
+   }else if(devAiMode==='pincer'){
+    const side=slot%2===0?-1:1,lane=Math.floor(slot/2)%5;
+    const lateral=(dist<185?68:175)+lane*12,depth=dist<185?34:80;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*side*lateral,this.player.y-ctx.fy*depth+ctx.ry*side*lateral,1.08));
+   }else if(devAiMode==='protectMages'){
+    if(enemy.type==='mage'){
+     apply(orbit(this.player.x,this.player.y,285,enemy.devOrbitSign||(enemy.devOrbitSign=Math.random()<0.5?-1:1),0.60));
+    }else if(ctx.mages.length){
+     const mage=ctx.mages[slot%ctx.mages.length];
+     let mx=this.player.x-mage.x,my=this.player.y-mage.y,ml=Math.max(1,Math.hypot(mx,my));mx/=ml;my/=ml;
+     const lane=((Math.floor(slot/Math.max(1,ctx.mages.length))%5)-2)*34;
+     apply(to(mage.x+mx*74-my*lane,mage.y+my*74+mx*lane,1.02));
+    }else apply(orbit(this.player.x,this.player.y,180,slot%2?1:-1,0.78));
+   }else if(devAiMode==='protectBoss'){
+    const boss=ctx.bosses[0];
+    if(boss){
+     let bx=this.player.x-boss.x,by=this.player.y-boss.y,bl=Math.max(1,Math.hypot(bx,by));bx/=bl;by/=bl;
+     const lane=((slot%7)-3)*30,depth=enemy.type==='mage'?145:82;
+     apply(to(boss.x+bx*depth-by*lane,boss.y+by*depth+bx*lane,1.05));
+    }else apply(orbit(this.player.x,this.player.y,175,slot%2?1:-1,0.82));
+   }else if(devAiMode==='shieldWall'){
+    const lane=((slot%7)-3)*48;
+    const depth=enemy.type==='shield'?108:enemy.type==='mage'?245:166;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lane,this.player.y-ctx.fy*depth+ctx.ry*lane,enemy.type==='shield'?0.92:1));
+   }else if(devAiMode==='phalanx'){
+    const cols=5,row=Math.floor(slot/cols),col=(slot%cols)-(cols-1)/2;
+    const depth=112+row*48,lateral=col*50;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,0.98));
+   }else if(devAiMode==='spearhead'){
+    const q=triangularSlot(),lateral=(q.pos-q.row/2)*34,depth=78+q.row*39;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,1.18));
+   }else if(devAiMode==='column'){
+    const depth=82+slot*37,lateral=(slot%2===0?-1:1)*Math.min(12,slot*1.5);
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,1.02));
+   }else if(devAiMode==='echelonLeft' || devAiMode==='echelonRight'){
+    const side=devAiMode==='echelonLeft'?-1:1;
+    const depth=94+slot*31,lateral=side*slot*31;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,1.01));
+   }else if(devAiMode==='doubleRing'){
+    const outer=slot%2===1,radius=outer?245:145,sign=outer?-1:1;
+    apply(orbit(this.player.x,this.player.y,radius,sign,outer?0.72:0.96));
+   }else if(devAiMode==='spiral'){
+    const radius=105+(slot*23)%205;
+    const angle=phase*0.58+slot*0.92;
+    apply(to(this.player.x+Math.cos(angle)*radius,this.player.y+Math.sin(angle)*radius,1.02));
+   }else if(devAiMode==='crescent'){
+    const baseAngle=Math.atan2(ctx.cy-this.player.y,ctx.cx-this.player.x);
+    const t=count<=1?0:(slot/(count-1)-0.5)*2;
+    const angle=baseAngle+t*1.20,radius=150+Math.abs(t)*55;
+    apply(to(this.player.x+Math.cos(angle)*radius,this.player.y+Math.sin(angle)*radius,1.04));
+   }else if(devAiMode==='swarm'){
+    const seed=enemy.devAiSeed??(enemy.devAiSeed=Math.random()*10);
+    const jitter=Math.sin(phase*3.2+seed)*0.58;
+    const ca=Math.cos(jitter),sa=Math.sin(jitter);
+    vx=(nx*ca-ny*sa)*base*1.12;vy=(nx*sa+ny*ca)*base*1.12;
+   }else if(devAiMode==='wave'){
+    const lateral=((slot%9)-4)*34+Math.sin(phase*2.3+slot*0.72)*62;
+    const depth=105+Math.floor(slot/9)*52;
+    apply(to(this.player.x-ctx.fx*depth+ctx.rx*lateral,this.player.y-ctx.fy*depth+ctx.ry*lateral,1.07));
+   }else if(devAiMode==='flank'){
+    const side=slot%2===0?-1:1;
+    const wide=245+(slot%4)*28;
+    const flankX=this.player.x-ctx.fx*40+ctx.rx*side*wide,flankY=this.player.y-ctx.fy*40+ctx.ry*side*wide;
+    const fd=Math.hypot(flankX-enemy.x,flankY-enemy.y);
+    if(fd<75)enemy.devFlankCommitted=true;
+    if(enemy.devFlankCommitted){vx=nx*base*1.15;vy=ny*base*1.15;}
+    else apply(to(flankX,flankY,1.12));
+   }else if(devAiMode==='skirmish'){
+    const sign=slot%2===0?-1:1,pulse=Math.sin(phase*1.8+slot*0.83);
+    const desired=220+pulse*55;
+    const radial=Phaser.Math.Clamp((dist-desired)/85,-1,1);
+    vx=(nx*radial+(-ny)*sign*0.78)*base;vy=(ny*radial+nx*sign*0.78)*base;
+   }else if(devAiMode==='reserve'){
+    const role=slot%3;
+    if(role===0){vx=nx*base*1.18;vy=ny*base*1.18;}
+    else apply(orbit(this.player.x,this.player.y,role===1?225:330,slot%2?1:-1,role===1?0.64:0.48));
+   }
+  }
 
   const speed=Math.hypot(vx,vy);
   if(speed<1){enemy.body.setVelocity(0,0);return;}
@@ -11795,6 +12479,7 @@ class HUDScene extends Phaser.Scene {
   this.buildLevelChoiceOverlay();
   this.buildChampionRewardOverlay();
   this.buildMenuButton();
+  if(DEV_BUILD)this.buildDevMenuButton();
   this.buildFullscreenButton();
   for(const obj of this.children.list){if(obj?.type==='Text')obj.setResolution?.(LK_TEXT_RESOLUTION);}
 
@@ -12377,6 +13062,36 @@ class HUDScene extends Phaser.Scene {
   });
  }
 
+ buildDevMenuButton(){
+  this.devMenuButton=this.add.circle(0,0,22,0x11100e,0.88)
+   .setStrokeStyle(2,0x6f7d65,0.88)
+   .setDepth(95)
+   .setInteractive({useHandCursor:true});
+  this.devMenuLabel=lkAddText(this,0,0,'DEV',{
+   fontFamily:'Arial, sans-serif',fontSize:'9px',fontStyle:'bold',
+   color:'#bfe8c2',stroke:'#0b120c',strokeThickness:2
+  }).setOrigin(0.5).setDepth(96).setInteractive({useHandCursor:true});
+
+  const toggle=(pointer,localX,localY,event)=>{
+   event?.stopPropagation?.();
+   pointer?.event?.preventDefault?.();
+   pointer?.event?.stopPropagation?.();
+   if(this.mainScene?.devTools?.uiEditor?.editMode)return;
+   this.mainScene?.devTools?.togglePanel?.();
+  };
+  this.devMenuButton.on('pointerdown',toggle);
+  this.devMenuLabel.on('pointerdown',toggle);
+  this.setDevMenuOpen(Boolean(this.mainScene?.devTools?.open));
+ }
+
+ setDevMenuOpen(open){
+  if(!this.devMenuButton||!this.devMenuLabel)return;
+  this.devMenuButton
+   .setFillStyle(open?0x33452f:0x11100e,open?0.98:0.88)
+   .setStrokeStyle(2,open?0xbadf91:0x6f7d65,0.9);
+  this.devMenuLabel.setColor(open?'#e4ffc8':'#bfe8c2');
+ }
+
  buildMenuButton(){
   this.menuButton=this.add.circle(0,0,22,0x11100e,0.88).setStrokeStyle(2,0xc4a662,0.82).setDepth(95).setInteractive({useHandCursor:true});
   this.menuIcon=this.add.graphics().setDepth(96);
@@ -12601,7 +13316,7 @@ class HUDScene extends Phaser.Scene {
    this.wavePanel,this.waveTitle,this.waveSub,this.championPanel,this.bossName,
    this.bossHpBack,this.bossHpText,this.eventBannerPanel,this.eventBannerTitle,this.eventBannerSub,
    ...(this.skills||[]).flatMap(s=>[s.back,s.key,s.label]),
-   this.joyBack,this.joyKnob,this.menuButton,this.fullscreenButton];
+   this.joyBack,this.joyKnob,this.devMenuButton,this.menuButton,this.fullscreenButton];
   const result=[];
   for(const object of objects){
    if(!object?.active)continue;
@@ -12646,6 +13361,7 @@ class HUDScene extends Phaser.Scene {
    skillLift:{label:'Skill 2 · Lift',priority:10,objects:[this.skill2.back,this.skill2.inner,this.skill2.icon,this.skill2.iconMaskShape,this.skill2.key,this.skill2.label],boundsObjects:[this.skill2.back]},
    skillSpin:{label:'Skill 3 · Spin',priority:10,objects:[this.skill3.back,this.skill3.inner,this.skill3.icon,this.skill3.iconMaskShape,this.skill3.key,this.skill3.label],boundsObjects:[this.skill3.back]},
    joystick:{label:'Movement joystick',priority:7,objects:[this.joyBack,this.joyRing,this.joyKnob,this.joyHint],boundsObjects:[this.joyBack]},
+   devMenu:{label:'DEV button',priority:9,objects:[this.devMenuButton,this.devMenuLabel],boundsObjects:[this.devMenuButton]},
    menu:{label:'Menu button',priority:9,objects:[this.menuButton,this.menuIcon],boundsObjects:[this.menuButton]},
    fullscreen:{label:'Fullscreen button',priority:10,objects:[this.fullscreenButton,this.fullscreenIcon],boundsObjects:[this.fullscreenButton]}
   };
@@ -12755,6 +13471,12 @@ class HUDScene extends Phaser.Scene {
     const menuX=fsX-fsR*2-gap;
     this.menuButton.setPosition(menuX,fsY).setRadius(fsR).setStrokeStyle(mobile?1.5:2,0xc4a662,0.82);
     this.drawMenuIcon();
+    if(this.devMenuButton){
+     const devX=menuX-fsR*2-gap;
+     this.devMenuButton.setPosition(devX,fsY).setRadius(fsR);
+     this.devMenuLabel.setPosition(devX,fsY).setFontSize(mobile?8:9);
+     this.setDevMenuOpen(Boolean(this.mainScene?.devTools?.open));
+    }
    }
   }
 
