@@ -5,7 +5,7 @@ import {getGameSettings} from '../GamePersistence.js';
 function musicVolume(base){return base*getGameSettings().musicVolume;}
 function sfxVolume(base){return base*getGameSettings().sfxVolume;}
 function canPlaySfx(scene,key){
- return Boolean(scene?.sound && !scene.sound.locked && !scene.gameplayPaused && scene.cache?.audio?.exists?.(key));
+ return Boolean(scene?.sound && !scene.sound.locked && !scene.gameplayAudioPaused && scene.cache?.audio?.exists?.(key));
 }
 function destroySound(sound){
  if(!sound)return;
@@ -45,6 +45,11 @@ class AudioManager {
   const settings=getGameSettings();
   try{this.backgroundMusic?.setVolume?.(0.50*settings.musicVolume);}catch{}
   try{this.brokenSaintMusic?.setVolume?.(0.50*settings.musicVolume);}catch{}
+  try{
+   const count=Math.max(1,Number(this.crowFlightLoopCount)||1);
+   const base=Math.min(0.34,0.18+Math.min(12,count)*0.013);
+   this.crowFlightLoopSound?.setVolume?.(base*settings.sfxVolume);
+  }catch{}
   return settings;
  }
 
@@ -82,7 +87,7 @@ class AudioManager {
   if(!this.pausedGameplaySfx)this.pausedGameplaySfx=new Set();
   let paused=0;
   for(const sound of [...(this.sound.sounds||[])]){
-   if(!sound || sound===this.backgroundMusic || sound===this.brokenSaintMusic)continue;
+   if(!sound || sound===this.backgroundMusic || sound===this.brokenSaintMusic || sound.lkDevMixerMusic)continue;
    if(!sound.isPlaying)continue;
    try{
     sound.pause();
@@ -118,6 +123,8 @@ class AudioManager {
   this.brokenSaintHolyWarningSound=null;
   this.brokenSaintMaterializeSound=null;
   this.brokenSaintDisappearSound=null;
+  this.crowFlightLoopSound=null;
+  this.crowFlightLoopCount=0;
   return stopped;
  }
 
@@ -140,6 +147,22 @@ class AudioManager {
   destroySound(sound);
  }
 
+ playBrokenSaintTailEcho(key,baseVolume=0.6,sourceEndMs=0){
+  if(!canPlaySfx(this,key))return null;
+  const echo=this.sound.add(key,{
+   volume:sfxVolume(Math.max(0.04,baseVolume*0.20)),
+   rate:0.90,
+   detune:-120
+  });
+  echo.once('complete',()=>{try{echo.destroy();}catch{}});
+  try{echo.play();}catch{try{echo.destroy();}catch{}return null;}
+  // Keep the echo a short tail even if the browser backend ignores `seek`.
+  if(this.time?.delayedCall){
+   this.time.delayedCall(260,()=>destroySound(echo));
+  }
+  return echo;
+ }
+
  playTimedBrokenSaintSfx(kind,key,volume,maxDurationMs){
   const soundProp=kind==='materialize'?'brokenSaintMaterializeSound':'brokenSaintDisappearSound';
   const timerProp=kind==='materialize'?'brokenSaintMaterializeStopTimer':'brokenSaintDisappearStopTimer';
@@ -148,22 +171,33 @@ class AudioManager {
   if(!canPlaySfx(this,key))return null;
   const sound=this.sound.add(key,{volume:sfxVolume(volume)});
   this[soundProp]=sound;
+  const duration=Math.max(0,Number(maxDurationMs)||0);
+  let echoPlayed=false;
+  const playEcho=()=>{
+   if(echoPlayed)return;
+   echoPlayed=true;
+   AudioManager.prototype.playBrokenSaintTailEcho.call(this,key,volume,duration||Math.round((Number(sound.duration)||0)*1000));
+  };
   sound.once('complete',()=>{
    if(this[soundProp]===sound)this[soundProp]=null;
    const timer=this[timerProp];
    if(timer){try{timer.remove(false);}catch{}this[timerProp]=null;}
+   playEcho();
    try{sound.destroy();}catch{}
   });
   sound.play();
-  const duration=Math.max(0,Number(maxDurationMs)||0);
   if(duration>0 && this.time?.delayedCall){
-   this[timerProp]=this.time.delayedCall(duration,()=>this[stopMethod]?.());
+   this[timerProp]=this.time.delayedCall(duration,()=>{
+    this[timerProp]=null;
+    this[stopMethod]?.();
+    playEcho();
+   });
   }
   return sound;
  }
 
  playBrokenSaintMaterializeSfx(maxDurationMs=0){
-  return this.playTimedBrokenSaintSfx('materialize','sfx_broken_saint_materialize',0.60,maxDurationMs);
+  return AudioManager.prototype.playTimedBrokenSaintSfx.call(this,'materialize','sfx_broken_saint_materialize',0.60,maxDurationMs);
  }
 
  stopBrokenSaintMaterializeSfx(){
@@ -177,7 +211,7 @@ class AudioManager {
  }
 
  playBrokenSaintDisappearSfx(maxDurationMs=0){
-  return this.playTimedBrokenSaintSfx('disappear','sfx_broken_saint_disappear',0.70,maxDurationMs);
+  return AudioManager.prototype.playTimedBrokenSaintSfx.call(this,'disappear','sfx_broken_saint_disappear',0.70,maxDurationMs);
  }
 
  stopBrokenSaintDisappearSfx(){
@@ -191,7 +225,7 @@ class AudioManager {
  }
 
  playCrowScatterSfx(){
-  if(this.gameplayPaused || !this.sound || this.sound.locked)return false;
+  if(this.gameplayAudioPaused || !this.sound || this.sound.locked)return false;
   const specs=[
    ['sfx_crow_wings',0.72],
    ['sfx_crow_bunch',0.52]
@@ -206,6 +240,26 @@ class AudioManager {
   return played;
  }
 
+ startCrowFlightLoopSfx(){
+  // Crow wings are intentionally a one-shot takeoff cue now. Keeping these
+  // compatibility methods as no-ops prevents older call sites from creating
+  // a looping flight sound while the flock is already airborne.
+  if(this.crowFlightLoopSound)this.stopCrowFlightLoopSfx();
+  return null;
+ }
+
+ stopCrowFlightLoopSfx(){
+  const sound=this.crowFlightLoopSound;
+  this.crowFlightLoopSound=null;
+  this.crowFlightLoopCount=0;
+  destroySound(sound);
+ }
+
+ syncCrowFlightLoopSfx(){
+  if(this.crowFlightLoopSound)this.stopCrowFlightLoopSfx();
+  return null;
+ }
+
  playHeroSwordAttackSfx(){
   if(!canPlaySfx(this,'sfx_hero_sword_attack')) return;
   this.sound.play('sfx_hero_sword_attack',{volume:sfxVolume(0.42)});
@@ -216,9 +270,11 @@ class AudioManager {
   this.sound.play('sfx_hero_death',{volume:sfxVolume(0.78)});
  }
 
- playHeroHitSfx(){
+ playHeroHitSfx(detune=0){
   if(!canPlaySfx(this,'sfx_hero_hit')) return;
-  this.sound.play('sfx_hero_hit',{volume:sfxVolume(0.3528)});
+  const sound=this.sound.add('sfx_hero_hit',{volume:sfxVolume(0.3528),detune:Number(detune)||0});
+  sound.once('complete',()=>{try{sound.destroy();}catch{}});
+  try{sound.play();}catch{try{sound.destroy();}catch{}}
  }
 
  playSkillSfx(key,volume=0.42){

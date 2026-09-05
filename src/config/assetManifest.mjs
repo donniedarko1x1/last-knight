@@ -87,7 +87,11 @@ const coreAudio={
  sfx_hero_hit:'/assets/audio/hero_hit.ogg',
  sfx_skill_quake:'/assets/audio/skill_quake.ogg',
  sfx_skill_lift:'/assets/audio/skill_lift.ogg',
- sfx_skill_spin:'/assets/audio/skill_spin.ogg'
+ sfx_skill_spin:'/assets/audio/skill_spin.ogg',
+ // Crows are used in Ash Fields story beats as well as Ruined Kingdom, so these
+ // two files belong to CORE and must survive region streaming/unloading.
+ sfx_crow_wings:'/assets/audio/crow_wings_takeoff.mp3',
+ sfx_crow_bunch:'/assets/audio/crow_bunch_calls.mp3'
 };
 for(const [key,url] of Object.entries(coreAudio)) audio(CORE,R,key,url);
 
@@ -221,10 +225,6 @@ for(const prop of ['campfire','torch','lantern','embers','wagon']){
   image(REGION_RUINS,R,key,`/assets/environment/ruined_kingdom/light_props/${key}.png`);
  }
 }
-
-// Ambient crow flock: one wing burst plus one group-call layer per frightened flock.
-audio(REGION_RUINS,R,'sfx_crow_wings','/assets/audio/crow_wings_takeoff.mp3');
-audio(REGION_RUINS,R,'sfx_crow_bunch','/assets/audio/crow_bunch_calls.mp3');
 
 for(const key of CAPTAIN_FRAME_KEYS){
  image(REGION_RUINS,R,key,`/assets/enemies/skeleton_captain/${key}.png`);

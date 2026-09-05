@@ -8,6 +8,18 @@ export const CAPTAIN=Object.freeze({
  ringEscapeTolerance:18, ringSpeed:240, minSoldiers:3,
  ringCatchupSpeed:440, ringCatchupBonus:220, ringSlotTolerance:24, ringMinGatherMs:450,
  guardIntervalMs:6000, guardDurationMs:2200, guardCount:3,
+ // Reactive Captain branches. Exactly one of these can happen in an encounter:
+ // wipe his original escort first -> REINFORCEMENTS; focus him to 50% first -> GUARD.
+ specialCommandMs:1000,
+ reinforcementSkeletons:10,
+ reinforcementShields:4,
+ reinforcementMages:2,
+ emergencyGuardShields:5,
+ emergencyGuardHpRatio:0.50,
+ summonedGuardRadius:68,
+ summonedMageBackDistance:112,
+ summonedMageSideSpacing:38,
+ reinforcementAggressionSpeedFactor:1.24,
  // Keep the same attack sector, but trim its reach so the captain still has a
  // threatening ground slam without covering an excessive share of the arena.
  // Telegraph, dust and hit detection all derive from this same distance.

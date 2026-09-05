@@ -20,6 +20,7 @@ export default class SkeletonCaptainSystem {
   e.hp=e.maxHp=stats.hp;e.speed=stats.speed;e.attackDamage=stats.damage;e.hitRadius=16.1;
   e.captainFacing='south';e.captainBornAt=s.time.now;e.captainNextCommand=s.time.now+commandDelay(true);
   e.captainNextStrike=s.time.now+1600;e.captainPhase='walk';
+  e.captainSpecialChoice=null;e.captainPendingSpecial=null;e.captainDisableRing=false;
   e.visual.stop();
   e.captainGroundLight=s.add.ellipse(e.x,e.y+10,136,82,0xd86543,.12)
    .setBlendMode(Phaser.BlendModes.SCREEN).setDepth(12);
@@ -47,13 +48,14 @@ export default class SkeletonCaptainSystem {
    e.captainGroundLight?.destroy();e.captainGroundLight=null;
    e.captainAura?.destroy();e.captainAura=null;e.captainTelegraph?.destroy();
    e.captainTelegraph=null;e.captainPhase='walk';e.captainImpactAt=0;e.captainCommandSoldiers=null;
+   e.captainPendingSpecial=null;e.captainSpecialChoice=null;e.captainDisableRing=false;
   }
   this.captains.clear();
  }
  remove(e){
   this.barks.remove(e);e.captainGroundLight?.destroy();e.captainAura?.destroy();e.captainTelegraph?.destroy();
   e.captainGroundLight=null;e.captainAura=null;e.captainTelegraph=null;
-  e.captainCommandSoldiers=null;
+  e.captainCommandSoldiers=null;e.captainPendingSpecial=null;
   this.captains.delete(e);this.guards.delete(e);
   if(this.ring?.captain===e)this.clearRing();
  }
@@ -130,6 +132,7 @@ export default class SkeletonCaptainSystem {
    const slot=angle+(i++-1)*.65;
    e.captainFormationTarget={x:leader.x+Math.cos(slot)*58,y:leader.y+Math.sin(slot)*58,ring:false};
   }
+  this.applySummonedBodyguards(leader);
  }
  assignRingSlots(soldiers){
   const r=this.ring;
@@ -199,6 +202,95 @@ export default class SkeletonCaptainSystem {
   this.updateRing(now);
   return true;
  }
+ originalEscortSoldiers(){
+  return this.soldiers().filter(e=>!e.captainSummonKind);
+ }
+ reinforcementSpawnPoint(leader,index,total){
+  const s=this.scene,z=s.getCaptainZoneBounds();
+  const angle=(index/Math.max(1,total))*Math.PI*2 + ((index%2)?0.18:-0.18);
+  const radius=Phaser.Math.Between(430,560);
+  return {
+   x:Math.max(z.start+70,Math.min(z.end-70,leader.x+Math.cos(angle)*radius)),
+   y:Math.max(70,Math.min(z.height-70,leader.y+Math.sin(angle)*radius))
+  };
+ }
+ spawnSpecialEnemy(leader,type,index,total,kind,role,slot=0,count=1){
+  const enemy=this.scene.spawnEnemy(type,this.reinforcementSpawnPoint(leader,index,total),{skipStoryAnomaly:true});
+  if(!enemy)return null;
+  enemy.captainSummonKind=kind;
+  enemy.captainSummonRole=role;
+  enemy.captainSummonSlot=slot;
+  enemy.captainSummonCount=count;
+  enemy.captainSummonLeader=leader;
+  if(role==='aggressive') enemy.speed=Math.round((enemy.speed||90)*CAPTAIN.reinforcementAggressionSpeedFactor);
+  return enemy;
+ }
+ summonReinforcements(leader){
+  if(!alive(leader))return;
+  const skeletons=CAPTAIN.reinforcementSkeletons;
+  const shields=CAPTAIN.reinforcementShields;
+  const mages=CAPTAIN.reinforcementMages;
+  const total=skeletons+shields+mages;
+  let index=0;
+  for(let i=0;i<skeletons;i++,index++)this.spawnSpecialEnemy(leader,'skeleton',index,total,'reinforcement','aggressive',i,skeletons);
+  for(let i=0;i<shields;i++,index++)this.spawnSpecialEnemy(leader,'shield',index,total,'reinforcement','bodyguard',i,shields);
+  for(let i=0;i<mages;i++,index++)this.spawnSpecialEnemy(leader,'mage',index,total,'reinforcement','rearMage',i,mages);
+ }
+ summonEmergencyGuard(leader){
+  if(!alive(leader))return;
+  const total=CAPTAIN.emergencyGuardShields;
+  for(let i=0;i<total;i++)this.spawnSpecialEnemy(leader,'shield',i,total,'guard','bodyguard',i,total);
+ }
+ startSpecialCommand(e,now,kind){
+  if(!alive(e) || e.captainSpecialChoice || e.captainPhase!=='walk')return false;
+  e.captainSpecialChoice=kind;
+  e.captainPendingSpecial=kind;
+  e.captainDisableRing=true;
+  e.captainPhase='command';
+  e.captainPhaseUntil=now+CAPTAIN.specialCommandMs;
+  e.captainFacing=direction8(this.scene.player.x-e.x,this.scene.player.y-e.y,e.captainFacing);
+  this.clearRing();this.guards.clear();stop(e);
+  this.barks.show(e,kind==='reinforcement'?'ПОДКРЕПЛЕНИЕ':'ОХРАНА',CAPTAIN.specialCommandMs,96);
+  return true;
+ }
+ resolveSpecialCommand(e){
+  const kind=e.captainPendingSpecial;
+  e.captainPendingSpecial=null;
+  if(kind==='reinforcement')this.summonReinforcements(e);
+  else if(kind==='guard')this.summonEmergencyGuard(e);
+ }
+ applySummonedBodyguards(leader){
+  if(!alive(leader))return;
+  const guards=(this.scene.enemies||[]).filter(e=>alive(e)&&e.captainSummonLeader===leader&&e.captainSummonRole==='bodyguard');
+  if(!guards.length)return;
+  const front=Math.atan2(this.scene.player.y-leader.y,this.scene.player.x-leader.x);
+  guards.sort((a,b)=>(a.captainSummonSlot||0)-(b.captainSummonSlot||0));
+  const count=guards.length;
+  guards.forEach((e,i)=>{
+   const angle=front+(i/count)*Math.PI*2;
+   e.captainFormationTarget={x:leader.x+Math.cos(angle)*CAPTAIN.summonedGuardRadius,y:leader.y+Math.sin(angle)*CAPTAIN.summonedGuardRadius,ring:false,summonedGuard:true};
+  });
+ }
+ moveSupport(e,now){
+  if(!alive(e) || e.captainSummonRole!=='rearMage')return false;
+  const leader=e.captainSummonLeader;
+  if(!alive(leader))return false;
+  const p=this.scene.player;
+  let dx=leader.x-p.x,dy=leader.y-p.y,d=Math.hypot(dx,dy);
+  if(d<1){dx=1;dy=0;d=1;}
+  dx/=d;dy/=d;
+  const sideX=-dy,sideY=dx;
+  const count=Math.max(1,e.captainSummonCount||2);
+  const slot=e.captainSummonSlot||0;
+  const centered=slot-(count-1)/2;
+  const target={
+   x:leader.x+dx*CAPTAIN.summonedMageBackDistance+sideX*centered*CAPTAIN.summonedMageSideSpacing,
+   y:leader.y+dy*CAPTAIN.summonedMageBackDistance+sideY*centered*CAPTAIN.summonedMageSideSpacing
+  };
+  this.move(e,target,Math.max(e.speed||80,105),now);
+  return true;
+ }
+
  startCommand(e,now){
   if(this.commandsUsed>=CAPTAIN.maxCommandsPerWave)return false;
   this.commandsUsed++;
@@ -236,7 +328,11 @@ export default class SkeletonCaptainSystem {
   const s=this.scene,p=s.player;
   if(e.captainPhase==='command'){
    stop(e);
-   if(now>=e.captainPhaseUntil){e.captainPhase='walk';this.beginRing(e,now);}
+   if(now>=e.captainPhaseUntil){
+    e.captainPhase='walk';
+    if(e.captainPendingSpecial)this.resolveSpecialCommand(e);
+    else this.beginRing(e,now);
+   }
    return;
   }
   if(e.captainPhase==='windup'){
@@ -246,16 +342,35 @@ export default class SkeletonCaptainSystem {
   if(e.captainPhase==='recovery'){
    stop(e);if(now>=e.captainPhaseUntil)e.captainPhase='walk';return;
   }
-  if(this.commandsUsed<CAPTAIN.maxCommandsPerWave && !s.devFlags?.enemyAttacksDisabled && now>=e.captainNextCommand && !this.ring && this.soldiers().length>=CAPTAIN.minSoldiers && this.canFormRing()){
+  if(!e.captainSpecialChoice && !s.devFlags?.enemyAttacksDisabled && !this.ring){
+   const originalAlive=this.originalEscortSoldiers().length;
+   const originalWaveFullySpawned=s.spawned>=s.waveTarget;
+   if(originalWaveFullySpawned && originalAlive===0){
+    if(this.startSpecialCommand(e,now,'reinforcement'))return;
+   } else if(originalAlive>0 && e.maxHp>0 && e.hp/e.maxHp<=CAPTAIN.emergencyGuardHpRatio){
+    if(this.startSpecialCommand(e,now,'guard'))return;
+   }
+  }
+  if(!e.captainDisableRing && this.commandsUsed<CAPTAIN.maxCommandsPerWave && !s.devFlags?.enemyAttacksDisabled && now>=e.captainNextCommand && !this.ring && this.soldiers().length>=CAPTAIN.minSoldiers && this.canFormRing()){
    this.startCommand(e,now);return;
   }
   if(!s.devFlags?.enemyAttacksDisabled && dist(e,p)<=CAPTAIN.strikeStartRange && now>=e.captainNextStrike){this.startStrike(e,now);return;}
   if(dist(e,p)>72)this.move(e,p,e.speed,now);else stop(e);
  }
  moveSoldier(e,now){
+  if(e?.captainSummonRole==='aggressive'){
+   if(now<(e.attackAnimUntil||0)){stop(e);return true;}
+   const p=this.scene.player;
+   if(!p?.active)return false;
+   this.move(e,p,Math.max(e.speed||90,110),now);
+   return true;
+  }
   const goal=e.captainFormationTarget;
   if(!goal)return false;
-  if(!goal.ring){this.move(e,goal,e.speed*1.25,now);return true;}
+  if(!goal.ring){
+   if(now<(e.attackAnimUntil||0)){stop(e);return true;}
+   this.move(e,goal,e.speed*1.25,now);return true;
+  }
   const r=this.ring;
   if(!r)return false;
   if(!goal.gather && now<(e.attackAnimUntil||0)){stop(e);return true;}

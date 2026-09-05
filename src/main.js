@@ -43,6 +43,7 @@ import {
  getGameSettings,setGameSettings,writeCharacterStats,clearCharacterStats,saveSummary
 } from './GamePersistence.js';
 import {
+ ASSET_MANIFEST,
  ASSET_CATEGORY,
  ASSET_REQUIREMENT,
  SKILL_ICON_KEYS,
@@ -158,8 +159,48 @@ const CROW_TAKEOFF_MS=470;
 const CROW_FLIGHT_LIFETIME_MS=7600;
 const CROW_FLOCK_BIRD_MIN=5;
 const CROW_FLOCK_BIRD_MAX=20;
+const HERO_HIT_IMPACT_PROFILE=Object.freeze({
+ hitStop:48,
+ shakeX:3,
+ shakeY:3,
+ zoom:1.06,
+ flash:0,
+ slow:0.25,
+ knockback:210,
+ pitch:-180,
+ particles:'blood',
+ slowDuration:170,
+ knockbackDuration:170
+});
 const SWORD_ORBIT_CROW_COUNT=10;
-const SWORD_ORBIT_CROW_SOUND_KEY='crow_wings_takeoff';
+const SWORD_ORBIT_CROW_SOUND_KEY='sfx_crow_wings';
+const DEV_AUDIO_MIXER_META_OVERRIDES=Object.freeze({
+ bgm_veil_of_the_past:Object.freeze({label:'Фоновая музыка · Veil of the Past',music:true,volume:0.50,loop:true}),
+ sfx_skeleton_sword_attack:Object.freeze({label:'Скелет · удар мечом',volume:0.24}),
+ sfx_hero_death:Object.freeze({label:'Герой · смерть',volume:0.78}),
+ sfx_hero_hit:Object.freeze({label:'Герой · получил удар',volume:0.35}),
+ sfx_hero_sword_attack:Object.freeze({label:'Герой · взмах мечом',volume:0.42}),
+ sfx_hero_sword_impact:Object.freeze({label:'Герой · попадание мечом',volume:0.45}),
+ sfx_mage_cast:Object.freeze({label:'Маг · заклинание',volume:0.65}),
+ sfx_skill_quake:Object.freeze({label:'Навык · землетрясение',volume:0.55}),
+ sfx_skill_lift:Object.freeze({label:'Навык · подъём',volume:0.55}),
+ sfx_skill_spin:Object.freeze({label:'Навык · вращение',volume:0.55}),
+ critical_heartbeat:Object.freeze({label:'Герой · критическое сердцебиение',volume:0.55,loop:true}),
+ sfx_ash_sword_pulse:Object.freeze({label:'Меч в Ash Fields · импульс',volume:0.72}),
+ sfx_broken_saint_materialize:Object.freeze({label:'Broken Saint · появление',volume:0.60}),
+ sfx_broken_saint_disappear:Object.freeze({label:'Broken Saint · исчезновение',volume:0.70}),
+ sfx_broken_saint_holy_warning:Object.freeze({label:'Broken Saint · предупреждение',volume:0.80}),
+ sfx_broken_saint_holy_beam:Object.freeze({label:'Broken Saint · holy beam',volume:0.55}),
+ sfx_broken_saint_spawn:Object.freeze({label:'Broken Saint · музыка/тема',music:true,volume:0.50,loop:true}),
+ sfx_crow_wings:Object.freeze({label:'Вороны · крылья',volume:0.32,loop:true}),
+ sfx_crow_bunch:Object.freeze({label:'Вороны · крики стаи',volume:0.52})
+});
+const DEV_AUDIO_CATEGORY_LABELS=Object.freeze({
+ CORE:'ОБЩИЕ / CORE',
+ PROLOGUE:'ПРОЛОГ',
+ REGION_ASH:'ASH FIELDS',
+ REGION_RUINS:'RUINED KINGDOM'
+});
 const DEV_AI_MODE_META=Object.freeze({
  normal:Object.freeze({name:'Обычное поведение',desc:'Штатный AI игры без экспериментального построения.'}),
  aggressive:Object.freeze({name:'Штурм',desc:'Все бойцы максимально быстро давят прямо на героя.'}),
@@ -188,16 +229,18 @@ const ZONE2_FIRST_WAGON_OFFSET_X=1420;
 const ZONE2_FIRST_WAGON_OFFSET_Y=115;
 const ZONE2_WAGON_TRIGGER_RADIUS=185;
 const ZONE2_GATE_CLOSE_HOLD_MS=1150;
-const ZONE2_CROW_CINEMATIC_DELAY_MS=1150;
+const ZONE2_CROW_CINEMATIC_DELAY_MS=3000;
 const ZONE2_WAGON_CINEMATIC_SPECS=Object.freeze([
  ['zone2_wagon_cinematic_01','/assets/story/ruined_kingdom/zone2_wagon_cinematic_01.png'],
  ['zone2_wagon_cinematic_02','/assets/story/ruined_kingdom/zone2_wagon_cinematic_02.png'],
- ['zone2_wagon_cinematic_03','/assets/story/ruined_kingdom/zone2_wagon_cinematic_03.png']
+ ['zone2_wagon_cinematic_03','/assets/story/ruined_kingdom/zone2_wagon_cinematic_03.png'],
+ ['zone2_wagon_cinematic_04','/assets/story/ruined_kingdom/zone2_wagon_cinematic_04.png']
 ]);
 const ZONE2_WAGON_CINEMATIC_PAGES=Object.freeze([
- Object.freeze({image:'zone2_wagon_cinematic_01',pan:'none',text:''}),
- Object.freeze({image:'zone2_wagon_cinematic_02',pan:'none',text:''}),
- Object.freeze({image:'zone2_wagon_cinematic_03',pan:'none',text:''})
+ Object.freeze({image:'zone2_wagon_cinematic_01',pan:'none',text:'Тишина здесь была подозрительной.'}),
+ Object.freeze({image:'zone2_wagon_cinematic_02',pan:'none',text:'Кажется я здесь не один.'}),
+ Object.freeze({image:'zone2_wagon_cinematic_03',pan:'none',text:'Это не просто нежить. Она организована.'}),
+ Object.freeze({image:'zone2_wagon_cinematic_04',pan:'none',text:'…Это ещё кто?'})
 ]);
 const ASH_SWORD_PRELUDE_HERO_FOCUS_MS=2000;
 const ASH_SWORD_PRELUDE_SWORD_PAN_MS=2400;
@@ -772,10 +815,12 @@ class LastKnightDevTools {
    camera2:{deadzone:false,lookAhead:false,threatLook:false,damping:0.12,minimap:null,pip:null,baseFollowOffsetX:0,baseFollowOffsetY:0},
    worldFx:{screenOverlay:null,screenOverlayKind:'none',fogMask:null,fogMaskGraphics:null,foreground:[],parallax:[],dynamicShadows:false,shadowMap:new Map(),depthSort:false,renderTexture:null,renderTextureBounds:null,proceduralTextures:new Set(),debris:[],chain:[],trail:false,lastTrailAt:0},
    audioLab:{rate:1,detune:0,pan:0,spatial:false,source:null,lastSound:null},
+   audioMixer:{slots:[],gameplayMusicPaused:false,gameplayMusicRefs:[],loading:new Map(),maxSlots:12},
    boids:{enabled:false,list:[],separation:1.15,cohesion:0.72,alignment:0.78,wander:0.42},
    shaderLab:{kind:'none',fx:null},
    lastStatus:'Готово. F10 — открыть / закрыть панель.'
   };
+  this.devLab.audioMixer.slots=this.createDefaultAudioMixerSlots();
   this.devLabPresetKey='lastKnight.dev.phaserLab.v1';
 
   // Low-overhead performance trace. Samples are aggregated at 4 Hz while
@@ -885,6 +930,7 @@ class LastKnightDevTools {
    #lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input,#lk-dev-panel textarea{background:#202326;color:#ecece8;border:1px solid #414548;border-radius:6px;padding:6px 7px;font:11px system-ui;min-height:31px}#lk-dev-panel button{cursor:pointer;touch-action:manipulation;font-weight:650}#lk-dev-panel button:hover{background:#2d302f;border-color:#666057}#lk-dev-panel button.on{background:#5b4828;border-color:#d6b56d;color:#fff0c6;box-shadow:inset 0 0 0 1px #d6b56d33}#lk-dev-panel button.danger{border-color:#79413e;color:#ffb1aa}#lk-dev-panel button.good{border-color:#3e6749;color:#baf0c8}#lk-dev-panel button.blue{border-color:#385c73;color:#b9e3ff}
    #lk-dev-panel input[type=range]{padding:0;min-height:28px;accent-color:#c9a75d}.lkdev-range{display:grid;grid-template-columns:105px 1fr 48px;align-items:center;gap:7px;margin:5px 0}.lkdev-range b{color:#e7d6ad;font-size:10px;text-align:right}
    .lkdev-info{white-space:pre-wrap;color:#bfc9bc;background:#090a0b;padding:8px;border:1px solid #25282a;border-radius:6px;font:10.5px/1.42 ui-monospace,"Cascadia Mono",monospace}.lkdev-selected{color:#ffdf8e;font:10.5px/1.35 ui-monospace,monospace;white-space:pre-wrap}.lkdev-output{width:100%;height:92px;resize:vertical;font:10px/1.2 ui-monospace,monospace!important}.lkdev-badge{display:inline-block;padding:2px 6px;border-radius:999px;border:1px solid #4b4f51;color:#b8bec2;font-size:9px;margin-left:4px}
+   .lkdev-collapse-all{white-space:nowrap!important;flex:0 0 auto!important;min-height:28px!important;padding:4px 8px!important;font-size:10px!important;border-color:#665633!important;color:#e4d1a4!important;background:#1c1a16!important}.lkdev-mixer-card{border:1px solid #35383b;border-radius:8px;background:#0e1011;padding:7px;margin:7px 0}.lkdev-mixer-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#e7d5ad;font-weight:800;font-size:10.5px;margin-bottom:5px}.lkdev-mixer-state{color:#7fa98a;font:9.5px ui-monospace,monospace}.lkdev-mixer-card select{width:100%;margin-bottom:5px}.lkdev-mixer-card .lkdev-range{grid-template-columns:64px 1fr 48px}.lkdev-mixer-card .lkdev-range span{font-size:9.5px}.lkdev-mixer-card .lkdev-range b{font-size:9.5px}
    @media(max-width:520px){#lk-dev-panel{right:5px;top:5px;bottom:5px;width:calc(100vw - 10px)}.lkdev-grid4{grid-template-columns:repeat(2,minmax(0,1fr))}.lkdev-ai-grid{grid-template-columns:1fr}.lkdev-range{grid-template-columns:90px 1fr 42px}}
    @media(max-height:620px){.lkdev-section>summary{padding:6px 8px}.lkdev-body{padding:6px}#lk-dev-panel button,#lk-dev-panel select,#lk-dev-panel input{min-height:27px;padding:4px 5px}}
   `;
@@ -903,12 +949,58 @@ class LastKnightDevTools {
   this.button=btn;
  }
 
+ getAudioMixerLibrary(){
+  const seen=new Set();
+  return ASSET_MANIFEST
+   .filter(entry=>entry?.type==='audio'&&entry?.key&&entry?.url&&!seen.has(entry.key)&&seen.add(entry.key))
+   .map(entry=>{
+    const override=DEV_AUDIO_MIXER_META_OVERRIDES[entry.key]||{};
+    const fallback=String(entry.key).replace(/^bgm_/,'').replace(/^sfx_/,'').replaceAll('_',' ').replace(/\b\w/g,ch=>ch.toUpperCase());
+    const music=override.music!==undefined?Boolean(override.music):/^bgm_/i.test(entry.key);
+    return {key:entry.key,url:entry.url,category:entry.category||'CORE',requirement:entry.requirement,label:override.label||fallback,music,volume:override.volume??(music?0.50:0.50),loop:override.loop!==undefined?Boolean(override.loop):music};
+   })
+   .sort((a,b)=>{const ac=String(a.category),bc=String(b.category);if(ac!==bc)return ac.localeCompare(bc);if(a.music!==b.music)return a.music?-1:1;return a.label.localeCompare(b.label,'ru');});
+ }
+ getAudioMixerMeta(key){return this.getAudioMixerLibrary().find(item=>item.key===key)||null;}
+ createAudioMixerSlot(key=''){
+  const meta=this.getAudioMixerMeta(key);
+  return {key:key||'',volume:meta?.volume??0.50,rate:1,detune:0,pan:0,loop:Boolean(meta?.loop),muted:false,sound:null,loading:false};
+ }
+ createDefaultAudioMixerSlots(){
+  return [this.createAudioMixerSlot('bgm_veil_of_the_past'),this.createAudioMixerSlot('sfx_skeleton_sword_attack'),this.createAudioMixerSlot('sfx_hero_death'),this.createAudioMixerSlot('sfx_crow_wings')];
+ }
+ buildAudioMixerOptions(selectedKey=''){
+  const esc=(value)=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  const groups=new Map();
+  for(const item of this.getAudioMixerLibrary()){if(!groups.has(item.category))groups.set(item.category,[]);groups.get(item.category).push(item);}
+  const options=['<option value="">— пустой канал —</option>'];
+  for(const [category,items] of groups){
+   options.push(`<optgroup label="${esc(DEV_AUDIO_CATEGORY_LABELS[category]||category)}">`);
+   for(const item of items){const ready=this.scene?.cache?.audio?.exists?.(item.key);options.push(`<option value="${esc(item.key)}"${item.key===selectedKey?' selected':''}>${ready?'●':'○'} ${esc(item.label)}</option>`);}
+   options.push('</optgroup>');
+  }
+  return options.join('');
+ }
+ buildAudioMixerSlotHtml(index){
+  const slot=this.devLab.audioMixer.slots[index]||this.createAudioMixerSlot('');
+  return `<div class="lkdev-mixer-card" id="lkdev-mixer-slot-${index}">
+   <div class="lkdev-mixer-head"><span>КАНАЛ ${index+1}</span><span class="lkdev-mixer-state" id="lkdev-mixer-state-${index}">СТОП</span></div>
+   <select data-mixer-select="${index}">${this.buildAudioMixerOptions(slot.key)}</select>
+   <div class="lkdev-grid4"><button data-action="mixerPlay" data-value="${index}" class="good">▶ Play</button><button data-action="mixerStop" data-value="${index}">■ Stop</button><button data-action="mixerLoop" data-value="${index}">Loop</button><button data-action="mixerMute" data-value="${index}">Mute</button></div>
+   <label class="lkdev-range"><span>Volume</span><input data-mixer-range="${index}:volume" type="range" min="0" max="1.5" step="0.01" value="${slot.volume}"><b id="lkdev-mixer-volume-${index}">${slot.volume.toFixed(2)}</b></label>
+   <label class="lkdev-range"><span>Rate</span><input data-mixer-range="${index}:rate" type="range" min="0.5" max="1.75" step="0.01" value="${slot.rate}"><b id="lkdev-mixer-rate-${index}">${slot.rate.toFixed(2)}×</b></label>
+   <label class="lkdev-range"><span>Pitch</span><input data-mixer-range="${index}:detune" type="range" min="-1200" max="1200" step="25" value="${slot.detune}"><b id="lkdev-mixer-detune-${index}">${Math.round(slot.detune)}ct</b></label>
+   <label class="lkdev-range"><span>Pan</span><input data-mixer-range="${index}:pan" type="range" min="-1" max="1" step="0.01" value="${slot.pan}"><b id="lkdev-mixer-pan-${index}">${slot.pan.toFixed(2)}</b></label>
+  </div>`;
+ }
+
  buildDom(){
   const root=document.createElement('div');
   root.id='lk-dev-panel';
   root.innerHTML=`
    <div class="lkdev-head">
     <div class="lkdev-head-text"><div class="lkdev-title">LAST KNIGHT · ЛАБОРАТОРИЯ PHASER</div><div class="lkdev-subtitle">F10 — открыть / закрыть · всё ниже предназначено только для разработки</div></div>
+    <button class="lkdev-collapse-all" data-action="collapseAll" title="Свернуть все разделы">Свернуть все</button>
     <button class="lkdev-close" data-action="close" title="Закрыть">×</button>
    </div>
    <div id="lkdev-status" class="lkdev-status">Готово. Выбери механику и проверяй её прямо в текущей сцене.</div>
@@ -1006,12 +1098,19 @@ class LastKnightDevTools {
      <div class="lkdev-label">Глубина сцены</div><div class="lkdev-grid3"><button data-action="worldLayer" data-value="depth">Depth = Y</button><button data-action="worldLayer" data-value="foreground">Foreground</button><button data-action="worldLayer" data-value="parallax">Parallax</button><button data-action="worldLayer" data-value="shadows">Динамич. тени</button><button data-action="destruction" data-value="crate">Разбить объект</button><button data-action="worldLayer" data-value="clear">Очистить слои</button></div>
     </div></details>
 
-    <details class="lkdev-section"><summary>AUDIO LAB · PITCH, PAN, SPATIAL</summary><div class="lkdev-body">
-     <div class="lkdev-note">Тестирует только SFX. Фоновую музыку не трогает.</div>
+    <details class="lkdev-section" open><summary>AUDIO MIXER LAB · МУЛЬТИТРЕК</summary><div class="lkdev-body">
+     <div class="lkdev-note">Каждый канал может выбрать любой звук из общего assetManifest. Незагруженные звуки автоматически подгружаются по требованию. У каждого канала свои Volume, Rate, Pitch, Pan, Loop и Mute.</div>
+     <div class="lkdev-grid4"><button data-action="mixerPlayAll" class="good">▶ Запустить сет</button><button data-action="mixerRestartAll" class="blue">↻ С начала</button><button data-action="mixerStopAll">■ Стоп все</button><button data-action="mixerCopy">Копировать сет</button></div>
+     <div class="lkdev-grid3"><button data-action="mixerAddSlot">＋ Канал</button><button data-action="mixerRemoveSlot">− Канал</button><button data-action="mixerReloadLibrary" class="blue">↻ Список звуков</button></div>
+     <div class="lkdev-note">● — уже загружен · ○ — будет подгружен автоматически. Новые аудио-ассеты, добавленные в <b>assetManifest.mjs</b>, автоматически появляются в выпадающих списках.</div>
+     <div id="lkdev-mixer-slots">${this.devLab.audioMixer.slots.map((_,index)=>this.buildAudioMixerSlotHtml(index)).join('')}</div>
+     <textarea id="lkdev-mixer-output" class="lkdev-output" readonly placeholder="Параметры всего аудио-сета для переноса в основной билд."></textarea>
+     <div class="lkdev-divider"></div>
+     <div class="lkdev-label">Быстрый старый Audio Lab · один источник</div>
      <label class="lkdev-range"><span>Rate</span><input data-dev-range="audioRate" type="range" min="0.55" max="1.6" step="0.05" value="1"><b id="lkdev-audio-rate">1.00×</b></label>
      <label class="lkdev-range"><span>Detune</span><input data-dev-range="audioDetune" type="range" min="-1200" max="1200" step="50" value="0"><b id="lkdev-audio-detune">0 ct</b></label>
      <label class="lkdev-range"><span>Pan</span><input data-dev-range="audioPan" type="range" min="-1" max="1" step="0.05" value="0"><b id="lkdev-audio-pan">0.00</b></label>
-     <div class="lkdev-grid3"><button data-action="audioTest" data-value="sword">Удар меча</button><button data-action="audioTest" data-value="skill">Магия</button><button data-action="audioTest" data-value="crow">Крылья ворон</button><button data-action="audioSpatial">Spatial возле героя</button><button data-action="audioSweep">Провести L → R</button><button data-action="audioStop">Стоп тестовых SFX</button></div>
+     <div class="lkdev-grid3"><button data-action="audioTest" data-value="sword">Удар меча</button><button data-action="audioTest" data-value="skill">Магия</button><button data-action="audioTest" data-value="crow">Крылья ворон</button><button data-action="audioSpatial">Spatial возле героя</button><button data-action="audioSweep">Провести L → R</button><button data-action="audioStop">Стоп быстрого теста</button></div>
     </div></details>
 
     <details class="lkdev-section"><summary>BOIDS LAB · ЖИВЫЕ СТАИ</summary><div class="lkdev-body">
@@ -1156,6 +1255,11 @@ class LastKnightDevTools {
    this.handleAction(btn.dataset.action,btn.dataset.value,btn);
   });
   root.addEventListener('change',(event)=>{
+   const mixerSelect=event.target.closest('[data-mixer-select]');
+   if(mixerSelect){
+    this.setAudioMixerSlotSound(Number(mixerSelect.dataset.mixerSelect),mixerSelect.value);
+    return;
+   }
    const el=event.target.closest('[data-ui-change]');
    if(el){
     const kind=el.dataset.uiChange;
@@ -1165,6 +1269,12 @@ class LastKnightDevTools {
    }
   });
   root.addEventListener('input',(event)=>{
+   const mixerRange=event.target.closest('[data-mixer-range]');
+   if(mixerRange){
+    const [slotIndex,prop]=String(mixerRange.dataset.mixerRange||'').split(':');
+    this.setAudioMixerSlotParam(Number(slotIndex),prop,Number(mixerRange.value));
+    return;
+   }
    const el=event.target.closest('[data-dev-range]');
    if(el)this.handleDevLabRange(el.dataset.devRange,Number(el.value));
   });
@@ -1210,10 +1320,19 @@ class LastKnightDevTools {
   if(this.open){this.refreshAiModeDescription();this.refreshFxLabUi();this.refreshAdvancedLabUi();}
  }
 
+ collapseAllSections(){
+  if(!this.root)return;
+  for(const section of this.root.querySelectorAll('details.lkdev-section'))section.open=false;
+  const scroll=this.root.querySelector('.lkdev-scroll');
+  try{scroll?.scrollTo?.({top:0,behavior:'smooth'});}catch{if(scroll)scroll.scrollTop=0;}
+  this.notifyDev('Все разделы Dev-панели свёрнуты.','good');
+ }
+
  handleAction(action,value,button){
   const s=this.scene,f=s.devFlags;
   switch(action){
    case 'close':this.togglePanel(false);break;
+   case 'collapseAll':this.collapseAllSections();break;
    case 'pause':s.setGameplayPaused('devPanel',true);break;
    case 'resume':s.setGameplayPaused('devPanel',false);break;
    case 'time':this.setTimeScale(Number(value));this.notifyDev(`Скорость времени: ${Number(value).toFixed(2)}×`);break;
@@ -1254,6 +1373,17 @@ class LastKnightDevTools {
    case 'audioSpatial':this.toggleAudioSpatial();break;
    case 'audioSweep':this.runAudioSweep();break;
    case 'audioStop':this.stopAudioLab();break;
+   case 'mixerPlay':this.startAudioMixerSlot(Number(value),{restart:false});break;
+   case 'mixerStop':this.stopAudioMixerSlot(Number(value));break;
+   case 'mixerLoop':this.toggleAudioMixerSlotLoop(Number(value));break;
+   case 'mixerMute':this.toggleAudioMixerSlotMute(Number(value));break;
+   case 'mixerPlayAll':this.playAudioMixerAll(false);break;
+   case 'mixerRestartAll':this.playAudioMixerAll(true);break;
+   case 'mixerStopAll':this.stopAudioMixerAll();break;
+   case 'mixerCopy':this.copyAudioMixerSet();break;
+   case 'mixerAddSlot':this.addAudioMixerSlot();break;
+   case 'mixerRemoveSlot':this.removeAudioMixerSlot();break;
+   case 'mixerReloadLibrary':this.rebuildAudioMixerSlotsUi();this.notifyDev(`Audio Mixer: найдено аудио-ассетов — ${this.getAudioMixerLibrary().length}.`,'good');break;
    case 'boids':this.spawnBoids(Number(value));break;
    case 'boidPreset':this.applyBoidPreset(value);break;
    case 'boidsClear':this.clearBoids();break;
@@ -1785,6 +1915,7 @@ class LastKnightDevTools {
   for(const [k,v] of Object.entries(vals)){const el=document.querySelector(`[data-dev-range="${k}"]`);if(el)el.value=String(v);}
   const texts={'lkdev-impact-hitstop':`${Math.round(impact.hitStop)} ms`,'lkdev-impact-shakex':String(Math.round(impact.shakeX)),'lkdev-impact-shakey':String(Math.round(impact.shakeY)),'lkdev-impact-zoom':`${impact.zoom.toFixed(2)}×`,'lkdev-impact-flash':impact.flash.toFixed(2),'lkdev-impact-slow':`${impact.slow.toFixed(2)}×`,'lkdev-impact-knockback':String(Math.round(impact.knockback)),'lkdev-impact-pitch':`${Math.round(impact.pitch)} ct`,'lkdev-audio-rate':`${audio.rate.toFixed(2)}×`,'lkdev-audio-detune':`${Math.round(audio.detune)} ct`,'lkdev-audio-pan':audio.pan.toFixed(2),'lkdev-boid-separation':b.separation.toFixed(2),'lkdev-boid-cohesion':b.cohesion.toFixed(2),'lkdev-boid-alignment':b.alignment.toFixed(2),'lkdev-boid-wander':b.wander.toFixed(2)};
   for(const [id,value] of Object.entries(texts)){const el=document.getElementById(id);if(el)el.textContent=value;}
+  this.refreshAudioMixerUi();
  }
 
  toggleCamera2(kind){
@@ -1923,11 +2054,112 @@ class LastKnightDevTools {
  }
 
  stopAudioLab(){const a=this.devLab.audioLab;if(a.lastSound){try{a.lastSound.stop();a.lastSound.destroy();}catch{}a.lastSound=null;}if(a.source){a.source.destroy();a.source=null;}a.spatial=false;this.notifyDev('Тестовые SFX остановлены.');}
- getAudioLabKey(kind){const s=this.scene,sets={sword:['sfx_hero_sword_impact','sfx_hero_sword_attack'],skill:['sfx_mage_cast','sfx_broken_saint_holy_beam'],crow:['crow_wings_takeoff']};return (sets[kind]||sets.sword).find(k=>s.cache.audio.exists(k))||null;}
+ getAudioLabKey(kind){const s=this.scene,sets={sword:['sfx_hero_sword_impact','sfx_hero_sword_attack'],skill:['sfx_mage_cast','sfx_broken_saint_holy_beam'],crow:['sfx_crow_wings']};return (sets[kind]||sets.sword).find(k=>s.cache.audio.exists(k))||null;}
  playAudioLab(kind='sword'){const s=this.scene,a=this.devLab.audioLab,key=this.getAudioLabKey(kind);if(!key||!s.sound||s.sound.locked){this.notifyDev(`Audio Lab: звук ${kind} не загружен.`,'error');return null;}this.stopAudioLab();try{const sound=s.sound.add(key,{volume:.48*getGameSettings().sfxVolume,rate:a.rate,detune:a.detune});sound.setRate?.(a.rate);sound.setDetune?.(a.detune);sound.setPan?.(a.pan);a.lastSound=sound;sound.once('complete',()=>{if(a.lastSound===sound)a.lastSound=null;sound.destroy();});sound.play();this.notifyDev(`Audio Lab: ${kind}.`,'good');return sound;}catch(error){this.notifyDev(`Audio Lab: ${error?.message||error}`,'error');return null;}}
  toggleAudioSpatial(){const a=this.devLab.audioLab,s=this.scene;if(a.spatial){this.stopAudioLab();return;}const sound=this.playAudioLab('crow');if(!sound)return;a.spatial=true;a.source=s.add.circle((s.player?.x||0)+230,s.player?.y||0,8,0x6ed8ff,.8).setDepth(4990);try{sound.setLoop?.(true);}catch{}this.notifyDev('Spatial audio: голубая точка — источник, pan зависит от камеры.','good');}
  runAudioSweep(){const a=this.devLab.audioLab,s=this.scene;const sound=this.playAudioLab('crow');if(!sound)return;try{sound.setLoop?.(true);}catch{}const holder={pan:-1};sound.setPan?.(-1);s.tweens.add({targets:holder,pan:1,duration:2200,ease:'Sine.easeInOut',onUpdate:()=>sound.setPan?.(holder.pan),onComplete:()=>{try{sound.stop();sound.destroy();}catch{}if(a.lastSound===sound)a.lastSound=null;}});this.notifyDev('Audio pan sweep: L → R.','good');}
  updateAudioSpatial(){const a=this.devLab.audioLab,s=this.scene;if(!a.spatial||!a.lastSound?.isPlaying||!a.source?.active)return;const cam=s.cameras.main,p=s.player;if(p?.active){const t=s.time.now*.00065;a.source.setPosition(p.x+Math.cos(t)*260,p.y+Math.sin(t)*120);}const center=cam.worldView.centerX,half=Math.max(1,cam.worldView.width*.5),pan=Phaser.Math.Clamp((a.source.x-center)/half,-1,1);a.lastSound.setPan?.(pan);}
+
+ getAudioMixerSlot(index){return this.devLab.audioMixer.slots[Number(index)]||null;}
+ rebuildAudioMixerSlotsUi(){const host=this.root?.querySelector?.('#lkdev-mixer-slots');if(host)host.innerHTML=this.devLab.audioMixer.slots.map((_,index)=>this.buildAudioMixerSlotHtml(index)).join('');this.refreshAudioMixerUi();}
+ addAudioMixerSlot(){const m=this.devLab.audioMixer;if(m.slots.length>=m.maxSlots){this.notifyDev(`Audio Mixer: максимум ${m.maxSlots} каналов.`,'error');return;}m.slots.push(this.createAudioMixerSlot(''));this.rebuildAudioMixerSlotsUi();this.notifyDev(`Audio Mixer: добавлен канал ${m.slots.length}.`,'good');}
+ removeAudioMixerSlot(){const m=this.devLab.audioMixer;if(m.slots.length<=1){this.notifyDev('Audio Mixer: должен остаться хотя бы один канал.','error');return;}const index=m.slots.length-1;this.stopAudioMixerSlot(index,{resumeMusic:false,silent:true});m.slots.pop();this.resumeGameplayMusicAfterMixer();this.rebuildAudioMixerSlotsUi();this.notifyDev(`Audio Mixer: удалён канал ${index+1}.`,'good');}
+ ensureAudioMixerAssetLoaded(key,{silent=false}={}){
+  const s=this.scene,m=this.devLab.audioMixer;if(!key)return Promise.resolve(false);if(s.cache?.audio?.exists?.(key))return Promise.resolve(true);
+  const meta=this.getAudioMixerMeta(key);if(!meta?.url){if(!silent)this.notifyDev(`Audio Mixer: ${key} отсутствует в аудио-манифесте.`,'error');return Promise.resolve(false);}if(m.loading.has(key))return m.loading.get(key);
+  const promise=new Promise(resolve=>{const loader=s.load;let settled=false;const cleanup=()=>{loader.off(`filecomplete-audio-${key}`,onComplete);loader.off('loaderror',onError);m.loading.delete(key);};const finish=(ok)=>{if(settled)return;settled=true;cleanup();resolve(Boolean(ok));this.rebuildAudioMixerSlotsUi();};const onComplete=()=>finish(true);const onError=(file)=>{if(String(file?.key||'')===key)finish(false);};loader.once(`filecomplete-audio-${key}`,onComplete);loader.on('loaderror',onError);try{loader.audio(key,meta.url);if(!(typeof loader.isLoading==='function'&&loader.isLoading()))loader.start();if(!silent)this.notifyDev(`Audio Mixer: подгружаю «${meta.label}»…`);}catch(error){cleanup();if(!silent)this.notifyDev(`Audio Mixer: не удалось поставить ${meta.label} в загрузку: ${error?.message||error}`,'error');resolve(false);}});
+  m.loading.set(key,promise);return promise;
+ }
+ setAudioMixerSlotSound(index,key){
+  index=Number(index);const slots=this.devLab.audioMixer.slots;if(!Number.isInteger(index)||index<0||index>=slots.length)return;this.stopAudioMixerSlot(index,{resumeMusic:false,silent:true});const meta=this.getAudioMixerMeta(key);slots[index]=this.createAudioMixerSlot(meta?.key||'');this.resumeGameplayMusicAfterMixer();this.refreshAudioMixerUi();
+  if(meta){const slot=slots[index];slot.loading=!this.scene.cache.audio.exists(meta.key);this.refreshAudioMixerSlotUi(index);this.ensureAudioMixerAssetLoaded(meta.key,{silent:false}).then(ok=>{if(this.getAudioMixerSlot(index)!==slot)return;slot.loading=false;this.refreshAudioMixerSlotUi(index);if(ok)this.notifyDev(`Audio Mixer: канал ${index+1} готов — ${meta.label}.`,'good');else this.notifyDev(`Audio Mixer: не удалось загрузить «${meta.label}».`,'error');});}else this.notifyDev(`Audio Mixer: канал ${index+1} очищен.`,'good');
+ }
+ setAudioMixerSlotParam(index,prop,value){
+  const slot=this.getAudioMixerSlot(index);if(!slot)return;
+  if(prop==='volume')slot.volume=Phaser.Math.Clamp(Number(value)||0,0,1.5);
+  else if(prop==='rate')slot.rate=Phaser.Math.Clamp(Number(value)||1,0.5,1.75);
+  else if(prop==='detune')slot.detune=Phaser.Math.Clamp(Number(value)||0,-1200,1200);
+  else if(prop==='pan')slot.pan=Phaser.Math.Clamp(Number(value)||0,-1,1);
+  else return;
+  const sound=slot.sound;
+  if(sound){
+   try{if(prop==='volume')sound.setVolume?.(slot.muted?0:slot.volume);}catch{}
+   try{if(prop==='rate')sound.setRate?.(slot.rate);}catch{}
+   try{if(prop==='detune')sound.setDetune?.(slot.detune);}catch{}
+   try{if(prop==='pan')sound.setPan?.(slot.pan);}catch{}
+  }
+  this.refreshAudioMixerSlotUi(Number(index));
+ }
+ suspendGameplayMusicForMixer(){
+  const m=this.devLab.audioMixer;if(m.gameplayMusicPaused)return;
+  const refs=[this.scene.backgroundMusic,this.scene.brokenSaintMusic].filter(sound=>sound?.isPlaying);
+  if(!refs.length)return;
+  m.gameplayMusicRefs=[];
+  for(const sound of refs){try{sound.pause();if(sound.isPaused)m.gameplayMusicRefs.push(sound);}catch{}}
+  m.gameplayMusicPaused=m.gameplayMusicRefs.length>0;
+ }
+ hasActiveAudioMixerMusic(){
+  return this.devLab.audioMixer.slots.some(slot=>{
+   const meta=this.getAudioMixerMeta(slot?.key);const sound=slot?.sound;
+   return Boolean(meta?.music&&sound&&(sound.isPlaying||sound.isPaused));
+  });
+ }
+ resumeGameplayMusicAfterMixer(){
+  const m=this.devLab.audioMixer;if(!m.gameplayMusicPaused||this.hasActiveAudioMixerMusic())return;
+  const refs=[...(m.gameplayMusicRefs||[])];m.gameplayMusicRefs=[];m.gameplayMusicPaused=false;
+  for(const sound of refs){try{if(sound?.isPaused)sound.resume();}catch{}}
+ }
+ async startAudioMixerSlot(index,{restart=false,silent=false,skipEnsure=false}={}){
+  index=Number(index);const slot=this.getAudioMixerSlot(index),s=this.scene;if(!slot?.key)return null;const meta=this.getAudioMixerMeta(slot.key);
+  if(!skipEnsure&&!s.cache.audio.exists(slot.key)){slot.loading=true;this.refreshAudioMixerSlotUi(index);const loaded=await this.ensureAudioMixerAssetLoaded(slot.key,{silent});slot.loading=false;this.refreshAudioMixerSlotUi(index);if(!loaded)return null;}
+  if(!s.sound||s.sound.locked||!s.cache.audio.exists(slot.key)){if(!silent)this.notifyDev(`Audio Mixer: «${meta?.label||slot.key}» не удалось подготовить.`,'error');return null;}
+  if(slot.sound){if(slot.sound.isPaused&&!restart){try{slot.sound.resume();this.refreshAudioMixerSlotUi(index);return slot.sound;}catch{}}if(slot.sound.isPlaying&&!restart){this.refreshAudioMixerSlotUi(index);return slot.sound;}this.stopAudioMixerSlot(index,{resumeMusic:false,silent:true});}
+  if(meta?.music)this.suspendGameplayMusicForMixer();
+  try{const sound=s.sound.add(slot.key,{volume:slot.muted?0:slot.volume,rate:slot.rate,detune:slot.detune,loop:slot.loop});sound.lkDevMixerMusic=Boolean(meta?.music);slot.sound=sound;try{sound.setRate?.(slot.rate);}catch{}try{sound.setDetune?.(slot.detune);}catch{}try{sound.setPan?.(slot.pan);}catch{}try{sound.setLoop?.(slot.loop);}catch{}try{sound.setMute?.(slot.muted);}catch{}sound.once('complete',()=>{if(slot.sound===sound)slot.sound=null;try{sound.destroy();}catch{}this.resumeGameplayMusicAfterMixer();this.refreshAudioMixerSlotUi(index);});sound.play();this.refreshAudioMixerSlotUi(index);if(!silent)this.notifyDev(`Audio Mixer: канал ${index+1} запущен — ${meta?.label||slot.key}.`,'good');return sound;}catch(error){slot.sound=null;this.resumeGameplayMusicAfterMixer();if(!silent)this.notifyDev(`Audio Mixer: ${error?.message||error}`,'error');return null;}
+ }
+ stopAudioMixerSlot(index,{resumeMusic=true,silent=false}={}){
+  index=Number(index);const slot=this.getAudioMixerSlot(index);if(!slot)return;
+  const sound=slot.sound;slot.sound=null;
+  if(sound){try{if(sound.isPlaying||sound.isPaused)sound.stop();}catch{}try{sound.destroy();}catch{}}
+  if(resumeMusic)this.resumeGameplayMusicAfterMixer();
+  this.refreshAudioMixerSlotUi(index);
+  if(!silent)this.notifyDev(`Audio Mixer: канал ${index+1} остановлен.`);
+ }
+ toggleAudioMixerSlotLoop(index){
+  const slot=this.getAudioMixerSlot(index);if(!slot)return;slot.loop=!slot.loop;try{slot.sound?.setLoop?.(slot.loop);}catch{}this.refreshAudioMixerSlotUi(Number(index));
+ }
+ toggleAudioMixerSlotMute(index){
+  const slot=this.getAudioMixerSlot(index);if(!slot)return;slot.muted=!slot.muted;
+  try{slot.sound?.setMute?.(slot.muted);}catch{}
+  try{slot.sound?.setVolume?.(slot.muted?0:slot.volume);}catch{}
+  this.refreshAudioMixerSlotUi(Number(index));
+ }
+ async playAudioMixerAll(restart=false){
+  if(restart)this.stopAudioMixerAll({resumeMusic:false,silent:true});const slots=this.devLab.audioMixer.slots;const selected=slots.map((slot,index)=>({slot,index})).filter(x=>x.slot?.key);if(!selected.length){this.notifyDev('Audio Mixer: в сете нет выбранных звуков.','error');return;}
+  this.notifyDev(`Audio Mixer: подготавливаю сет из ${selected.length} каналов…`);const readiness=await Promise.all(selected.map(({slot})=>this.ensureAudioMixerAssetLoaded(slot.key,{silent:true})));const ready=selected.filter((_,i)=>readiness[i]);const startPromises=ready.map(({index})=>this.startAudioMixerSlot(index,{restart:Boolean(restart),silent:true,skipEnsure:true}));const startResults=await Promise.all(startPromises);const started=startResults.filter(Boolean).length;this.resumeGameplayMusicAfterMixer();this.refreshAudioMixerUi();this.notifyDev(started?`Audio Mixer: одновременно запущено каналов — ${started}.`:'Audio Mixer: выбранные звуки не удалось загрузить.',started?'good':'error');
+ }
+ stopAudioMixerAll({resumeMusic=true,silent=false}={}){
+  for(let i=0;i<this.devLab.audioMixer.slots.length;i++)this.stopAudioMixerSlot(i,{resumeMusic:false,silent:true});
+  if(resumeMusic)this.resumeGameplayMusicAfterMixer();
+  this.refreshAudioMixerUi();
+  if(!silent)this.notifyDev('Audio Mixer: весь сет остановлен.','good');
+ }
+ refreshAudioMixerSlotUi(index){
+  if(typeof document==='undefined')return;const slot=this.getAudioMixerSlot(index);if(!slot)return;
+  const select=this.root?.querySelector?.(`[data-mixer-select="${index}"]`);if(select&&select.value!==slot.key)select.value=slot.key;
+  const defs={volume:[slot.volume,`lkdev-mixer-volume-${index}`,v=>v.toFixed(2)],rate:[slot.rate,`lkdev-mixer-rate-${index}`,v=>`${v.toFixed(2)}×`],detune:[slot.detune,`lkdev-mixer-detune-${index}`,v=>`${Math.round(v)}ct`],pan:[slot.pan,`lkdev-mixer-pan-${index}`,v=>v.toFixed(2)]};
+  for(const [prop,[value,outId,format]] of Object.entries(defs)){const range=this.root?.querySelector?.(`[data-mixer-range="${index}:${prop}"]`);if(range)range.value=String(value);const out=document.getElementById(outId);if(out)out.textContent=format(value);}
+  const state=document.getElementById(`lkdev-mixer-state-${index}`);if(state){const sound=slot.sound;state.textContent=slot.loading?'LOAD…':slot.muted?'MUTE':sound?.isPaused?'PAUSE':sound?.isPlaying?'PLAY':slot.key?'READY':'STOP';state.style.color=slot.loading?'#d6b36a':slot.muted?'#df9e7b':sound?.isPlaying?'#78cf91':'#8f979c';}
+  const loopBtn=this.root?.querySelector?.(`[data-action="mixerLoop"][data-value="${index}"]`);loopBtn?.classList.toggle('on',Boolean(slot.loop));
+  const muteBtn=this.root?.querySelector?.(`[data-action="mixerMute"][data-value="${index}"]`);muteBtn?.classList.toggle('on',Boolean(slot.muted));
+ }
+ refreshAudioMixerUi(){for(let i=0;i<this.devLab.audioMixer.slots.length;i++)this.refreshAudioMixerSlotUi(i);}
+ formatAudioMixerSet(){
+  const lines=['Audio Mixer Set'];
+  this.devLab.audioMixer.slots.forEach((slot,index)=>{const meta=this.getAudioMixerMeta(slot.key);if(!slot.key)return;lines.push(`Channel ${index+1}: ${meta?.label||slot.key}`);lines.push(`  Key: ${slot.key}`);lines.push(`  Volume: ${slot.volume.toFixed(2)}`);lines.push(`  Rate: ${slot.rate.toFixed(2)}x`);lines.push(`  Pitch: ${Math.round(slot.detune)} ct`);lines.push(`  Pan: ${slot.pan.toFixed(2)}`);lines.push(`  Loop: ${slot.loop?'ON':'OFF'}`);lines.push(`  Mute: ${slot.muted?'ON':'OFF'}`);});
+  return lines.join('\n');
+ }
+ copyAudioMixerSet(){const text=this.formatAudioMixerSet(),out=document.getElementById('lkdev-mixer-output');if(out)out.value=text;try{navigator.clipboard?.writeText(text);}catch{}this.notifyDev('Audio Mixer Set подготовлен для копирования.','good');}
 
  spawnBoids(count=12){
   const s=this.scene,b=this.devLab.boids;if(!s.textures.exists('crown_fly_1')){this.notifyDev('Boids: текстуры ворон не загружены.','error');return;}this.clearBoids();count=Phaser.Math.Clamp(Math.round(count)||12,4,40);const p=s.player||{x:s.cameras.main.worldView.centerX,y:s.cameras.main.worldView.centerY};for(let i=0;i<count;i++){const x=p.x+Phaser.Math.Between(-180,180),y=p.y-110+Phaser.Math.Between(-120,120),sprite=s.add.sprite(x,y,'crown_fly_1').setScale(CROW_VISUAL_SCALE).setDepth(235).play({key:'crown_fly',startFrame:i%4});b.list.push({sprite,x,y,vx:Phaser.Math.Between(-90,90),vy:Phaser.Math.Between(-60,60),wander:Phaser.Math.FloatBetween(0,Math.PI*2)});}b.enabled=true;this.notifyDev(`Boids: ${count} живых ворон. Быстро двигай героя и смотри, как стая перестраивается.`,'good');}
@@ -1943,7 +2175,7 @@ class LastKnightDevTools {
  updateFogMask(){const w=this.devLab.worldFx,s=this.scene;if(!w.fogMaskGraphics||!s.player?.active)return;w.fogMaskGraphics.clear();w.fogMaskGraphics.fillStyle(0xffffff,1);w.fogMaskGraphics.fillCircle(s.player.x,s.player.y,185);}
 
  clearAdvancedLabs(){
-  this.toggleExtraCamera('clear');this.clearBoids();this.stopAudioLab();const w=this.devLab.worldFx;try{w.fogMask?.destroy();}catch{}try{w.fogMaskGraphics?.destroy();}catch{}try{w.fogOverlay?.destroy();}catch{}w.fogMask=null;w.fogMaskGraphics=null;w.fogOverlay=null;if(w.screenOverlay){w.screenOverlay.destroy(true);w.screenOverlay=null;}for(const o of w.foreground)o.destroy();for(const o of w.parallax)o.destroy();w.foreground=[];w.parallax=[];this.restoreDevDepths();w.depthSort=false;this.clearDynamicShadows();w.dynamicShadows=false;this.runPhysicsLab('clear');try{w.renderTexture?.destroy();}catch{}w.renderTexture=null;w.renderTextureBounds=null;for(const o of w.decals||[])o?.destroy?.();w.decals=[];w.trail=false;w.lastTrailAt=0;try{this.scene.cameras.main.setDeadzone(0,0).setFollowOffset(0,0).setLerp(.12,.12);}catch{}
+  this.toggleExtraCamera('clear');this.clearBoids();this.stopAudioLab();this.stopAudioMixerAll({silent:true});const w=this.devLab.worldFx;try{w.fogMask?.destroy();}catch{}try{w.fogMaskGraphics?.destroy();}catch{}try{w.fogOverlay?.destroy();}catch{}w.fogMask=null;w.fogMaskGraphics=null;w.fogOverlay=null;if(w.screenOverlay){w.screenOverlay.destroy(true);w.screenOverlay=null;}for(const o of w.foreground)o.destroy();for(const o of w.parallax)o.destroy();w.foreground=[];w.parallax=[];this.restoreDevDepths();w.depthSort=false;this.clearDynamicShadows();w.dynamicShadows=false;this.runPhysicsLab('clear');try{w.renderTexture?.destroy();}catch{}w.renderTexture=null;w.renderTextureBounds=null;for(const o of w.decals||[])o?.destroy?.();w.decals=[];w.trail=false;w.lastTrailAt=0;try{this.scene.cameras.main.setDeadzone(0,0).setFollowOffset(0,0).setLerp(.12,.12);}catch{}
  }
 
  setEnvironmentAiMode(mode){
@@ -2042,7 +2274,7 @@ class LastKnightDevTools {
 
  saveDevLabPreset(){
   try{
-   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',environmentAiMode:this.scene.devFlags.environmentAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],fxSelected:this.devLab.fxSelected,fxSettings:Object.fromEntries([...this.devLab.fxSettings.entries()].map(([k,v])=>[k,{...v}])),lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity,impact:{...this.devLab.impact},audioLab:{rate:this.devLab.audioLab.rate,detune:this.devLab.audioLab.detune,pan:this.devLab.audioLab.pan},boids:{separation:this.devLab.boids.separation,cohesion:this.devLab.boids.cohesion,alignment:this.devLab.boids.alignment,wander:this.devLab.boids.wander},camera2:{deadzone:this.devLab.camera2.deadzone,lookAhead:this.devLab.camera2.lookAhead,threatLook:this.devLab.camera2.threatLook,damping:this.devLab.camera2.damping}};
+   const data={time:this.scene.devTimeScale||1,aiMode:this.scene.devFlags.enemyAiMode||'normal',environmentAiMode:this.scene.devFlags.environmentAiMode||'normal',cameraFxKind:this.devLab.cameraFxKind,playerFxKind:this.devLab.playerFxKind,ambient:[...this.devLab.ambient.keys()],fxSelected:this.devLab.fxSelected,fxSettings:Object.fromEntries([...this.devLab.fxSettings.entries()].map(([k,v])=>[k,{...v}])),lightEnabled:this.devLab.lightEnabled,lightRadius:this.devLab.lightRadius,lightIntensity:this.devLab.lightIntensity,impact:{...this.devLab.impact},audioLab:{rate:this.devLab.audioLab.rate,detune:this.devLab.audioLab.detune,pan:this.devLab.audioLab.pan},audioMixer:{slots:this.devLab.audioMixer.slots.map(slot=>({key:slot.key,volume:slot.volume,rate:slot.rate,detune:slot.detune,pan:slot.pan,loop:slot.loop,muted:slot.muted}))},boids:{separation:this.devLab.boids.separation,cohesion:this.devLab.boids.cohesion,alignment:this.devLab.boids.alignment,wander:this.devLab.boids.wander},camera2:{deadzone:this.devLab.camera2.deadzone,lookAhead:this.devLab.camera2.lookAhead,threatLook:this.devLab.camera2.threatLook,damping:this.devLab.camera2.damping}};
    localStorage.setItem(this.devLabPresetKey,JSON.stringify(data));this.notifyDev('Текущий набор лаборатории сохранён локально.','good');
   }catch(error){this.notifyDev(`Не удалось сохранить: ${error?.message||error}`,'error');}
  }
@@ -2054,7 +2286,17 @@ class LastKnightDevTools {
    this.devLab.fxSettings.clear();for(const [k,v] of Object.entries(data.fxSettings||{}))this.devLab.fxSettings.set(k,{...this.getDevFxSettings(k),...v});this.devLab.fxSelected=data.fxSelected||'fog';
    for(const k of data.ambient||[])this.toggleAmbientDevFx(k,true,{silent:true});
    this.applyCameraPostFx(data.cameraFxKind||'clear');this.applyPlayerDevFx(data.playerFxKind||'clear');this.devLab.lightRadius=Number(data.lightRadius)||260;this.devLab.lightIntensity=Number(data.lightIntensity)||1.6;if(data.lightEnabled)this.toggleDevLight(true);else this.disableDevLight({silent:true});
-   if(data.impact)Object.assign(this.devLab.impact,data.impact);if(data.audioLab)Object.assign(this.devLab.audioLab,data.audioLab);if(data.boids)Object.assign(this.devLab.boids,data.boids);
+   if(data.impact)Object.assign(this.devLab.impact,data.impact);if(data.audioLab)Object.assign(this.devLab.audioLab,data.audioLab);
+   if(Array.isArray(data.audioMixer?.slots)){
+    this.stopAudioMixerAll({silent:true});
+    const savedSlots=data.audioMixer.slots.slice(0,this.devLab.audioMixer.maxSlots);
+    this.devLab.audioMixer.slots=(savedSlots.length?savedSlots:[{}]).map(saved=>{
+     const slot=this.createAudioMixerSlot(saved?.key||'');
+     slot.volume=Phaser.Math.Clamp(Number(saved?.volume??slot.volume),0,1.5);slot.rate=Phaser.Math.Clamp(Number(saved?.rate??1),0.5,1.75);slot.detune=Phaser.Math.Clamp(Number(saved?.detune??0),-1200,1200);slot.pan=Phaser.Math.Clamp(Number(saved?.pan??0),-1,1);slot.loop=Boolean(saved?.loop);slot.muted=Boolean(saved?.muted);return slot;
+    });
+    this.rebuildAudioMixerSlotsUi();
+   }
+   if(data.boids)Object.assign(this.devLab.boids,data.boids);
    if(data.camera2){Object.assign(this.devLab.camera2,data.camera2);const cam=this.scene.cameras.main;cam.setDeadzone(this.devLab.camera2.deadzone?Math.round(cam.width*.22):0,this.devLab.camera2.deadzone?Math.round(cam.height*.18):0);cam.setLerp(this.devLab.camera2.damping||.12,this.devLab.camera2.damping||.12);}
    this.refreshFxLabUi();this.refreshAdvancedLabUi();
    this.notifyDev('Сохранённый набор лаборатории загружен.','good');
@@ -5101,6 +5343,9 @@ class MainScene extends Phaser.Scene {
   this.playerForcedUntil=0;
   this.playerForcedVX=0;
   this.playerForcedVY=0;
+  this.heroHitImpactTimer=null;
+  this.heroHitImpactSlowTimer=null;
+  this.heroHitImpactZoomTimer=null;
 
   this.mobileMoveX=0;
   this.mobileMoveY=0;
@@ -5131,6 +5376,8 @@ class MainScene extends Phaser.Scene {
   this.crowFlocks=new Map();
   this.swordOrbitCrowFlockId=null;
   this.swordOrbitCrowWingsSound=null;
+  this.crowFlightLoopSound=null;
+  this.crowFlightLoopCount=0;
   this.zone2FirstWagonTarget=null;
   this.zone2ArrivalSequence=null;
 
@@ -5262,6 +5509,9 @@ class MainScene extends Phaser.Scene {
   this.playerForcedUntil=0;
   this.playerForcedVX=0;
   this.playerForcedVY=0;
+  this.heroHitImpactTimer=null;
+  this.heroHitImpactSlowTimer=null;
+  this.heroHitImpactZoomTimer=null;
 
   this.mobileMoveX=0;
   this.mobileMoveY=0;
@@ -5295,6 +5545,8 @@ class MainScene extends Phaser.Scene {
   this.crowFlocks=new Map();
   this.swordOrbitCrowFlockId=null;
   this.swordOrbitCrowWingsSound=null;
+  this.crowFlightLoopSound=null;
+  this.crowFlightLoopCount=0;
   this.zone2FirstWagonTarget=null;
   this.zone2ArrivalSequence=null;
 
@@ -5505,6 +5757,7 @@ class MainScene extends Phaser.Scene {
    this.stopBrokenSaintMaterializeSfx();
    this.stopBrokenSaintDisappearSfx();
    this.stopSwordOrbitCrowFlock(0);
+   this.clearHeroHitImpactTimers(true);
    this.stopGameplaySfx();
    this.clearChampionHazards();
    this.stopBrokenSaintMusic();
@@ -5839,26 +6092,28 @@ class MainScene extends Phaser.Scene {
  playBrokenSaintDisappearSfx(maxDurationMs=0){ return AudioManager.prototype.playBrokenSaintDisappearSfx.call(this,maxDurationMs); }
  stopBrokenSaintDisappearSfx(){ return AudioManager.prototype.stopBrokenSaintDisappearSfx.call(this); }
  playCrowScatterSfx(){ return AudioManager.prototype.playCrowScatterSfx.call(this); }
-
- startSwordOrbitCrowWingsSfx(){
-  if(this.swordOrbitCrowWingsSound || !this.sound || this.sound.locked || !this.cache.audio.exists(SWORD_ORBIT_CROW_SOUND_KEY)) return this.swordOrbitCrowWingsSound;
-  const sound=this.sound.add(SWORD_ORBIT_CROW_SOUND_KEY,{loop:true,volume:0.32*getGameSettings().sfxVolume});
-  this.swordOrbitCrowWingsSound=sound;
-  try{sound.play();}catch(e){
-   console.warn('Sword orbit crow wings start failed',e);
-   try{sound.destroy();}catch{}
-   if(this.swordOrbitCrowWingsSound===sound)this.swordOrbitCrowWingsSound=null;
-   return null;
+ startCrowFlightLoopSfx(activeCount=1){ return AudioManager.prototype.startCrowFlightLoopSfx.call(this,activeCount); }
+ stopCrowFlightLoopSfx(){ return AudioManager.prototype.stopCrowFlightLoopSfx.call(this); }
+ syncCrowFlightLoopSfx(activeCount=0){ return AudioManager.prototype.syncCrowFlightLoopSfx.call(this,activeCount); }
+ countAudibleFlyingCrows(){
+  let count=0;
+  for(const crow of this.crows||[]){
+   if(!crow?.sprite?.active || !['takeoff','fly','orbit'].includes(crow.state))continue;
+   const flock=this.crowFlocks?.get?.(crow.flockId);
+   if(flock?.audioEnabled===false)continue;
+   count++;
   }
-  return sound;
+  return count;
  }
-
+ startSwordOrbitCrowWingsSfx(){
+  const flock=this.crowFlocks?.get?.(this.swordOrbitCrowFlockId);
+  if(flock)flock.audioEnabled=true;
+  return this.syncCrowFlightLoopSfx(this.countAudibleFlyingCrows());
+ }
  stopSwordOrbitCrowWingsSfx(){
-  const sound=this.swordOrbitCrowWingsSound;
-  if(!sound) return;
-  this.swordOrbitCrowWingsSound=null;
-  try{if(sound.isPlaying)sound.stop();}catch{}
-  try{sound.destroy();}catch{}
+  const flock=this.crowFlocks?.get?.(this.swordOrbitCrowFlockId);
+  if(flock)flock.audioEnabled=false;
+  return this.syncCrowFlightLoopSfx(this.countAudibleFlyingCrows());
  }
 
  pauseGameplaySfx(){ return AudioManager.prototype.pauseGameplaySfx.call(this); }
@@ -7247,7 +7502,7 @@ createSwordOrbitCrowFlock(centerTarget=this.ashSwordLandmark,time=this.time.now,
  if(this.crowFlocks?.has(flockId)) return true;
  const centerX=(Number(centerTarget.x)||0)+48;
  const centerY=(Number(centerTarget.y)||0)-112;
- const flock={id:flockId,centerX,centerY,triggered:true,orbit:true,centerTarget,crows:[]};
+ const flock={id:flockId,centerX,centerY,triggered:true,orbit:true,centerTarget,audioEnabled:Boolean(playSound),crows:[]};
  this.crowFlocks.set(flockId,flock);
  this.swordOrbitCrowFlockId=flockId;
  const zoneObjects=this.loadedWorldZones.get(this.currentWorldZoneIndex)||[];
@@ -7432,7 +7687,7 @@ retireCrow(crow){
 }
 
 updateCrows(time,delta,{orbitOnly=false}={}){
- if(!this.crows?.length)return;
+ if(!this.crows?.length){this.syncCrowFlightLoopSfx(0);return;}
  const dt=Math.min(0.05,Math.max(0,delta||0)/1000);
  if(!orbitOnly)for(const flock of this.crowFlocks?.values?.()||[]){
   if(flock.triggered || !this.player?.active)continue;
@@ -7556,6 +7811,7 @@ updateCrows(time,delta,{orbitOnly=false}={}){
   }
  }
  this.crows=this.crows.filter(crow=>Boolean(crow?.sprite?.active) && crow?.state!=='gone');
+ this.syncCrowFlightLoopSfx(this.countAudibleFlyingCrows());
 }
 
 
@@ -7884,21 +8140,23 @@ createRuinedKingdomTerrainEnvironment(objects,zone){
    STAGE0.WORLD_HEIGHT/2,
    34,
    STAGE0.WORLD_HEIGHT,
-   gate.color,
-   0.04
+   0x000000,
+   0
   ).setDepth(-20);
 
   this.physics.add.existing(blocker,true);
   this.worldGateGroup.add(blocker);
 
+  // Keep the progression collision, but do not draw the old yellow debug-like
+  // gate frame over the authored world art.
   const visible=this.add.rectangle(
    gate.x,
    WORLD_DESIGN.ROUTE_Y,
    42,
    Math.max(220,(boundary.openingHalfHeight||150)*2-24),
-   gate.color,
-   0.16
-  ).setStrokeStyle(3,gate.color,0.62).setDepth(-18.6);
+   0x000000,
+   0
+  ).setDepth(-18.6);
 
   const label=lkAddText(this,
    gate.x-36,
@@ -7935,8 +8193,8 @@ ${gate.name}`,
    STAGE0.WORLD_HEIGHT/2,
    42,
    STAGE0.WORLD_HEIGHT,
-   gate.color,
-   0.08
+   0x000000,
+   0
   ).setDepth(-16);
 
   this.physics.add.existing(blocker,true);
@@ -7951,14 +8209,15 @@ ${gate.name}`,
    0.58
   ).setDepth(-17);
 
+  // Physical seal remains, but the tall yellow rectangle is intentionally hidden.
   const visible=this.add.rectangle(
    x,
    WORLD_DESIGN.ROUTE_Y,
    46,
    860,
-   gate.color,
-   0.20
-  ).setStrokeStyle(4,gate.color,0.68).setDepth(-15);
+   0x000000,
+   0
+  ).setDepth(-15);
 
   const label=lkAddText(this,
    x+38,
@@ -7976,10 +8235,9 @@ ${gate.name}`,
 
   if(animate){
    curtain.setAlpha(0);
-   visible.setAlpha(0).setScale(1,0.08);
+   visible.setAlpha(0).setScale(1,1);
    label.setAlpha(0);
    this.tweens.add({targets:curtain,alpha:1,duration:620,ease:'Sine.easeOut'});
-   this.tweens.add({targets:visible,alpha:1,scaleY:1,duration:760,ease:'Cubic.easeOut'});
    this.tweens.add({targets:label,alpha:1,duration:420,delay:520,ease:'Sine.easeOut'});
    this.cameras.main.shake(180,0.0035);
   }
@@ -8330,7 +8588,7 @@ ${gate.name}`,
   };
 
   const started=this.storyDirector?.playCinematic(ZONE2_WAGON_CINEMATIC_PAGES,{
-   eventId:'ruined_kingdom_wagon_arrival_placeholder',
+   eventId:'ruined_kingdom_wagon_arrival_cinematic',
    once:false,
    releaseTextureKeys:[],
    onComplete:complete
@@ -8819,6 +9077,9 @@ ${gate.name}`,
   e.storyAltarLocked=Boolean(options?.exactStorySpawn && kind==='brokenSaint');
 
   const isBrokenSaint=kind==='brokenSaint';
+  // Recovery hearts are keyed to HERO health crossings, never to the boss HP.
+  // A fresh Broken Saint attempt can produce at most one heart at 75% and one at 25%.
+  if(isBrokenSaint)e.brokenSaintHeartDrops=new Set();
   // Later champions do not have final art yet. Use the existing skeleton set as a
   // deliberate temporary fallback instead of referencing removed champion_* frames.
   const initialTexture=isBrokenSaint ? 'broken_saint_down_walk_00' : 'skeleton_down_idle_00';
@@ -9255,6 +9516,36 @@ ${gate.name}`,
   this.enemies.push(e);
  }
 
+ maybeDropBrokenSaintHeartForHeroHealth(previousHp,currentHp){
+  const saint=this.activeChampion;
+  if(!saint?.active || saint.hp<=0 || saint.championKind!=='brokenSaint' || saint.storyDormant || !this.championEventActive)return 0;
+  const maxHp=Math.max(1,Number(this.player?.maxHp)||100);
+  const previousRatio=Phaser.Math.Clamp((Number(previousHp)||0)/maxHp,0,1);
+  const currentRatio=Phaser.Math.Clamp((Number(currentHp)||0)/maxHp,0,1);
+  if(currentRatio>=previousRatio)return 0;
+  const dropped=saint.brokenSaintHeartDrops||(saint.brokenSaintHeartDrops=new Set());
+  if(dropped.size>=2)return 0;
+  let spawned=0;
+  for(const threshold of [0.75,0.25]){
+   if(dropped.size>=2)break;
+   if(dropped.has(threshold))continue;
+   if(previousRatio>threshold && currentRatio<=threshold){
+    dropped.add(threshold);
+    const angle=Phaser.Math.FloatBetween(0,Math.PI*2);
+    const distance=Phaser.Math.Between(96,158);
+    const target=this.findNearestFreeGroundPoint(
+     saint.x+Math.cos(angle)*distance,saint.y+Math.sin(angle)*distance,22,180,16
+    );
+    this.throwHealthHeart(saint.x,saint.y,target.x,target.y,{
+     healAmount:Math.round(maxHp*0.30),
+     expiresIn:8000,source:'brokenSaint'
+    });
+    spawned++;
+   }
+  }
+  return spawned;
+ }
+
  updateChampion(e,time,a,distance){
   const kind=e.championKind;
   if(this.devFlags?.championFrozen){
@@ -9267,24 +9558,6 @@ ${gate.name}`,
 
   if(kind==='brokenSaint'){
    this.setEnemySteeredVelocity(e,Math.cos(a)*e.speed,Math.sin(a)*e.speed,time);
-
-   // Recovery is the accessibility valve for the first champion; his attacks
-   // stay untouched. He may offer exactly two hearts per attempt.
-   const hpRatio=e.hp/Math.max(1,e.maxHp);
-   const dropped=e.brokenSaintHeartDrops||(e.brokenSaintHeartDrops=new Set());
-   const threshold=[0.75,0.25].find(value=>hpRatio<=value&&!dropped.has(value));
-   if(threshold!==undefined){
-    dropped.add(threshold);
-    const angle=Phaser.Math.FloatBetween(0,Math.PI*2);
-    const distance=Phaser.Math.Between(96,158);
-    const target=this.findNearestFreeGroundPoint(
-     e.x+Math.cos(angle)*distance,e.y+Math.sin(angle)*distance,22,180,16
-    );
-    this.throwHealthHeart(e.x,e.y,target.x,target.y,{
-     healAmount:Math.round((this.player.maxHp||100)*0.30),
-     expiresIn:8000,source:'brokenSaint'
-    });
-   }
 
    if(!devNoChampionSkills && time>=e.nextSkillAt){
     e.nextSkillAt=time+3000;
@@ -10025,7 +10298,7 @@ ${gate.name}`,
   if(state.phase==='hero' && time>=state.heroArriveAt){
    state.phase='sword';
    state.swordLockedAt=time+ASH_SWORD_PRELUDE_SWORD_PAN_MS;
-   this.startSwordOrbitCrowWingsSfx();
+   // Sword-cinematic crows are visual-only: no wing loop or scatter call here.
    const focusY=sword.y-Math.min(46,Math.max(18,(sword.displayHeight||0)*0.14));
    cam.pan(sword.x,focusY,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
    cam.zoomTo(state.focusZoom,ASH_SWORD_PRELUDE_SWORD_PAN_MS,'Sine.easeInOut',true);
@@ -10621,6 +10894,133 @@ ${gate.name}`,
   );
  }
 
+
+ clearHeroHitImpactTimers(restoreTimeScale=false){
+  for(const prop of ['heroHitImpactTimer','heroHitImpactSlowTimer','heroHitImpactZoomTimer']){
+   const timer=this[prop];
+   if(timer!==null&&timer!==undefined){try{window.clearTimeout(timer);}catch{}this[prop]=null;}
+  }
+  if(restoreTimeScale){
+   const base=Math.max(0.1,Number(this.devTimeScale)||1);
+   try{this.time.timeScale=base;}catch{}
+   try{this.tweens.timeScale=base;}catch{}
+   try{this.physics.world.timeScale=1/base;}catch{}
+  }
+ }
+
+ setHeroHitImpactTimeScale(scale){
+  const safe=Phaser.Math.Clamp(Number(scale)||1,0.1,4);
+  try{this.time.timeScale=safe;}catch{}
+  try{this.tweens.timeScale=safe;}catch{}
+  try{this.physics.world.timeScale=1/safe;}catch{}
+ }
+
+ getHeroHitKnockbackVector(attacker,force=HERO_HIT_IMPACT_PROFILE.knockback){
+  let dx=0,dy=0;
+  if(attacker && Number.isFinite(attacker.x) && Number.isFinite(attacker.y)){
+   dx=this.player.x-attacker.x;
+   dy=this.player.y-attacker.y;
+  }else{
+   const vectors={up:{x:0,y:1},down:{x:0,y:-1},left:{x:1,y:0},right:{x:-1,y:0}};
+   const fallback=vectors[this.playerDir]||vectors.down;
+   dx=fallback.x;dy=fallback.y;
+  }
+  const len=Math.hypot(dx,dy)||1;
+  return {vx:dx/len*force,vy:dy/len*force};
+ }
+
+ spawnHeroHitBloodImpact(attacker=null){
+  if(!this.player?.active)return;
+  let awayX=0,awayY=-1;
+  if(attacker && Number.isFinite(attacker.x) && Number.isFinite(attacker.y)){
+   awayX=this.player.x-attacker.x;awayY=this.player.y-attacker.y;
+   const len=Math.hypot(awayX,awayY)||1;awayX/=len;awayY/=len;
+  }
+  const baseAngle=Math.atan2(awayY,awayX);
+  for(let i=0;i<18;i++){
+   const radius=Phaser.Math.FloatBetween(1.6,4.0);
+   const color=Phaser.Utils.Array.GetRandom([0x8d1717,0xc02b22,0x5f1010]);
+   const drop=this.add.circle(
+    this.player.x+Phaser.Math.Between(-9,9),
+    this.player.y-10+Phaser.Math.Between(-11,7),
+    radius,color,Phaser.Math.FloatBetween(0.72,0.96)
+   ).setDepth(72);
+   const angle=baseAngle+Phaser.Math.FloatBetween(-1.18,1.18);
+   const speed=Phaser.Math.Between(65,190);
+   const dx=Math.cos(angle)*speed*Phaser.Math.FloatBetween(0.38,0.58);
+   const dy=Math.sin(angle)*speed*Phaser.Math.FloatBetween(0.30,0.50)+Phaser.Math.Between(-14,10);
+   const duration=Phaser.Math.Between(460,820);
+   this.tweens.add({
+    targets:drop,
+    x:drop.x+dx,
+    y:drop.y+dy+Phaser.Math.Between(22,62),
+    scale:Phaser.Math.FloatBetween(0.28,0.58),
+    alpha:0,
+    duration,
+    ease:'Quad.easeOut',
+    onComplete:()=>drop.destroy()
+   });
+  }
+ }
+
+ applyHeroDamageImpact(attacker=null){
+  if(!this.player?.active || !this.cameras?.main)return;
+  const st=HERO_HIT_IMPACT_PROFILE;
+  const cam=this.cameras.main;
+  const baseScale=Math.max(0.1,Number(this.devTimeScale)||1);
+  const baseZoom=cam.zoom;
+
+  // Prevent an old temporary profile from restoring stale timing/zoom after a new hit.
+  this.clearHeroHitImpactTimers(false);
+
+  const intensity=new Phaser.Math.Vector2(
+   Math.max(0,st.shakeX)/(Math.max(1,cam.width)*1.7),
+   Math.max(0,st.shakeY)/(Math.max(1,cam.height)*1.7)
+  );
+  try{cam.shake(Math.max(80,120+st.hitStop*2.2),intensity,true);}catch{cam.shake(Math.max(80,120+st.hitStop*2.2),Math.max(intensity.x,intensity.y),true);}
+  if(st.flash>0.01)cam.flash(Math.round(70+180*st.flash),255,246,225,true);
+
+  if(st.zoom>1.001){
+   try{cam.setZoom(baseZoom*st.zoom);}catch{}
+   this.heroHitImpactZoomTimer=window.setTimeout(()=>{
+    if(!this.sys?.isActive?.())return;
+    this.heroHitImpactZoomTimer=null;
+    try{this.tweens.add({targets:cam,zoom:baseZoom,duration:80,ease:'Quad.easeOut',onComplete:()=>cam.setZoom(baseZoom)});}catch{try{cam.setZoom(baseZoom);}catch{}}
+   },st.hitStop+Math.round(st.slowDuration*0.72));
+  }
+
+  if(st.particles==='blood')this.spawnHeroHitBloodImpact(attacker);
+
+  if(st.knockback>0){
+   const push=this.getHeroHitKnockbackVector(attacker,st.knockback);
+   this.applyPlayerForcedMotion(push.vx,push.vy,st.knockbackDuration);
+  }
+
+  this.playHeroHitSfx(st.pitch);
+
+  // Match the Dev Impact Lab profile: near-freeze for 48 ms, then 0.25× slow motion.
+  if(st.hitStop>0){
+   this.setHeroHitImpactTimeScale(Math.max(0.1,Math.min(0.12,st.slow*0.18)));
+   this.heroHitImpactTimer=window.setTimeout(()=>{
+    if(!this.sys?.isActive?.())return;
+    this.heroHitImpactTimer=null;
+    this.setHeroHitImpactTimeScale(st.slow);
+    this.heroHitImpactSlowTimer=window.setTimeout(()=>{
+     if(!this.sys?.isActive?.())return;
+     this.heroHitImpactSlowTimer=null;
+     this.setHeroHitImpactTimeScale(baseScale);
+    },st.slowDuration);
+   },st.hitStop);
+  }else if(st.slow<0.999){
+   this.setHeroHitImpactTimeScale(st.slow);
+   this.heroHitImpactSlowTimer=window.setTimeout(()=>{
+    if(!this.sys?.isActive?.())return;
+    this.heroHitImpactSlowTimer=null;
+    this.setHeroHitImpactTimeScale(baseScale);
+   },st.slowDuration);
+  }
+ }
+
  damagePlayer(amount,source='enemy',attacker=null){
   if(this.devFlags?.godMode) return false;
   if(this.gameOver || this.dialogueSystem?.active || amount<=0) return false;
@@ -10646,6 +11046,7 @@ ${gate.name}`,
    return false;
   }
 
+  const previousHp=this.player.hp;
   let finalDamage=amount;
   if(this.championRelics.has('ironWill') && this.player.hp<=35){
    finalDamage=Math.max(1,Math.round(finalDamage*0.70));
@@ -10678,7 +11079,7 @@ ${gate.name}`,
    this.player.hp=30;
    this.updateLowHealthState();
    this.applyPlayerHitFeedback(finalDamage);
-   this.playHeroHitSfx();
+   this.applyHeroDamageImpact(attacker);
    this.cameras.main.flash(320,255,230,160,false);
    this.showWaveBanner('FALLEN BLESSING','Death refused — 30 HP restored','#fff0b0');
    return false;
@@ -10686,9 +11087,10 @@ ${gate.name}`,
 
   this.playerInvulnerableUntil=now+BALANCE.PLAYER_IFRAME_MS;
   this.player.hp=Math.max(0,this.player.hp-finalDamage);
+  this.maybeDropBrokenSaintHeartForHeroHealth(previousHp,this.player.hp);
   this.updateLowHealthState();
   this.applyPlayerHitFeedback(finalDamage);
-  this.playHeroHitSfx();
+  this.applyHeroDamageImpact(attacker);
 
   if(this.player.hp<=0){
    this.endRun();
@@ -10728,7 +11130,13 @@ ${gate.name}`,
   ){
    damage*=0.10;
    this.spawnBrokenSaintReflectSpark(enemy.x,enemy.y-8);
-   this.damagePlayer(4,'reflection');
+   const reflectedHpBefore=this.player?.hp??0;
+   this.damagePlayer(4,'reflection',enemy);
+   if((this.player?.hp??0)<reflectedHpBefore){
+    this.showCombatNotification('ОТРАЖЕНИЕ УРОНА',{
+     x:enemy.x,y:enemy.y-62,color:'#bfe5ff',key:'brokenSaint:reflection',cooldown:260
+    });
+   }
   }
 
   if(
@@ -10748,7 +11156,7 @@ ${gate.name}`,
 
  playHeroSwordAttackSfx(){ return AudioManager.prototype.playHeroSwordAttackSfx.call(this); }
  playHeroDeathSfx(){ return AudioManager.prototype.playHeroDeathSfx.call(this); }
- playHeroHitSfx(){ return AudioManager.prototype.playHeroHitSfx.call(this); }
+ playHeroHitSfx(detune=0){ return AudioManager.prototype.playHeroHitSfx.call(this,detune); }
  playSkillSfx(key,volume=0.42){ return AudioManager.prototype.playSkillSfx.call(this,key,volume); }
  startBrokenSaintHolyWarningSfx(){ return AudioManager.prototype.startBrokenSaintHolyWarningSfx.call(this); }
  stopBrokenSaintHolyWarningSfx(){ return AudioManager.prototype.stopBrokenSaintHolyWarningSfx.call(this); }
@@ -10987,7 +11395,12 @@ ${gate.name}`,
    if(shadow?.active) shadow.destroy();
    for(const smoke of this.brokenSaintDefeatFx||[]){if(smoke?.active)smoke.destroy();}
    this.brokenSaintDefeatFx=[];
-   this.beginBrokenSaintAftermathCinematic();
+   // Hold on the cleared battlefield for two full seconds before the first
+   // aftermath frame. Background music has already resumed in onChampionDefeated().
+   this.time.delayedCall(2000,()=>{
+    if(!this.brokenSaintDefeatSequenceActive)return;
+    this.beginBrokenSaintAftermathCinematic();
+   });
   });
  }
 
@@ -11080,6 +11493,9 @@ ${gate.name}`,
   if(kind==='brokenSaint'){
    this.stopBrokenSaintHolyWarningSfx();
    this.stopBrokenSaintMusic();
+   // The normal world score returns immediately after the boss track ends and
+   // remains audible through the death pause and the aftermath cinematic.
+   this.setupBackgroundMusic();
   }
   this.activeChampion=null;
   this.championEventActive=false;
@@ -12230,10 +12646,7 @@ ${gate.name}`,
   if(!this.playerVisual || !this.playerVisual.active) return;
   this.playerVisual.setTint(0xff8d8d);
   this.time.delayedCall(90,()=>{ if(this.playerVisual && this.playerVisual.active) this.playerVisual.clearTint(); });
-  if(this.time.now-this.lastPlayerHitAt>90){
-   this.cameras.main.shake(45,0.0024);
-   this.lastPlayerHitAt=this.time.now;
-  }
+  this.lastPlayerHitAt=this.time.now;
   const dmg=lkAddText(this,this.player.x+Phaser.Math.Between(-8,8),this.player.y-34,`-${damage}`,{fontSize:'15px',color:'#ffb0a6',stroke:'#351010',strokeThickness:3})
    .setOrigin(0.5).setDepth(70);
   this.tweens.add({targets:dmg,y:dmg.y-22,alpha:0,duration:520,ease:'Quad.easeOut',onComplete:()=>dmg.destroy()});
@@ -12958,12 +13371,15 @@ ${combatStyleCards[2].desc}`,()=>{
     } else if(e.type==='champion'){
      this.updateChampion(e,time,a,distance);
     } else if(e.type==='mage'){
-     if(distance>210){
-      this.setEnemySteeredVelocity(e,Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed,time);
-     } else if(distance<160){
-      this.setEnemySteeredVelocity(e,-Math.cos(a)*pursuitSpeed,-Math.sin(a)*pursuitSpeed,time);
-     } else {
-      e.body.setVelocity(0,0);
+     const captainSupportMoving=Boolean(this.captainSystem?.moveSupport?.(e,time));
+     if(!captainSupportMoving){
+      if(distance>210){
+       this.setEnemySteeredVelocity(e,Math.cos(a)*pursuitSpeed,Math.sin(a)*pursuitSpeed,time);
+      } else if(distance<160){
+       this.setEnemySteeredVelocity(e,-Math.cos(a)*pursuitSpeed,-Math.sin(a)*pursuitSpeed,time);
+      } else {
+       e.body.setVelocity(0,0);
+      }
      }
 
      const activeMageShots=activeMageShotsByOwner.get(e)||0;
@@ -13015,8 +13431,9 @@ ${combatStyleCards[2].desc}`,()=>{
     } else {
      const hasMeleeSlot=e.type!=='skeleton' || skeletonAttackSlots.has(e);
 
-     if(e.type==='skeleton' && this.captainSystem?.moveSoldier(e,time)){
-      // Formation movement does not bypass ordinary attack slots/cooldowns below.
+     if((e.type==='skeleton'||e.type==='shield') && this.captainSystem?.moveSoldier(e,time)){
+      // Captain formations (including summoned heavy guards) do not bypass
+      // ordinary attack slots/cooldowns below.
      } else if(e.type==='skeleton'){
       // Front-line skeletons stop at a readable melee distance instead of
       // walking into the player's center. Skeletons without one of the four
